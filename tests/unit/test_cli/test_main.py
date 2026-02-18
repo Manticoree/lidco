@@ -47,13 +47,83 @@ class TestMainDispatch:
                 main()
             mock_cli.assert_called_once()
 
-    def test_unknown_subcommand_dispatches_to_run_cli(self) -> None:
-        # Anything not "serve" or "index" falls through to REPL
+    def test_unknown_subcommand_exits_with_error(self) -> None:
+        # Unknown positional args (not --flags) are rejected with an error
+        with patch("sys.argv", ["lidco", "repl"]):
+            import pytest
+            from lidco.__main__ import main
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 1
+
+
+# ── _parse_repl_flags ─────────────────────────────────────────────────────────
+
+
+class TestParseReplFlags:
+    def test_no_flags_returns_defaults(self) -> None:
+        from lidco.__main__ import _parse_repl_flags
+        f = _parse_repl_flags([])
+        assert f.no_review is False
+        assert f.no_plan is False
+        assert f.no_streaming is False
+        assert f.agent is None
+        assert f.model is None
+
+    def test_no_review_flag(self) -> None:
+        from lidco.__main__ import _parse_repl_flags
+        f = _parse_repl_flags(["--no-review"])
+        assert f.no_review is True
+
+    def test_no_plan_flag(self) -> None:
+        from lidco.__main__ import _parse_repl_flags
+        f = _parse_repl_flags(["--no-plan"])
+        assert f.no_plan is True
+
+    def test_no_streaming_flag(self) -> None:
+        from lidco.__main__ import _parse_repl_flags
+        f = _parse_repl_flags(["--no-streaming"])
+        assert f.no_streaming is True
+
+    def test_agent_flag(self) -> None:
+        from lidco.__main__ import _parse_repl_flags
+        f = _parse_repl_flags(["--agent", "reviewer"])
+        assert f.agent == "reviewer"
+
+    def test_model_flag(self) -> None:
+        from lidco.__main__ import _parse_repl_flags
+        f = _parse_repl_flags(["--model", "ollama/llama3.1"])
+        assert f.model == "ollama/llama3.1"
+
+    def test_combined_flags(self) -> None:
+        from lidco.__main__ import _parse_repl_flags
+        f = _parse_repl_flags(["--no-review", "--no-plan", "--agent", "coder"])
+        assert f.no_review is True
+        assert f.no_plan is True
+        assert f.agent == "coder"
+
+    def test_unknown_flag_exits(self) -> None:
+        from lidco.__main__ import _parse_repl_flags
+        with pytest.raises(SystemExit) as exc_info:
+            _parse_repl_flags(["--unknown"])
+        assert exc_info.value.code == 1
+
+    def test_help_flag_exits_zero(self) -> None:
+        with patch("sys.argv", ["lidco", "--help"]):
+            from lidco.__main__ import main
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+    def test_flags_passed_to_run_cli(self) -> None:
         with patch("lidco.cli.app.run_cli") as mock_cli:
-            with patch("sys.argv", ["lidco", "repl"]):
+            with patch("sys.argv", ["lidco", "--no-review", "--agent", "reviewer"]):
                 from lidco.__main__ import main
                 main()
-            mock_cli.assert_called_once()
+        mock_cli.assert_called_once()
+        flags = mock_cli.call_args.kwargs["flags"]
+        assert flags.no_review is True
+        assert flags.agent == "reviewer"
 
 
 # ── _run_serve ────────────────────────────────────────────────────────────────

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from lidco.__main__ import CLIFlags
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
@@ -55,7 +58,7 @@ async def process_slash_command(
     return True
 
 
-async def run_repl() -> None:
+async def run_repl(flags: "CLIFlags | None" = None) -> None:
     """Main REPL loop."""
     import io
     import os
@@ -73,6 +76,17 @@ async def run_repl() -> None:
     # Initialize session (wires LLM + Tools + Agents)
     lidco_session = Session()
     config = lidco_session.config
+
+    # Apply CLI flag overrides (highest precedence, runtime-only)
+    if flags is not None:
+        if flags.no_review:
+            config.agents.auto_review = False
+        if flags.no_plan:
+            config.agents.auto_plan = False
+        if flags.no_streaming:
+            config.llm.streaming = False
+        if flags.model:
+            config.llm.default_model = flags.model
     commands = CommandRegistry()
     commands.set_session(lidco_session)
     permissions = PermissionManager(config.permissions, console)
@@ -138,11 +152,28 @@ async def run_repl() -> None:
     lidco_session.orchestrator.set_continue_handler(continue_check)
     lidco_session.orchestrator.set_clarification_handler(clarification_handler)
 
+    # Resolve default agent from flag (validated against registry)
+    default_agent: str | None = None
+    if flags is not None and flags.agent:
+        available = lidco_session.agent_registry.list_names()
+        if flags.agent not in available:
+            renderer.error(
+                f"Unknown agent: '{flags.agent}'. Available: {', '.join(available)}"
+            )
+            return
+        default_agent = flags.agent
+
     console.print(BANNER)
     renderer.info(f"Model: {config.llm.default_model}")
     renderer.info(f"Working directory: {Path.cwd()}")
     agents = lidco_session.agent_registry.list_names()
     renderer.info(f"Agents: {', '.join(agents)}")
+    if default_agent:
+        renderer.info(f"Default agent: {default_agent} (override with @agent)")
+    if not config.agents.auto_review:
+        renderer.info("Auto-review: disabled")
+    if not config.agents.auto_plan:
+        renderer.info("Auto-plan: disabled")
     renderer.divider()
 
     # Check for LIDCO.md and offer to create it
@@ -210,7 +241,7 @@ async def run_repl() -> None:
     session_tokens: int = 0
     session_cost_usd: float = 0.0
     session_turns: int = 0
-    current_agent: str = "auto"
+    current_agent: str = default_agent or "auto"
 
     def get_prompt() -> HTML:
         return HTML("<ansigreen><b>[You]</b></ansigreen> <ansigray>(Esc+Enter for newline)</ansigray> <ansiwhite>›</ansiwhite> ")
@@ -249,6 +280,8 @@ async def run_repl() -> None:
                 if not message:
                     renderer.error(f"Usage: @{forced_agent} <message>")
                     continue
+            elif default_agent:
+                forced_agent = default_agent
 
             # Route to agent orchestrator
             renderer.assistant_header(agent=forced_agent or "lidco")
@@ -372,9 +405,9 @@ async def run_repl() -> None:
             break
 
 
-def run_cli() -> None:
+def run_cli(flags: "CLIFlags | None" = None) -> None:
     """Entry point for the CLI."""
     try:
-        asyncio.run(run_repl())
+        asyncio.run(run_repl(flags=flags))
     except KeyboardInterrupt:
         sys.exit(0)

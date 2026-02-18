@@ -1,26 +1,46 @@
 """LIDCO - LLM-Integrated Development COmpanion."""
 
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
+_REPL_HELP = """\
+Usage: lidco [OPTIONS]
+       lidco index [--incremental] [--codemap] [--dir <path>]
+       lidco serve [--host <host>] [--port <port>]
+
+REPL options:
+  --agent <name>     Start with a specific agent (e.g. coder, reviewer, planner)
+  --model <name>     Override the default LLM model for this session
+  --no-review        Disable automatic post-response code review
+  --no-plan          Disable automatic pre-task planning
+  --no-streaming     Disable token streaming (show response all at once)
+  --help, -h         Show this help message and exit
+
+Examples:
+  lidco --agent reviewer --no-plan
+  lidco --model ollama/llama3.1 --no-streaming
+  lidco --no-review --no-plan
+"""
+
+
+@dataclass
+class CLIFlags:
+    """Flags parsed from the command line for the REPL."""
+
+    agent: str | None = None
+    model: str | None = None
+    no_review: bool = False
+    no_plan: bool = False
+    no_streaming: bool = False
+
 
 def main() -> None:
-    """Entry point for the lidco CLI.
-
-    Usage:
-        lidco                          — interactive REPL
-        lidco index                    — build full project index
-        lidco index --incremental      — incremental re-index
-        lidco index --codemap          — also write CODEMAPS.md
-        lidco index --dir <path>       — specify project directory
-        lidco serve                    — start HTTP server (default port 8321)
-        lidco serve --port 9000
-        lidco serve --host 0.0.0.0
-    """
+    """Entry point for the lidco CLI."""
     args = sys.argv[1:]
 
     if args and args[0] == "serve":
@@ -28,9 +48,40 @@ def main() -> None:
     elif args and args[0] == "index":
         _run_index(args[1:])
     else:
+        if "--help" in args or "-h" in args:
+            print(_REPL_HELP)
+            sys.exit(0)
+        flags = _parse_repl_flags(args)
         from lidco.cli.app import run_cli
+        run_cli(flags=flags)
 
-        run_cli()
+
+def _parse_repl_flags(args: list[str]) -> CLIFlags:
+    """Parse REPL-mode flags from argv."""
+    flags = CLIFlags()
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--no-review":
+            flags.no_review = True
+            i += 1
+        elif arg == "--no-plan":
+            flags.no_plan = True
+            i += 1
+        elif arg == "--no-streaming":
+            flags.no_streaming = True
+            i += 1
+        elif arg == "--agent" and i + 1 < len(args):
+            flags.agent = args[i + 1]
+            i += 2
+        elif arg == "--model" and i + 1 < len(args):
+            flags.model = args[i + 1]
+            i += 2
+        else:
+            print(f"Unknown argument: {arg}")
+            print("Run 'lidco --help' for usage.")
+            sys.exit(1)
+    return flags
 
 
 def _run_serve(args: list[str]) -> None:
