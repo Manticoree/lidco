@@ -7,9 +7,12 @@ status bar continuously shows: current phase, elapsed time, and token count.
 
 from __future__ import annotations
 
+import logging
 import sys
 import time
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from rich.console import Console, ConsoleOptions, RenderableType, RenderResult
 from rich.live import Live
@@ -297,8 +300,8 @@ class StreamDisplay:
         if self._live is not None:
             try:
                 self._live.stop()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Error stopping Live display: %s", exc)
             self._live = None
         if self._needs_newline:
             self._console.print()
@@ -309,8 +312,8 @@ class StreamDisplay:
         if f is not None and hasattr(f, "flush"):
             try:
                 f.flush()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Error flushing console: %s", exc)
 
     def _ensure_newline(self) -> None:
         """Print a newline if the last output didn't end with one."""

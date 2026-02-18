@@ -49,14 +49,14 @@ async def stream_chat_response(
         try:
             queue.put_nowait({"_type": "status", "status": status, "elapsed": _elapsed()})
         except asyncio.QueueFull:
-            pass
+            logger.debug("SSE queue full — dropping status event: %s", status)
 
     def on_stream_text(text: str) -> None:
         if text:
             try:
                 queue.put_nowait({"_type": "token", "text": text})
             except asyncio.QueueFull:
-                pass
+                logger.debug("SSE queue full — dropping token chunk (%d chars)", len(text))
 
     def on_tool_event(
         event: str, tool_name: str, args: dict, result: Any = None,
@@ -80,7 +80,7 @@ async def stream_chat_response(
                     "error": _truncate(error, 200),
                 })
         except asyncio.QueueFull:
-            pass
+            logger.debug("SSE queue full — dropping tool event: %s %s", event, tool_name)
 
     # ── Run orchestrator as background task ──────────────────────────────
 
@@ -132,10 +132,6 @@ async def stream_chat_response(
         for tc in response.tool_calls_made:
             yield _sse_event("tool_call", tc)
 
-        # If content was NOT streamed via tokens (e.g. streaming disabled
-        # on the LLM side), send it now in chunks
-        if not response.content:
-            pass  # nothing to send
         # Content was already streamed via on_stream_text tokens — skip
         # re-sending to avoid duplication.
 

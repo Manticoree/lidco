@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Default rules template for new projects
 _DEFAULT_RULES_TEMPLATE = """\
@@ -128,14 +131,15 @@ class RulesManager:
         if self.rules_file.exists():
             try:
                 parts.append(self.rules_file.read_text(encoding="utf-8"))
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.warning("Cannot read rules file %s: %s", self.rules_file, exc)
 
         for rule_file in self.list_rule_files():
             try:
                 content = rule_file.read_text(encoding="utf-8")
                 parts.append(f"\n---\n\n{content}")
-            except OSError:
+            except OSError as exc:
+                logger.warning("Cannot read rule file %s: %s", rule_file, exc)
                 continue
 
         return "\n".join(parts)

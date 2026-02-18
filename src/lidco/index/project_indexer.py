@@ -84,8 +84,8 @@ class ProjectIndexer:
             if progress_callback is not None:
                 try:
                     progress_callback(i + 1, len(files), abs_path.name)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Progress callback error (full index): %s", exc)
 
             rel = abs_path.relative_to(self._project_dir).as_posix()
             outcome = self._index_one(abs_path, rel)
@@ -148,8 +148,8 @@ class ProjectIndexer:
             if progress_callback is not None:
                 try:
                     progress_callback(i + 1, len(work), abs_path.name)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Progress callback error (incremental index): %s", exc)
             outcome = self._index_one(abs_path, rel)
             if outcome == "skipped":
                 skipped += 1

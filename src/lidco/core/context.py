@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 # Directories to skip when building project structure tree
@@ -197,8 +200,8 @@ class ProjectContext:
             try:
                 content = lidco_md.read_text(encoding="utf-8")
                 parts.append(f"# Project Instructions (LIDCO.md)\n\n{content}")
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.warning("Cannot read %s: %s", lidco_md, exc)
 
         rules_dir = self.project_dir / ".lidco" / "rules"
         if rules_dir.is_dir():
@@ -379,8 +382,8 @@ class ProjectContext:
                 content = pyproject.read_text(encoding="utf-8")
                 build_tool = self._detect_python_build_tool(content)
                 framework = self._detect_python_framework(content)
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug("Cannot read %s: %s", pyproject, exc)
 
         if framework == "unknown":
             requirements = self.project_dir / "requirements.txt"
@@ -388,8 +391,8 @@ class ProjectContext:
                 try:
                     content = requirements.read_text(encoding="utf-8").lower()
                     framework = self._match_python_framework(content)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logger.debug("Cannot read %s: %s", requirements, exc)
 
         return framework, package_manager, build_tool
 
