@@ -35,6 +35,8 @@ lidco
 напиши функцию сортировки на Python
 @reviewer проверь этот код на баги
 /model gpt-4o
+/config
+/config set model claude-sonnet-4-6
 /agents
 /help
 /exit
@@ -111,6 +113,23 @@ role_models:
     model: "ollama/llama3.1"
   completion:
     model: "ollama/codellama"
+```
+
+## Клавиши
+
+| Клавиша | Действие |
+|---------|----------|
+| **Enter** | Отправить сообщение |
+| **Escape, затем Enter** | Вставить перенос строки |
+| **Ctrl+J** | Отправить (альтернатива) |
+| **Tab** | Автодополнение команд (с описаниями) |
+
+## Статус-бар сессии
+
+Перед каждым вводом отображается строка:
+
+```
+── claude-sonnet-4-6  |  agent: auto  |  turn: 3  |  session: 3.4k tok · $0.012 ──
 ```
 
 ## Структура команд

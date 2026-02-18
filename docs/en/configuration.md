@@ -122,8 +122,21 @@ LIDCO uses [litellm](https://docs.litellm.ai/docs/providers) for model routing. 
 | AWS Bedrock | `bedrock/anthropic.claude-v2` |
 
 Switch models at runtime:
-- **CLI:** `/model claude-sonnet-4-5-20250514`
+- **CLI:** `/model claude-sonnet-4-5-20250514` or `/config set model claude-sonnet-4-5-20250514`
 - **Server:** Change config and restart, or use chat to ask an agent
+
+## Runtime Configuration (`/config`)
+
+The `/config` command lets you inspect and change settings during a session without restarting.
+
+| Command | Description |
+|---------|-------------|
+| `/config` | Display current configuration (model, streaming, memory, show_tool_calls) in a table |
+| `/config set model <name>` | Switch the active LLM model |
+| `/config set streaming on\|off` | Enable or disable streaming responses |
+| `/config set show_tool_calls on\|off` | Show or hide tool call details in output |
+
+Changes made via `/config set` apply immediately and persist for the current session.
 
 ## Memory Directories
 

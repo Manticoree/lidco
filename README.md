@@ -16,5 +16,7 @@ lidco
 - Pluggable LLM backends (OpenAI, Anthropic, Ollama, Groq, 100+)
 - Multi-agent architecture (Coder, Planner, Reviewer, Debugger)
 - Custom agents via YAML
-- Rich CLI with syntax highlighting
+- Rich CLI with syntax highlighting and session status bar
+- Runtime configuration via `/config` command
+- Tab autocomplete with command descriptions
 - Tool system (file ops, bash, git, grep, glob)

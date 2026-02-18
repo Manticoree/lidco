@@ -64,12 +64,39 @@ You >
 | `/help` | Show available slash commands |
 | `/agents` | List available agents |
 | `/model claude-sonnet-4-5-20250514` | Switch LLM model |
+| `/config` | Show current configuration |
+| `/config set model <name>` | Change active model at runtime |
+| `/config set streaming on\|off` | Enable/disable streaming |
+| `/config set show_tool_calls on\|off` | Toggle tool call display |
 | `/memory list` | Show saved memories |
 | `/exit` | Quit |
 
-### Multiline Input
+### Keybindings
 
-Press **Alt+Enter** to insert a newline. Press **Enter** to send.
+| Key | Action |
+|-----|--------|
+| **Enter** | Submit message |
+| **Escape, then Enter** | Insert a newline |
+| **Ctrl+J** | Submit message (alternative) |
+| **Tab** | Autocomplete `/` commands (shows descriptions) |
+
+### Session Status Bar
+
+Before each prompt, a status line displays the current session state:
+
+```
+── claude-sonnet-4-6  |  agent: auto  |  turn: 3  |  session: 3.4k tok · $0.012 ──
+```
+
+It shows the active model, current agent, turn number, and cumulative token usage with cost for the entire session.
+
+### Assistant Turn Header
+
+Each assistant response is preceded by a styled header showing the active agent:
+
+```
+─────────────── [coder] ───────────────
+```
 
 ## First Run (Server Mode)
 
