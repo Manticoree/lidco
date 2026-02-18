@@ -1,0 +1,111 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LIDCO — Z.AI Coding Plan (Lite, ~120 промптов / 5 часов)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Этот файл — главный конфиг моделей. Лежит в корне проекта для удобства.
+# Приоритет загрузки (последний побеждает):
+#   1. configs/llm_providers.yaml        (дефолты пакета)
+#   2. ~/.lidco/llm_providers.yaml       (глобальные настройки)
+#   3. .lidco/llm_providers.yaml         (папка проекта)
+#   4. llm_providers.yaml                (КОРЕНЬ ПРОЕКТА — этот файл)
+#
+# API-ключ берётся из .env:  ZAI_API_KEY=ваш_ключ
+#
+# Стратегия экономии квоты:
+#   Бесплатно (квота НЕ тратится): routing, completion, tester, docs
+#   Платно (квота тратится):        coder, reviewer, planner, architect,
+#                                   debugger, refactor
+#
+# Доступные модели:
+#   GLM-4.7       — лучшая на Lite плане, 200K контекст
+#   GLM-4.5-Air   — быстрая, дешевле квоты, 128K контекст
+#   GLM-4.7-Flash — бесплатная, 200K контекст
+#   GLM-4.5-Flash — бесплатная, 128K контекст
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# ── Провайдеры ──────────────────────────────────────────────────────────────
+
+providers:
+  # Coding Plan — запросы тратят квоту подписки
+  zai-coding:
+    api_base: "https://api.z.ai/api/coding/paas/v4"
+    api_key: "${ZAI_API_KEY}"
+    models:
+      - openai/glm-4.7
+      - openai/glm-4.5-air
+
+  # Free — полностью бесплатно, квоту НЕ тратит
+  zai-free:
+    api_base: "https://api.z.ai/api/paas/v4"
+    api_key: "${ZAI_API_KEY}"
+    models:
+      - openai/glm-4.7-flash
+      - openai/glm-4.5-flash
+
+
+# ── Модели по ролям ─────────────────────────────────────────────────────────
+
+role_models:
+  default:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.7-flash"
+    temperature: 0.1
+
+  # ── БЕСПЛАТНЫЕ роли ──
+
+  routing:
+    model: "openai/glm-4.7-flash"
+    temperature: 0.0
+    max_tokens: 50
+
+  completion:
+    model: "openai/glm-4.5-flash"
+    temperature: 0.0
+    max_tokens: 256
+
+  # ── ПЛАТНЫЕ роли (тратят квоту) ──
+
+  coder:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+    max_tokens: 4096
+
+  reviewer:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.0
+
+  planner:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+
+  architect:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+
+  debugger:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.0
+
+  refactor:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+
+  # ── ЭКОНОМНЫЕ роли ──
+
+  tester:
+    model: "openai/glm-4.5-air"
+    fallback: "openai/glm-4.7-flash"
+    temperature: 0.1
+
+  docs:
+    model: "openai/glm-4.5-air"
+    fallback: "openai/glm-4.7-flash"
+    temperature: 0.3

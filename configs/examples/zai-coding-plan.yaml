@@ -1,0 +1,122 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LIDCO — Z.AI Coding Plan Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Конфигурация для подписки Z.AI Coding Plan ($3/$15/$60 в месяц).
+# Coding Plan использует ОТДЕЛЬНЫЙ endpoint от обычного API.
+#
+# Установка:
+#   1. Зарегистрируйтесь на https://open.bigmodel.cn
+#   2. Оформите Coding Plan: https://z.ai/pricing
+#   3. Скопируйте API-ключ
+#   4. Скопируйте этот файл:
+#      cp configs/examples/zai-coding-plan.yaml ~/.lidco/llm_providers.yaml
+#   5. Добавьте ключ в .env:
+#      ZAI_API_KEY=your_key_here
+#
+# Лимиты подписки (промптов за 5-часовое окно):
+#   Lite ($3/мес)  — ~120 промптов
+#   Pro  ($15/мес) — ~600 промптов
+#   Max  ($60/мес) — ~2400 промптов
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# ── Провайдеры ────────────────────────────────────────────────────────────────
+
+providers:
+  # Z.AI Coding Plan — специальный endpoint для подписки.
+  # Запросы к этому endpoint расходуют квоту подписки, а не токены.
+  zai-coding:
+    api_base: "https://api.z.ai/api/coding/paas/v4"
+    api_key: "${ZAI_API_KEY}"
+    models:
+      - openai/glm-4.7
+      - openai/glm-4.7-flash
+      - openai/glm-4.5-air
+
+  # Z.AI Free — отключён (endpoint нестабилен)
+  # zai-free:
+  #   api_base: "https://open.bigmodel.cn/api/paas/v4"
+  #   api_key: "${ZAI_API_KEY}"
+  #   models:
+  #     - openai/glm-4.7-flash-free
+  #     - openai/glm-4.5-flash-free
+
+
+# ── Модели по ролям ───────────────────────────────────────────────────────────
+#
+# Стратегия: тяжёлые задачи (coder, reviewer, architect) → GLM-4.7,
+# лёгкие задачи (routing, completion) → бесплатные Flash-модели.
+#
+# Так квота подписки расходуется только на реальную работу.
+
+role_models:
+  # Fallback для всех ролей, не указанных явно
+  default:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+
+  # Оркестратор — выбирает агента. Бесплатная модель, квота не тратится.
+  routing:
+    model: "openai/glm-4.7-flash"
+    temperature: 0.0
+    max_tokens: 50
+
+  # Инлайн-дополнение кода. Бесплатная модель, быстрая.
+  completion:
+    model: "openai/glm-4.7-flash"
+    temperature: 0.0
+    max_tokens: 256
+
+  # ── Агенты ──
+
+  # Кодер — основная рабочая лошадка, нужна лучшая модель
+  coder:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+    max_tokens: 4096
+
+  # Ревьюер — анализ кода, поиск багов
+  reviewer:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.0
+
+  # Планировщик — декомпозиция задач
+  planner:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+
+  # Архитектор — дизайн системы
+  architect:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+
+  # Дебаггер — поиск и исправление ошибок
+  debugger:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.0
+
+  # Рефакторинг
+  refactor:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+
+  # Тестер — генерация тестов
+  tester:
+    model: "openai/glm-4.5-air"
+    fallback: "openai/glm-4.7-flash"
+    temperature: 0.1
+
+  # Документация — менее критично, экономим квоту
+  docs:
+    model: "openai/glm-4.5-air"
+    fallback: "openai/glm-4.7-flash"
+    temperature: 0.3

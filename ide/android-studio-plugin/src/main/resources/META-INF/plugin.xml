@@ -1,0 +1,88 @@
+<idea-plugin>
+    <id>com.lidco.plugin</id>
+    <name>LIDCO</name>
+    <vendor email="lidco@example.com" url="https://github.com/lidco">LIDCO Team</vendor>
+
+    <description><![CDATA[
+        <p>LIDCO — LLM-Integrated Development COmpanion for Android Studio / IntelliJ IDEA.</p>
+        <ul>
+            <li>Multi-agent chat with code context</li>
+            <li>Inline code completion (Alt+L)</li>
+            <li>Code review, explain, and refactor via context menu</li>
+            <li>Persistent memory across sessions</li>
+        </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lang</depends>
+
+    <!-- Notification group for action results -->
+    <extensions defaultExtensionNs="com.intellij">
+        <notificationGroup id="LIDCO Notifications" displayType="BALLOON"/>
+
+        <!-- Settings -->
+        <applicationConfigurable
+                parentId="tools"
+                instance="com.lidco.plugin.settings.LidcoSettingsConfigurable"
+                id="com.lidco.plugin.settings"
+                displayName="LIDCO"/>
+        <applicationService
+                serviceImplementation="com.lidco.plugin.settings.LidcoSettings"/>
+
+        <!-- Chat Tool Window -->
+        <toolWindow id="LIDCO"
+                    anchor="right"
+                    secondary="false"
+                    icon="/icons/lidco.svg"
+                    factoryClass="com.lidco.plugin.chat.ChatToolWindowFactory"/>
+
+        <!-- Inline Completion -->
+        <completion.contributor
+                language="any"
+                implementationClass="com.lidco.plugin.completion.LidcoCompletionProvider"
+                order="last"/>
+
+        <!-- Status Bar Widget -->
+        <statusBarWidgetFactory
+                id="LidcoStatusWidget"
+                implementation="com.lidco.plugin.statusbar.LidcoStatusWidgetFactory"/>
+
+        <!-- Startup Activity -->
+        <postStartupActivity implementation="com.lidco.plugin.LidcoStartupActivity"/>
+    </extensions>
+
+    <actions>
+        <group id="LidcoContextMenu" text="LIDCO" popup="true"
+               icon="/icons/lidco.svg">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+
+            <action id="Lidco.ReviewCode"
+                    class="com.lidco.plugin.actions.ReviewAction"
+                    text="Review Code"
+                    description="Send selected code for AI review"/>
+
+            <action id="Lidco.ExplainCode"
+                    class="com.lidco.plugin.actions.ExplainAction"
+                    text="Explain Code"
+                    description="Get AI explanation of selected code"/>
+
+            <action id="Lidco.RefactorCode"
+                    class="com.lidco.plugin.actions.RefactorAction"
+                    text="Refactor"
+                    description="Get AI refactoring suggestions"/>
+
+            <action id="Lidco.SendToChat"
+                    class="com.lidco.plugin.actions.SendToChatAction"
+                    text="Send to Chat"
+                    description="Send selected code to LIDCO chat"/>
+        </group>
+
+        <!-- Keyboard shortcut for inline completion -->
+        <action id="Lidco.InlineComplete"
+                class="com.lidco.plugin.completion.InlineCompleteAction"
+                text="LIDCO Inline Complete"
+                description="Trigger LIDCO inline code completion">
+            <keyboard-shortcut keymap="$default" first-keystroke="alt L"/>
+        </action>
+    </actions>
+</idea-plugin>

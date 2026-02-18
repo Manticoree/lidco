@@ -1,0 +1,52 @@
+# LIDCO Default Configuration
+
+llm:
+  default_model: "openai/glm-4.7-flash"
+  temperature: 0.1
+  max_tokens: 4096
+  streaming: true
+
+  fallback_models:
+    - "openai/glm-4.5-flash"
+    - "openai/glm-4.5-air"
+
+  retry:
+    max_retries: 3
+    base_delay: 1.0
+    max_delay: 60.0
+    jitter: true
+
+cli:
+  theme: "monokai"
+  show_tool_calls: true
+  show_thinking: false
+  max_history: 1000
+
+permissions:
+  auto_allow:
+    - file_read
+    - glob
+    - grep
+  ask:
+    - file_write
+    - file_edit
+    - bash
+    - git
+  deny: []
+
+agents:
+  default: "coder"
+  auto_review: true
+  parallel_execution: true
+  max_iterations: 50
+
+memory:
+  enabled: true
+  auto_save: true
+  max_entries: 500
+
+rag:
+  enabled: false
+  chunk_size: 1000
+  chunk_overlap: 200
+  max_results: 10

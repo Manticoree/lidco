@@ -1,0 +1,67 @@
+# Model definitions for LIDCO
+# Uses litellm model naming: https://docs.litellm.ai/docs/providers
+
+models:
+  # ── Z.AI / Zhipu AI ──
+
+  openai/glm-4.7:
+    provider: zai-coding
+    context_window: 202752
+    supports_tools: true
+    supports_streaming: true
+    cost_tier: medium
+
+  openai/glm-4.7-flash:
+    provider: zai-coding
+    context_window: 202752
+    supports_tools: true
+    supports_streaming: true
+    cost_tier: low
+
+  openai/glm-4.5-air:
+    provider: zai-coding
+    context_window: 131072
+    supports_tools: true
+    supports_streaming: true
+    cost_tier: low
+
+  # ── Z.AI Free — отключены (endpoint нестабилен) ──
+
+  # openai/glm-4.7-flash-free:
+  #   provider: zai-free
+  #   context_window: 202752
+  #   supports_tools: true
+  #   supports_streaming: true
+  #   cost_tier: free
+
+  # openai/glm-4.5-flash-free:
+  #   provider: zai-free
+  #   context_window: 131072
+  #   supports_tools: true
+  #   supports_streaming: true
+  #   cost_tier: free
+
+  # ── OpenAI (отключены, для справки) ──
+
+  # gpt-4o:
+  #   provider: openai
+  #   context_window: 128000
+  #   supports_tools: true
+  #   supports_streaming: true
+  #   cost_tier: high
+
+  # gpt-4o-mini:
+  #   provider: openai
+  #   context_window: 128000
+  #   supports_tools: true
+  #   supports_streaming: true
+  #   cost_tier: low
+
+  # ── Anthropic (отключены, для справки) ──
+
+  # claude-sonnet-4-5-20250514:
+  #   provider: anthropic
+  #   context_window: 200000
+  #   supports_tools: true
+  #   supports_streaming: true
+  #   cost_tier: high

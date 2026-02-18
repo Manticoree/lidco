@@ -1,0 +1,166 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LIDCO — LLM Providers Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# This file defines:
+#   1. Custom LLM providers (OpenAI-compatible endpoints, local models, etc.)
+#   2. Per-role model assignments (which model each agent uses)
+#
+# Location precedence (later overrides earlier):
+#   configs/llm_providers.yaml        ← shipped defaults (this file)
+#   ~/.lidco/llm_providers.yaml       ← global user overrides
+#   .lidco/llm_providers.yaml         ← project-level overrides
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# ── 1. Custom Providers ─────────────────────────────────────────────────────
+#
+# Define custom OpenAI-compatible endpoints (LM Studio, vLLM, Ollama,
+# text-generation-webui, LocalAI, Together AI, your own proxy, etc.)
+#
+# Each provider entry creates a litellm custom_llm_provider config.
+# After defining a provider, reference its models in role_models below
+# using the format: <provider_name>/<model_name>
+#
+# Fields:
+#   api_base     — Base URL of the OpenAI-compatible endpoint (required)
+#   api_key      — API key. Use env var reference: ${ENV_VAR_NAME} (optional)
+#   api_type     — "openai" (default), "azure", "cohere", etc.
+#   models       — List of model IDs available on this endpoint
+#   default_model — Default model for this provider
+
+providers:
+  # ── Z.AI Coding Plan (Lite — ~120 промптов / 5 часов) ──
+  # Платные модели через Coding endpoint. Тратят квоту подписки.
+  zai-coding:
+    api_base: "https://api.z.ai/api/coding/paas/v4"
+    api_key: "${ZAI_API_KEY}"
+    models:
+      - openai/glm-4.7
+      - openai/glm-4.7-flash
+      - openai/glm-4.5-air
+
+  # ── Z.AI Free — отключён (endpoint нестабилен) ──
+  # zai-free:
+  #   api_base: "https://open.bigmodel.cn/api/paas/v4"
+  #   api_key: "${ZAI_API_KEY}"
+  #   models:
+  #     - openai/glm-4.7-flash-free
+  #     - openai/glm-4.5-flash-free
+
+  # ── Cloud providers (отключены, раскомментируйте при необходимости) ──
+  #
+  # openai:
+  #   api_key: "${OPENAI_API_KEY}"
+  #   models:
+  #     - gpt-4o
+  #     - gpt-4o-mini
+  #
+  # anthropic:
+  #   api_key: "${ANTHROPIC_API_KEY}"
+  #   models:
+  #     - claude-sonnet-4-5-20250514
+  #     - claude-haiku-4-5-20251001
+
+
+# ── 2. Per-Role Model Assignments ───────────────────────────────────────────
+#
+# Map each agent role (or a group of roles) to a specific model.
+# This lets you use a cheap/fast model for simple tasks and a powerful
+# model for complex reasoning — all within the same session.
+#
+# Special keys:
+#   default      — Fallback for any role not listed explicitly
+#   routing      — Model used by the orchestrator to pick the right agent
+#   completion   — Model used for inline code completion (/api/complete)
+#
+# Agent roles:  coder, reviewer, planner, architect, debugger,
+#               refactor, tester, docs  (+ any custom YAML agents)
+#
+# Each entry supports:
+#   model        — Primary model (required)
+#   fallback     — Fallback model if primary fails (optional)
+#   temperature  — Override temperature for this role (optional)
+#   max_tokens   — Override max tokens for this role (optional)
+
+role_models:
+  # ── Стратегия для Lite ($3/мес, ~120 промптов / 5 часов): ──
+  #   Бесплатные модели → routing, completion, docs, tester
+  #   Платные модели    → coder, reviewer, architect, debugger, planner, refactor
+  #
+  # GLM-4.7    — сильная общая модель для кода (200K контекст)
+  # GLM-4.5-Air — быстрая, дешевле квоты
+  # GLM-4.7-Flash-Free — бесплатная, 200K контекст
+  # GLM-4.5-Flash-Free — бесплатная
+
+  # Fallback для всех ролей, не указанных явно
+  default:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+
+  # Оркестратор — быстрая модель для выбора агента
+  routing:
+    model: "openai/glm-4.7-flash"
+    temperature: 0.0
+    max_tokens: 50
+
+  # Автодополнение — быстрая модель
+  completion:
+    model: "openai/glm-4.7-flash"
+    temperature: 0.0
+    max_tokens: 256
+
+  # ── Агенты (платные — тратят квоту) ──
+
+  # Кодер — главный агент, лучшая доступная модель
+  coder:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+    max_tokens: 4096
+
+  # Ревьюер — анализ кода, поиск багов
+  reviewer:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.0
+
+  # Планировщик — декомпозиция задач
+  planner:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+
+  # Архитектор — дизайн системы
+  architect:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+
+  # Дебаггер — поиск и исправление ошибок
+  debugger:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.0
+
+  # Рефакторинг — нужна хорошая модель для понимания кода
+  refactor:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.5-air"
+    temperature: 0.1
+
+  # ── Агенты (бесплатные/дешёвые — экономят квоту) ──
+
+  # Тестер — генерация тестов, менее критично
+  tester:
+    model: "openai/glm-4.5-air"
+    fallback: "openai/glm-4.7-flash"
+    temperature: 0.1
+
+  # Документация — наименее критично
+  docs:
+    model: "openai/glm-4.5-air"
+    fallback: "openai/glm-4.7-flash"
+    temperature: 0.3

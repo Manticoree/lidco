@@ -1,0 +1,77 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LIDCO — Z.AI Free Configuration (бесплатные модели)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Полностью бесплатная конфигурация. Используются только Free-модели Z.AI.
+# Оплата не требуется, достаточно зарегистрироваться и получить API-ключ.
+#
+# Бесплатные модели:
+#   GLM-4.7-Flash   — быстрая, хороша для кода и чата
+#   GLM-4.5-Flash   — лёгкая, для простых задач
+#   GLM-4.6V-Flash  — с поддержкой изображений (vision)
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+providers:
+  zai-free:
+    api_base: "https://api.z.ai/api/paas/v4"
+    api_key: "${ZAI_API_KEY}"
+    models:
+      - openai/glm-4.7-flash
+      - openai/glm-4.5-flash
+
+role_models:
+  default:
+    model: "openai/glm-4.7-flash"
+    fallback: "openai/glm-4.5-flash"
+    temperature: 0.1
+
+  routing:
+    model: "openai/glm-4.5-flash"
+    temperature: 0.0
+    max_tokens: 50
+
+  completion:
+    model: "openai/glm-4.5-flash"
+    temperature: 0.0
+    max_tokens: 256
+
+  coder:
+    model: "openai/glm-4.7-flash"
+    fallback: "openai/glm-4.5-flash"
+    temperature: 0.1
+    max_tokens: 4096
+
+  reviewer:
+    model: "openai/glm-4.7-flash"
+    fallback: "openai/glm-4.5-flash"
+    temperature: 0.0
+
+  planner:
+    model: "openai/glm-4.7-flash"
+    fallback: "openai/glm-4.5-flash"
+    temperature: 0.1
+
+  architect:
+    model: "openai/glm-4.7-flash"
+    fallback: "openai/glm-4.5-flash"
+    temperature: 0.1
+
+  debugger:
+    model: "openai/glm-4.7-flash"
+    fallback: "openai/glm-4.5-flash"
+    temperature: 0.0
+
+  refactor:
+    model: "openai/glm-4.7-flash"
+    fallback: "openai/glm-4.5-flash"
+    temperature: 0.1
+
+  tester:
+    model: "openai/glm-4.7-flash"
+    fallback: "openai/glm-4.5-flash"
+    temperature: 0.1
+
+  docs:
+    model: "openai/glm-4.5-flash"
+    temperature: 0.3
