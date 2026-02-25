@@ -47,7 +47,7 @@ class LLMProvidersConfig(BaseModel):
         """Resolve model config for a given role, falling back to 'default'."""
         if role in self.role_models:
             return self.role_models[role]
-        return self.role_models.get("default", RoleModelConfig(model="gpt-4o-mini"))
+        return self.role_models.get("default", RoleModelConfig(model="openai/glm-4.7"))
 
     def resolve_model_name(self, role: str) -> str:
         """Return just the model string for a role."""
@@ -76,11 +76,11 @@ class RetryConfig(BaseModel):
 class LLMConfig(BaseModel):
     """LLM provider configuration."""
 
-    default_model: str = "gpt-4o-mini"
+    default_model: str = "openai/glm-4.7"
     temperature: float = 0.1
     max_tokens: int = 4096
     streaming: bool = True
-    fallback_models: list[str] = Field(default_factory=lambda: ["gpt-4o-mini"])
+    fallback_models: list[str] = Field(default_factory=lambda: ["openai/glm-4.5-air"])
     session_token_limit: int = 0  # 0 = unlimited
     retry: RetryConfig = Field(default_factory=RetryConfig)
 
@@ -121,7 +121,11 @@ class AgentsConfig(BaseModel):
     auto_plan: bool = True
     max_review_iterations: int = 2
     parallel_execution: bool = True
+    max_parallel_agents: int = 3  # maximum concurrent agents in a parallel group
     max_iterations: int = 200  # global default, agents can override
+    agent_timeout: int = 0  # seconds; 0 = no timeout
+    plan_critique: bool = True  # run auto-critique LLM pass before plan approval
+    plan_revise: bool = True  # run planner revision pass after critique before approval
 
 
 class MemoryConfig(BaseModel):
@@ -130,6 +134,7 @@ class MemoryConfig(BaseModel):
     enabled: bool = True
     auto_save: bool = True
     max_entries: int = 500
+    ttl_days: int | None = None  # None = never expire
 
 
 class RAGConfig(BaseModel):
@@ -139,6 +144,21 @@ class RAGConfig(BaseModel):
     chunk_size: int = 1000
     chunk_overlap: int = 200
     max_results: int = 5
+    query_expansion: bool = False  # generate alternative phrasings before retrieval (+latency)
+
+
+class LoggingConfig(BaseModel):
+    """Logging configuration."""
+
+    format: str = "pretty"  # "pretty" | "json"
+    level: str = "INFO"
+    log_file: str = ""  # empty = no file logging
+
+
+class IndexConfig(BaseModel):
+    """Project structural index configuration."""
+
+    auto_watch: bool = False  # auto-reindex on file changes
 
 
 class LidcoConfig(BaseModel):
@@ -151,6 +171,8 @@ class LidcoConfig(BaseModel):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     rag: RAGConfig = Field(default_factory=RAGConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    index: IndexConfig = Field(default_factory=IndexConfig)
 
 
 class EnvSettings(BaseSettings):
@@ -165,6 +187,72 @@ class EnvSettings(BaseSettings):
 
     default_model: str | None = None
     log_level: str = "INFO"
+
+
+_SECTION_NAMES: frozenset[str] = frozenset(
+    {"llm", "cli", "permissions", "agents", "memory", "rag", "logging", "index"}
+)
+
+
+def _coerce_env_value(value: str) -> Any:
+    """Coerce a raw env-var string to bool, int, float, or str."""
+    if value.lower() in ("true", "1", "yes"):
+        return True
+    if value.lower() in ("false", "0", "no"):
+        return False
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    return value
+
+
+def _apply_env_overrides(config: LidcoConfig) -> LidcoConfig:
+    """Apply ``LIDCO_<SECTION>_<FIELD>`` env vars as config overrides.
+
+    Examples::
+
+        LIDCO_LLM_DEFAULT_MODEL=gpt-4o       → config.llm.default_model
+        LIDCO_AGENTS_AUTO_REVIEW=false        → config.agents.auto_review
+        LIDCO_RAG_ENABLED=true               → config.rag.enabled
+        LIDCO_MEMORY_MAX_ENTRIES=200         → config.memory.max_entries
+        LIDCO_CLI_THEME=dracula              → config.cli.theme
+    """
+    import os
+
+    section_fields: dict[str, dict[str, Any]] = {}
+
+    for env_key, raw_value in os.environ.items():
+        if not env_key.startswith("LIDCO_"):
+            continue
+        remainder = env_key[len("LIDCO_"):].lower()
+
+        for section in _SECTION_NAMES:
+            prefix = section + "_"
+            if remainder.startswith(prefix):
+                field = remainder[len(prefix):]
+                section_fields.setdefault(section, {})[field] = _coerce_env_value(raw_value)
+                break
+
+    if not section_fields:
+        return config
+
+    updates: dict[str, Any] = {}
+    for section, fields in section_fields.items():
+        sub = getattr(config, section)
+        try:
+            updates[section] = sub.model_copy(update=fields)
+        except Exception:
+            # Ignore fields that don't exist on the sub-config
+            valid = {k: v for k, v in fields.items() if hasattr(sub, k)}
+            if valid:
+                updates[section] = sub.model_copy(update=valid)
+
+    return config.model_copy(update=updates) if updates else config
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -271,8 +359,14 @@ def load_config(project_dir: Path | None = None) -> LidcoConfig:
     )
     config = config.model_copy(update={"llm_providers": llm_providers})
 
+    # Apply LIDCO_<SECTION>_<FIELD> env-var overrides (12-factor style)
+    config = _apply_env_overrides(config)
+
+    # Legacy: LIDCO_DEFAULT_MODEL (without section prefix) — kept for back-compat
     env = EnvSettings()
-    if env.default_model:
+    if env.default_model and not any(
+        k.upper().startswith("LIDCO_LLM_") for k in __import__("os").environ
+    ):
         config = config.model_copy(
             update={"llm": config.llm.model_copy(update={"default_model": env.default_model})}
         )
