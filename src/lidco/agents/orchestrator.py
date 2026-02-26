@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from abc import ABC, abstractmethod
 from typing import Any
 
 from lidco.agents.base import AgentResponse, BaseAgent
@@ -11,16 +13,74 @@ from lidco.llm.base import BaseLLMProvider, Message
 
 logger = logging.getLogger(__name__)
 
+
+class BaseOrchestrator(ABC):
+    """Common interface shared by all orchestrator implementations."""
+
+    @abstractmethod
+    def set_status_callback(self, callback: Any) -> None: ...
+
+    @abstractmethod
+    def set_permission_handler(self, handler: Any) -> None: ...
+
+    @abstractmethod
+    def set_token_callback(self, callback: Any) -> None: ...
+
+    @abstractmethod
+    def set_continue_handler(self, handler: Any) -> None: ...
+
+    @abstractmethod
+    def set_clarification_handler(self, handler: Any) -> None: ...
+
+    @abstractmethod
+    def set_stream_callback(self, callback: Any) -> None: ...
+
+    @abstractmethod
+    def set_tool_event_callback(self, callback: Any) -> None: ...
+
+    def set_phase_callback(self, callback: Any) -> None:
+        """Set a callback for phase transitions (name, status).
+
+        Default implementation is a no-op. Override in orchestrators that
+        support multi-phase progress reporting (e.g. GraphOrchestrator).
+        """
+
+    def set_plan_editor(self, editor: Any) -> None:
+        """Set an interactive plan editor callback.
+
+        The callback signature is ``(plan_text: str) -> str | None``.
+        ``None`` means the user rejected the plan; a string is the (possibly
+        filtered) plan text to inject into agent context.
+
+        Default implementation is a no-op.
+        """
+
+    @abstractmethod
+    async def handle(
+        self,
+        user_message: str,
+        *,
+        agent_name: str | None = None,
+        context: str = "",
+        force_plan: bool = False,
+    ) -> AgentResponse: ...
+
+    @abstractmethod
+    def clear_history(self) -> None: ...
+
+    @abstractmethod
+    def restore_history(self, messages: list[dict[str, str]]) -> None: ...
+
 ROUTER_SYSTEM_PROMPT = """\
 Route to agent. Output name only. Default: coder.
-plan/design→planner, review/audit→reviewer, debug/error/bug→debugger, else→coder.
+plan/design→planner, review/audit→reviewer, debug/error/bug/traceback/exception/attributeerror/typeerror/importerror/keyerror/stack trace→debugger, architecture→architect, test/coverage→tester, refactor/cleanup→refactor, docs/docstring/readme→docs, search/research/web→researcher, validate/qa/check compilation/run tests after feature→qa, profile/performance/hotspot/slow/optimize speed→profiler, explain/what does/how does/walk me through/describe→explain, security/vulnerability/owasp/injection/xss/csrf/secrets/pentest→security, else→coder.
 
 Available agents:
 {agents_description}
 """
 
 
-class Orchestrator:
+class Orchestrator(BaseOrchestrator):
     """Routes user messages to the appropriate agent."""
 
     def __init__(
@@ -29,11 +89,13 @@ class Orchestrator:
         agent_registry: AgentRegistry,
         default_agent: str = "coder",
         auto_plan: bool = True,
+        agent_timeout: int = 300,
     ) -> None:
         self._llm = llm
         self._registry = agent_registry
         self._default_agent = default_agent
         self._auto_plan = auto_plan
+        self._agent_timeout = agent_timeout
         self._conversation_history: list[dict[str, str]] = []
         self._status_callback: Any | None = None
         self._permission_handler: Any | None = None
@@ -103,7 +165,7 @@ class Orchestrator:
             role="routing",
         )
 
-        agent_name = response.content.strip().lower().strip('"\'.')
+        agent_name = (response.content or "").strip().lower().strip('"\'.')
         if self._registry.get(agent_name):
             return agent_name
 
@@ -154,7 +216,7 @@ class Orchestrator:
             logger.error("Plan approval failed: %s", e)
             return context, True
 
-        answer_lower = answer.strip().lower()
+        answer_lower = (answer or "").strip().lower()
 
         if answer_lower in ("reject", "n", "no"):
             return context, False
@@ -176,6 +238,7 @@ class Orchestrator:
         *,
         agent_name: str | None = None,
         context: str = "",
+        force_plan: bool = False,
     ) -> AgentResponse:
         """Handle a user message by routing to the appropriate agent."""
         explicit_agent = agent_name is not None
@@ -220,7 +283,18 @@ class Orchestrator:
                     iterations=0,
                 )
 
-        response = await agent.run(user_message, context=full_context)
+        timeout = self._agent_timeout if self._agent_timeout > 0 else None
+        try:
+            response = await asyncio.wait_for(
+                agent.run(user_message, context=full_context),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.error("Agent %s timed out after %ss", agent.name, timeout)
+            return AgentResponse(
+                content=f"Agent timed out after {timeout}s. The task may be too complex — try breaking it into smaller steps.",
+                iterations=0,
+            )
 
         # Save to history
         self._conversation_history.append({"role": "user", "content": user_message})
@@ -231,3 +305,7 @@ class Orchestrator:
     def clear_history(self) -> None:
         """Clear conversation history."""
         self._conversation_history.clear()
+
+    def restore_history(self, messages: list[dict[str, str]]) -> None:
+        """Restore conversation history from a list of message dicts."""
+        self._conversation_history = list(messages)

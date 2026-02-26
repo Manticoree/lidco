@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 from langgraph.graph import END, StateGraph
@@ -52,6 +53,8 @@ class GraphState(TypedDict, total=False):
     parallel_steps: list[str]  # Step descriptions marked [PARALLEL] in the approved plan
     plan_critique: str | None  # Auto-generated critique appended to plan before approval
     plan_revision: str | None  # Revised plan content produced after critique feedback
+    plan_assumptions: list[str]  # Assumption lines extracted from **Assumptions:** section
+    plan_revision_round: int  # Counts extra re-critique/revise rounds that have run
 
 
 _CRITIQUE_SYSTEM_PROMPT = """\
@@ -82,10 +85,13 @@ Rules:
 - Do NOT re-explore the codebase — use your prior knowledge from the planning phase
 - Address EVERY critique point: either fix the plan or explain (briefly) why it \
   does not apply to this specific task
+- Challenge every [⚠ Unverified] assumption in the **Assumptions:** section: \
+  either confirm it with reasoning from your exploration or update the plan to \
+  eliminate the dependency on the unverified assumption
 - Keep the exact same output format as the original plan (## Implementation Plan \
-  with all required sections: Goal, Reasoning & Approach, Chain of Thought, \
-  Alternative Considered, Steps, Dependencies, Risk Assessment, Test Impact, \
-  Callers/Dependents, Risks & Decisions, Clarifications)
+  with all required sections: Goal, Assumptions, Reasoning & Approach, Chain of \
+  Thought, Alternative Considered, Steps, Dependencies, Risk Assessment, Test \
+  Impact, Callers/Dependents, Risks & Decisions, Clarifications)
 - Add a final "## Addressed Critique" section mapping each flagged issue to your fix \
   or your reason for dismissal
 - Do not pad with unnecessary words — be precise and actionable
@@ -98,7 +104,7 @@ Available agents:
 {agents}
 
 needs_review=true for code modifications. needs_planning=true for new features, multi-file, architecture.
-Rules: plan/design→planner, review/audit→reviewer, debug/error/bug/traceback/exception/attributeerror/typeerror/importerror/keyerror/stack trace→debugger, architecture→architect, test/coverage→tester, refactor/cleanup→refactor, docs/docstring/readme→docs, search/research/web→researcher, validate/qa/check compilation/run tests after feature→qa, profile/performance/hotspot/slow/optimize speed→profiler, explain/what does/how does/walk me through/describe→explain, else→coder.
+Rules: plan/design→planner, review/audit→reviewer, debug/error/bug/traceback/exception/attributeerror/typeerror/importerror/keyerror/stack trace→debugger, architecture→architect, test/coverage→tester, refactor/cleanup→refactor, docs/docstring/readme→docs, search/research/web→researcher, validate/qa/check compilation/run tests after feature→qa, profile/performance/hotspot/slow/optimize speed→profiler, explain/what does/how does/walk me through/describe→explain, security/vulnerability/owasp/injection/xss/csrf/secrets/pentest→security, else→coder.
 """
 
 
@@ -119,6 +125,7 @@ class GraphOrchestrator(BaseOrchestrator):
         max_review_iterations: int = MAX_REVIEW_ITERATIONS,
         agent_timeout: int = 300,
         max_parallel_agents: int = 3,
+        project_dir: Path | None = None,
     ) -> None:
         self._llm = llm
         self._registry = agent_registry
@@ -128,6 +135,7 @@ class GraphOrchestrator(BaseOrchestrator):
         self._max_review_iterations = max_review_iterations
         self._agent_timeout = agent_timeout
         self._max_parallel_agents = max_parallel_agents
+        self._project_dir: Path = project_dir or Path.cwd()
         self._conversation_history: list[dict[str, str]] = []
         self._status_callback: Any | None = None
         self._permission_handler: Any | None = None
@@ -156,6 +164,12 @@ class GraphOrchestrator(BaseOrchestrator):
         self._plan_critique_enabled: bool = True
         # When True, run a planner revision pass after critique before approval
         self._plan_revise_enabled: bool = True
+        # Number of extra re-critique/revise rounds after the initial revision (0 = none)
+        self._plan_max_revisions: int = 1
+        # When True, save/retrieve approved plans to/from memory for warm-start
+        self._plan_memory_enabled: bool = True
+        # When True, auto-inject git log + coverage snapshot before planner starts
+        self._preplan_snapshot_enabled: bool = True
         self._graph = self._build_graph()
 
     def set_status_callback(self, callback: Any) -> None:
@@ -267,6 +281,29 @@ class GraphOrchestrator(BaseOrchestrator):
         """
         self._plan_revise_enabled = enabled
 
+    def set_plan_max_revisions(self, n: int) -> None:
+        """Set the maximum number of extra re-critique/revise rounds after the
+        initial revision.  0 = no extra rounds (one-shot critique + revise only).
+        """
+        self._plan_max_revisions = max(0, n)
+
+    def set_plan_memory(self, enabled: bool) -> None:
+        """Enable or disable saving/retrieving approved plans to/from memory.
+
+        When *enabled* (default), the orchestrator retrieves similar past plans
+        before the planner starts and saves the approved plan after approval.
+        """
+        self._plan_memory_enabled = enabled
+
+    def set_preplan_snapshot(self, enabled: bool) -> None:
+        """Enable or disable the pre-planning context snapshot.
+
+        When *enabled* (default), git log and coverage data for files mentioned
+        in the user request are injected into the planner's context before it
+        starts, reducing redundant tool calls during Phase 2 exploration.
+        """
+        self._preplan_snapshot_enabled = enabled
+
     def _report_status(self, status: str) -> None:
         if self._status_callback is not None:
             self._status_callback(status)
@@ -286,16 +323,18 @@ class GraphOrchestrator(BaseOrchestrator):
             agents_desc = "\n".join(f"- {a.name}: {a.description}" for a in agents)
             prompt = ROUTER_PROMPT.format(agents=agents_desc)
 
-            # Inject routing keywords from custom (or keyword-bearing) agents
+            # Inject routing keywords from custom (or keyword-bearing) agents.
+            # Inserted BEFORE built-in rules so custom keywords take priority when
+            # they conflict with a built-in keyword (e.g. a custom agent with
+            # routing_keywords=["debug"] overrides the debugger route).
             custom_rules = [
                 f"{'/'.join(a.config.routing_keywords)}->{a.name}"
                 for a in agents
                 if a.config.routing_keywords
             ]
             if custom_rules:
-                prompt += (
-                    "\nCustom routing rules: " + ", ".join(custom_rules) + "."
-                )
+                custom_str = "Custom rules (highest priority): " + ", ".join(custom_rules) + "."
+                prompt = prompt.replace("Rules: ", f"{custom_str}\nRules: ")
 
             self._router_prompt_cache = prompt
         return self._router_prompt_cache
@@ -311,6 +350,7 @@ class GraphOrchestrator(BaseOrchestrator):
         graph.add_node("execute_planner", self._execute_planner_node)
         graph.add_node("critique_plan", self._critique_plan_node)
         graph.add_node("revise_plan", self._revise_plan_node)
+        graph.add_node("re_critique_plan", self._re_critique_plan_node)
         graph.add_node("approve_plan", self._approve_plan_node)
         graph.add_node("execute_agent", self._execute_agent_node)
         graph.add_node("execute_parallel", self._execute_parallel_node)
@@ -333,7 +373,16 @@ class GraphOrchestrator(BaseOrchestrator):
         )
         graph.add_edge("execute_planner", "critique_plan")
         graph.add_edge("critique_plan", "revise_plan")
-        graph.add_edge("revise_plan", "approve_plan")
+        # After initial revision, optionally run more critique/revise rounds
+        graph.add_edge("revise_plan", "re_critique_plan")
+        graph.add_conditional_edges(
+            "re_critique_plan",
+            self._should_revise_again,
+            {
+                "revise": "revise_plan",
+                "done": "approve_plan",
+            },
+        )
         graph.add_conditional_edges(
             "approve_plan",
             self._plan_approved,
@@ -860,18 +909,52 @@ class GraphOrchestrator(BaseOrchestrator):
         planner.set_clarification_handler(self._clarification_handler)
         planner.set_stream_callback(self._stream_callback)
         planner.set_tool_event_callback(self._tool_event_callback)
+        planner.set_error_callback(self._error_callback)
 
         context = state.get("context", "")
+        user_message = state["user_message"]
+
+        # ── Pre-planning enrichment ───────────────────────────────────────────
+        # Inject git log + coverage snapshot
+        if self._preplan_snapshot_enabled:
+            try:
+                snapshot = await self._build_preplan_snapshot(user_message)
+                if snapshot:
+                    context = f"{snapshot}\n\n{context}" if context else snapshot
+            except Exception as e:
+                logger.debug("Pre-plan snapshot failed: %s", e)
+
+        # Inject grepped symbol definitions for backtick-quoted identifiers
+        symbols = self._extract_mentioned_symbols(user_message)
+        if symbols:
+            try:
+                sym_ctx = await self._build_symbol_context(symbols)
+                if sym_ctx:
+                    context = f"{sym_ctx}\n\n{context}" if context else sym_ctx
+            except Exception as e:
+                logger.debug("Symbol context build failed: %s", e)
+
+        # Inject similar past plan as warm-start context
+        if self._plan_memory_enabled:
+            try:
+                similar = self._find_similar_plan(user_message)
+                if similar:
+                    context = f"{similar}\n\n{context}" if context else similar
+            except Exception as e:
+                logger.debug("Similar plan retrieval failed: %s", e)
+
         timeout = self._agent_timeout if self._agent_timeout > 0 else None
         try:
             plan_response = await asyncio.wait_for(
-                planner.run(state["user_message"], context=context),
+                planner.run(user_message, context=context),
                 timeout=timeout,
             )
+            assumptions = self._parse_plan_assumptions(plan_response.content or "")
             self._report_phase("Plan", "done")
             return {
                 **state,
                 "plan_response": plan_response,
+                "plan_assumptions": assumptions,
                 "accumulated_tokens": state.get("accumulated_tokens", 0) + plan_response.token_usage.total_tokens,
                 "accumulated_cost_usd": state.get("accumulated_cost_usd", 0.0) + plan_response.token_usage.total_cost_usd,
             }
@@ -898,9 +981,7 @@ class GraphOrchestrator(BaseOrchestrator):
         for line in plan_content.splitlines():
             stripped = line.strip()
             if "[PARALLEL]" in stripped.upper():
-                # Remove the marker and any leading numbering/bullets
-                step = stripped.upper().replace("[PARALLEL]", "")
-                # Use original case (not uppercased) for the description
+                # Extract description before the marker, preserving original case
                 idx = stripped.upper().find("[PARALLEL]")
                 step = stripped[:idx].strip()
                 step = re.sub(r"^\d+\.\s*", "", step)
@@ -908,6 +989,200 @@ class GraphOrchestrator(BaseOrchestrator):
                 if step:
                     steps.append(step)
         return steps
+
+    @staticmethod
+    def _extract_mentioned_symbols(text: str) -> list[str]:
+        """Extract backtick-quoted code identifiers from a user message.
+
+        Returns up to 10 symbols (no spaces, no longer than 60 chars) to
+        keep the subsequent grep calls bounded.
+        """
+        raw = re.findall(r"`([^`\n]+)`", text)
+        symbols: list[str] = []
+        for s in raw:
+            s = s.strip()
+            if s and len(s) <= 60 and " " not in s:
+                symbols.append(s)
+        return symbols[:10]
+
+    @staticmethod
+    def _parse_plan_assumptions(plan_content: str) -> list[str]:
+        """Extract bullet lines from the **Assumptions:** section of a plan.
+
+        Stops at the next bold header or ``##`` section heading.
+        Returns an empty list when no assumptions section is present.
+        """
+        lines = plan_content.splitlines()
+        in_assumptions = False
+        assumptions: list[str] = []
+        for line in lines:
+            stripped = line.strip()
+            if "**Assumptions:**" in stripped or stripped == "## Assumptions":
+                in_assumptions = True
+                continue
+            if in_assumptions:
+                if not stripped:
+                    continue
+                # Stop at next section header
+                if (stripped.startswith("**") and stripped.endswith("**")) or stripped.startswith("##"):
+                    break
+                assumptions.append(stripped)
+        return assumptions
+
+    def _grep_symbol(self, sym: str) -> str:
+        """Synchronously grep for *sym* in the project directory (Python files only).
+
+        Returns up to 10 matching lines, or empty string when not found / on error.
+        """
+        import subprocess
+
+        try:
+            proc = subprocess.run(
+                ["grep", "-r", "--include=*.py", "-n", rf"\b{re.escape(sym)}\b",
+                 str(self._project_dir)],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
+            return "\n".join(lines[:10]) if lines else ""
+        except Exception:
+            return ""
+
+    async def _build_symbol_context(self, symbols: list[str]) -> str:
+        """Grep for backtick-quoted symbols from the user message.
+
+        Returns a ``## Referenced Symbols`` section ready for injection into
+        the planner's context, or an empty string when nothing is found.
+        """
+        if not symbols:
+            return ""
+
+        loop = asyncio.get_event_loop()
+        snippets: list[str] = []
+        for sym in symbols[:8]:
+            try:
+                result = await asyncio.wait_for(
+                    loop.run_in_executor(None, self._grep_symbol, sym),
+                    timeout=3.0,
+                )
+                if result:
+                    snippets.append(f"### `{sym}`\n{result}")
+            except Exception:
+                pass
+
+        if not snippets:
+            return ""
+        return "## Referenced Symbols\n\n" + "\n\n".join(snippets)
+
+    def _run_git_log(self) -> str:
+        """Synchronously run ``git log --oneline -10`` in the project directory."""
+        import subprocess
+
+        try:
+            proc = subprocess.run(
+                ["git", "log", "--oneline", "-10"],
+                capture_output=True,
+                text=True,
+                cwd=str(self._project_dir),
+                timeout=2,
+            )
+            return (proc.stdout or "").strip()
+        except Exception:
+            return ""
+
+    async def _build_preplan_snapshot(self, user_message: str) -> str:
+        """Build a pre-planning context snapshot for the planner.
+
+        Combines the recent git log and coverage context into a
+        ``## Pre-planning Snapshot`` section.  Returns an empty string when
+        disabled or when both sources yield no data.
+
+        The *user_message* parameter is kept for future file-mention filtering
+        but is not currently used to narrow the git log.
+        """
+        if not self._preplan_snapshot_enabled:
+            return ""
+
+        parts: list[str] = []
+        loop = asyncio.get_event_loop()
+
+        # Git log: last 10 commits
+        try:
+            git_log = await asyncio.wait_for(
+                loop.run_in_executor(None, self._run_git_log),
+                timeout=2.0,
+            )
+            if git_log:
+                parts.append(f"### Recent Commits\n```\n{git_log}\n```")
+        except Exception:
+            pass
+
+        # Coverage context
+        try:
+            from lidco.core.coverage_reader import build_coverage_context
+            cov_ctx = build_coverage_context(self._project_dir)
+            if cov_ctx:
+                parts.append(cov_ctx)
+        except Exception:
+            pass
+
+        if not parts:
+            return ""
+        return "## Pre-planning Snapshot\n\n" + "\n\n".join(parts)
+
+    def _find_similar_plan(self, query: str) -> str | None:
+        """Search memory for a similar approved plan to use as warm-start context.
+
+        Returns a formatted ``## Similar Past Plan`` section, or ``None`` when
+        no relevant plan is found or memory is unavailable.
+        """
+        if not self._memory_store:
+            return None
+        try:
+            # Use first 10 keywords from the query for substring search
+            keywords = query.lower().split()[:10]
+            best: list[tuple[int, object]] = []
+            for entry in self._memory_store.list_all(category="approved_plans"):
+                score = sum(1 for kw in keywords if kw in entry.content.lower())
+                if score > 0:
+                    best.append((score, entry))
+            if not best:
+                return None
+            best.sort(key=lambda x: x[0], reverse=True)
+            _, top_entry = best[0]
+            return (
+                f"## Similar Past Plan (warm-start reference)\n"
+                f"**Task:** {top_entry.key}\n\n"
+                f"{top_entry.content[:2000]}"
+            )
+        except Exception as e:
+            logger.debug("Plan memory retrieval failed: %s", e)
+            return None
+
+    def _save_approved_plan(self, user_message: str, plan_content: str) -> None:
+        """Persist an approved plan to memory for future warm-start retrieval.
+
+        Strips auto-generated critique sections before saving.
+        """
+        if not self._memory_store or not self._plan_memory_enabled:
+            return
+        try:
+            import hashlib
+            key = "plan_" + hashlib.md5(user_message[:200].encode()).hexdigest()[:8]
+            # Strip any appended critique section
+            marker = "\n\n---\n## Plan Review (auto-generated)\n"
+            clean_plan = plan_content.split(marker)[0] if marker in plan_content else plan_content
+            self._memory_store.add(
+                key=key,
+                content=f"Task: {user_message[:200]}\n\n{clean_plan[:3000]}",
+                category="approved_plans",
+                tags=["auto-plan"],
+                scope="project",
+            )
+            logger.debug("Saved approved plan to memory (key=%s)", key)
+        except Exception as e:
+            logger.debug("Could not save approved plan: %s", e)
 
     async def _critique_plan_node(self, state: GraphState) -> GraphState:
         """Run a cheap LLM critique pass on the plan before the user sees it.
@@ -1024,6 +1299,14 @@ class GraphOrchestrator(BaseOrchestrator):
             if not revised_text:
                 return state
 
+            # Sanity-check: if the response has no "##" section headers it is
+            # not a valid plan (could be a router JSON or other junk) — skip.
+            if "##" not in revised_text:
+                logger.warning(
+                    "Plan revision skipped: response does not contain plan structure"
+                )
+                return state
+
             updated_response = dc_replace(plan_response, content=revised_text)
             return {
                 **state,
@@ -1042,6 +1325,73 @@ class GraphOrchestrator(BaseOrchestrator):
         except Exception as e:
             logger.warning("Plan revision failed (non-fatal): %s", e)
             return state
+
+    async def _re_critique_plan_node(self, state: GraphState) -> GraphState:
+        """Run an additional critique pass after revision for multi-round refinement.
+
+        Called after ``_revise_plan_node`` when ``_plan_max_revisions > 0``.
+        Increments ``plan_revision_round`` and generates a new ``plan_critique``
+        so ``_revise_plan_node`` can address it in the next loop iteration.
+        On any failure the plan passes through unchanged.
+        """
+        plan_response = state.get("plan_response")
+        if not plan_response:
+            return state
+
+        plan_content = (plan_response.content or "").strip()
+        if not plan_content:
+            return state
+
+        self._report_status("Re-reviewing revised plan")
+        try:
+            critique_response = await asyncio.wait_for(
+                self._llm.complete(
+                    [
+                        Message(role="system", content=_CRITIQUE_SYSTEM_PROMPT),
+                        Message(role="user", content=plan_content),
+                    ],
+                    temperature=0.0,
+                    max_tokens=400,
+                    role="routing",
+                ),
+                timeout=45,
+            )
+            critique_text = (critique_response.content or "").strip()
+            round_num = state.get("plan_revision_round", 0) + 1
+            return {
+                **state,
+                "plan_critique": critique_text or None,
+                "plan_revision_round": round_num,
+                "accumulated_tokens": (
+                    state.get("accumulated_tokens", 0)
+                    + critique_response.usage.get("total_tokens", 0)
+                ),
+                "accumulated_cost_usd": (
+                    state.get("accumulated_cost_usd", 0.0)
+                    + critique_response.cost_usd
+                ),
+            }
+        except Exception as e:
+            logger.warning("Re-critique pass failed (non-fatal): %s", e)
+            round_num = state.get("plan_revision_round", 0) + 1
+            return {**state, "plan_revision_round": round_num, "plan_critique": None}
+
+    def _should_revise_again(self, state: GraphState) -> str:
+        """Decide whether to run another revise pass after re-critique.
+
+        Returns ``"revise"`` when:
+        - A non-empty ``plan_critique`` is present (new issues found), AND
+        - ``plan_revision_round`` has not yet reached ``_plan_max_revisions``.
+
+        Returns ``"done"`` otherwise (proceed to ``approve_plan``).
+        """
+        critique = state.get("plan_critique") or ""
+        if not critique.strip():
+            return "done"
+        round_num = state.get("plan_revision_round", 0)
+        if round_num < self._plan_max_revisions:
+            return "revise"
+        return "done"
 
     async def _approve_plan_node(self, state: GraphState) -> GraphState:
         """Ask the user to approve, reject, or edit the plan.
@@ -1086,11 +1436,13 @@ class GraphOrchestrator(BaseOrchestrator):
                 f"{plan_context}\n\n{existing_context}" if existing_context else plan_context
             )
             parallel_steps = self._parse_parallel_steps(filtered_plan)
+            self._save_approved_plan(state["user_message"], filtered_plan)
             return {**state, "plan_approved": True, "context": merged, "parallel_steps": parallel_steps}
 
         # ── Fallback: standard clarification-handler flow ────────────────────
         if not self._clarification_handler:
             parallel_steps = self._parse_parallel_steps(plan_response.content)
+            self._save_approved_plan(state["user_message"], plan_response.content)
             return {**state, "plan_approved": True, "parallel_steps": parallel_steps}
 
         try:
@@ -1104,6 +1456,7 @@ class GraphOrchestrator(BaseOrchestrator):
         except Exception as e:
             logger.error("Plan approval failed: %s", e)
             parallel_steps = self._parse_parallel_steps(plan_response.content)
+            self._save_approved_plan(state["user_message"], plan_response.content)
             return {**state, "plan_approved": True, "parallel_steps": parallel_steps}
 
         answer_lower = (answer or "").strip().lower()
@@ -1115,6 +1468,7 @@ class GraphOrchestrator(BaseOrchestrator):
                 f"{plan_context}\n\n{existing_context}" if existing_context else plan_context
             )
             parallel_steps = self._parse_parallel_steps(plan_response.content)
+            self._save_approved_plan(state["user_message"], plan_response.content)
             return {**state, "plan_approved": True, "context": merged, "parallel_steps": parallel_steps}
 
         if answer_lower in ("reject", "n", "no"):
@@ -1137,6 +1491,7 @@ class GraphOrchestrator(BaseOrchestrator):
         )
         # Parse parallel steps from edited plan (original + user edits)
         parallel_steps = self._parse_parallel_steps(plan_response.content + "\n" + answer)
+        self._save_approved_plan(state["user_message"], plan_response.content)
         return {**state, "plan_approved": True, "context": merged, "parallel_steps": parallel_steps}
 
     def _plan_approved(self, state: GraphState) -> Literal["parallel", "sequential", "rejected"]:
@@ -1172,9 +1527,11 @@ class GraphOrchestrator(BaseOrchestrator):
         reviewer.set_status_callback(self._status_callback)
         reviewer.set_permission_handler(self._permission_handler)
         reviewer.set_token_callback(self._token_callback)
+        reviewer.set_continue_handler(self._continue_handler)
         reviewer.set_tool_event_callback(self._tool_event_callback)
         reviewer.set_clarification_handler(self._clarification_handler)
         reviewer.set_stream_callback(self._stream_callback)
+        reviewer.set_error_callback(self._error_callback)
 
         agent_response = state.get("agent_response")
         if not agent_response:
@@ -1467,6 +1824,8 @@ class GraphOrchestrator(BaseOrchestrator):
             "parallel_steps": [],
             "plan_critique": None,
             "plan_revision": None,
+            "plan_assumptions": [],
+            "plan_revision_round": 0,
         }
 
         errors_before = self._error_count_reader() if self._error_count_reader else 0
