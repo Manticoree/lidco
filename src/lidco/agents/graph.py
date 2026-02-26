@@ -791,11 +791,7 @@ class GraphOrchestrator(BaseOrchestrator):
         async def _run_step(step_desc: str) -> AgentResponse:
             async with semaphore:
                 # Create a fresh agent instance to avoid shared _conversation state
-                fresh = type(template_agent)(
-                    config=template_agent._config,
-                    llm=template_agent._llm,
-                    tool_registry=template_agent._tool_registry,
-                )
+                fresh = template_agent.clone()
                 fresh.set_status_callback(self._status_callback)
                 fresh.set_permission_handler(self._permission_handler)
                 fresh.set_token_callback(self._token_callback)
@@ -1058,7 +1054,7 @@ class GraphOrchestrator(BaseOrchestrator):
         if not symbols:
             return ""
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         snippets: list[str] = []
         for sym in symbols[:8]:
             try:

@@ -273,7 +273,7 @@ class MemoryStore:
         full_text = "\n".join(parts)
         lines = full_text.splitlines()
         if len(lines) > max_lines:
-            lines = lines[:max_lines]
-            lines.append("\n... (memory truncated)")
+            lines = lines[:max_lines - 1]
+            lines.append("... (memory truncated)")
 
         return "\n".join(lines)

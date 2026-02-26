@@ -139,14 +139,15 @@ class ConfigReloader:
 
         # ── LLM mutable fields ────────────────────────────────────────────────
         if new.llm.default_model != old.llm.default_model:
-            self._session.llm._default_model = new.llm.default_model
-            self._session.llm._provider._default_model = new.llm.default_model
+            self._session.llm.set_default_model(new.llm.default_model)
             changed_fields.append(f"llm.default_model={new.llm.default_model!r}")
 
         # ── Agents mutable fields ─────────────────────────────────────────────
         agent_fields = (
             "auto_review", "auto_plan", "max_review_iterations",
             "agent_timeout", "max_iterations", "default",
+            "plan_critique", "plan_revise", "plan_max_revisions",
+            "plan_memory", "preplan_snapshot",
         )
         for fname in agent_fields:
             if getattr(new.agents, fname) != getattr(old.agents, fname):
@@ -171,6 +172,16 @@ class ConfigReloader:
                 orch._auto_plan = new.agents.auto_plan  # type: ignore[attr-defined]
             if new.agents.max_review_iterations != old.agents.max_review_iterations:
                 orch._max_review_iterations = new.agents.max_review_iterations  # type: ignore[attr-defined]
+            if new.agents.plan_critique != old.agents.plan_critique:
+                orch.set_plan_critique(new.agents.plan_critique)  # type: ignore[attr-defined]
+            if new.agents.plan_revise != old.agents.plan_revise:
+                orch.set_plan_revise(new.agents.plan_revise)  # type: ignore[attr-defined]
+            if new.agents.plan_max_revisions != old.agents.plan_max_revisions:
+                orch.set_plan_max_revisions(new.agents.plan_max_revisions)  # type: ignore[attr-defined]
+            if new.agents.plan_memory != old.agents.plan_memory:
+                orch.set_plan_memory(new.agents.plan_memory)  # type: ignore[attr-defined]
+            if new.agents.preplan_snapshot != old.agents.preplan_snapshot:
+                orch.set_preplan_snapshot(new.agents.preplan_snapshot)  # type: ignore[attr-defined]
         except Exception as exc:
             logger.debug("Could not propagate changes to orchestrator: %s", exc)
 

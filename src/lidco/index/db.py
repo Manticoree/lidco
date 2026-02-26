@@ -355,11 +355,11 @@ class IndexDatabase:
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _get_file_id(self, path: str) -> int:
+    def _get_file_id(self, path: str) -> int | None:
         row = self._conn.execute(
             "SELECT id FROM files WHERE path = ?", (path,)
         ).fetchone()
-        return row["id"] if row else 0
+        return row["id"] if row else None
 
 
 # ── Row mappers ───────────────────────────────────────────────────────────────

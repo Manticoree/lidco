@@ -280,19 +280,26 @@ class TestStreamLines:
         assert received == ["hello"]
 
     @pytest.mark.asyncio
-    async def test_timeout_raises(self) -> None:
+    async def test_timeout_returns_partial_and_waits(self) -> None:
+        """On timeout _stream_lines must NOT raise — it returns partial output
+        and always calls process.wait() so the process is properly reaped."""
         import asyncio as _asyncio
 
         proc = MagicMock()
         proc.stdout = MagicMock()
-        # readline never returns → triggers timeout
+        # readline blocks forever → asyncio.wait_for triggers TimeoutError
         proc.stdout.readline = AsyncMock(side_effect=_asyncio.TimeoutError)
         proc.stderr = MagicMock()
-        proc.stderr.read = AsyncMock(return_value=b"")
+        proc.stderr.read = AsyncMock(return_value=b"some stderr\n")
         proc.wait = AsyncMock()
 
-        with pytest.raises(_asyncio.TimeoutError):
-            await _stream_lines(proc, lambda _: None, timeout=1)
+        # Must not raise
+        stdout_text, stderr_text = await _stream_lines(proc, lambda _: None, timeout=1)
+
+        # process.wait() must always be called so the process is reaped
+        proc.wait.assert_called_once()
+        # stderr must be read even on timeout
+        assert "some stderr" in stderr_text
 
 
 class TestRunTestsToolStreaming:

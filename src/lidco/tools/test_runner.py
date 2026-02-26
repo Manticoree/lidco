@@ -195,7 +195,10 @@ async def _stream_lines(
             lines.append(text)
             callback(text.rstrip("\n"))
 
-    await asyncio.wait_for(_read(), timeout=timeout)
+    try:
+        await asyncio.wait_for(_read(), timeout=timeout)
+    except asyncio.TimeoutError:
+        pass  # Let process.wait() and stderr read happen below
     await process.wait()
     stderr_raw = b""
     if process.stderr is not None:

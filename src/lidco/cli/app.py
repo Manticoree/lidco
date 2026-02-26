@@ -411,6 +411,7 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                         )
                     finally:
                         orch.set_status_callback(None)
+                        orch.set_token_callback(None)
                         orch.set_stream_callback(None)
                         orch.set_tool_event_callback(None)
                         orch.set_phase_callback(None)

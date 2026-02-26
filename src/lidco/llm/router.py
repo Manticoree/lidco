@@ -31,6 +31,11 @@ class ModelRouter(BaseLLMProvider):
         self._fallback_models = fallback_models or []
         self._llm_providers = llm_providers or LLMProvidersConfig()
 
+    def set_default_model(self, model: str) -> None:
+        """Update the default model on both the router and its underlying provider."""
+        self._default_model = model
+        self._provider.set_default_model(model)
+
     # ── Role-based resolution ───────────────────────────────────────────────
 
     def resolve_for_role(self, role: str) -> RoleModelConfig:

@@ -807,7 +807,11 @@ class CommandRegistry:
                     capture_output=True, timeout=5,
                 )
                 if staged_check.returncode == 0:
-                    subprocess.run(["git", "add", "-u"], timeout=10)
+                    add_result = subprocess.run(
+                        ["git", "add", "-u"], capture_output=True, text=True, timeout=10
+                    )
+                    if add_result.returncode != 0:
+                        return f"__ERROR__:Failed to stage changes: {add_result.stderr.strip()}"
 
                 result = subprocess.run(
                     ["git", "commit", "-m", msg],
@@ -1398,12 +1402,13 @@ class CommandRegistry:
 
             registry._session.active_pr_context = result.output
 
-            title = result.metadata.get("title", "")
-            state = result.metadata.get("state", "")
-            files_count = result.metadata.get("files_count", 0)
-            number = result.metadata.get("number", arg)
-            additions = result.metadata.get("additions", 0)
-            deletions = result.metadata.get("deletions", 0)
+            metadata = result.metadata or {}
+            title = metadata.get("title", "")
+            state = metadata.get("state", "")
+            files_count = metadata.get("files_count", 0)
+            number = metadata.get("number", arg)
+            additions = metadata.get("additions", 0)
+            deletions = metadata.get("deletions", 0)
 
             return (
                 f"Loaded PR #{number}: **{title}**\n\n"

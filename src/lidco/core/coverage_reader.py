@@ -136,7 +136,8 @@ def build_coverage_context(
 
     overall = data.get("", None)  # some reporters include an overall key
     if overall is None and data:
-        overall = round(sum(data.values()) / len(data), 1)
+        vals = [v for v in data.values() if v is not None]
+        overall = round(sum(vals) / len(vals), 1) if vals else None
     if overall is not None:
         lines.append(f"Overall average: {overall:.1f}%")
 

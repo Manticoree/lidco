@@ -165,6 +165,10 @@ class LiteLLMProvider(BaseLLMProvider):
         if providers_config is not None:
             self._register_custom_providers(providers_config)
 
+    def set_default_model(self, model: str) -> None:
+        """Update the default model without recreating the provider."""
+        self._default_model = model
+
     def _register_custom_providers(self, providers_config: Any) -> None:
         """Register custom provider endpoints with litellm.
 
@@ -228,6 +232,8 @@ class LiteLLMProvider(BaseLLMProvider):
 
         response = await with_retry(_call, self._retry_config, model_name=kwargs["model"])
 
+        if not response.choices:
+            raise ValueError(f"Empty choices in LLM response for model {kwargs['model']!r}")
         choice = response.choices[0]
         tool_calls_raw = []
         if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:

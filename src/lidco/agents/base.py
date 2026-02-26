@@ -162,6 +162,19 @@ class BaseAgent(ABC):
         """
         self._error_callback = callback
 
+    def clone(self) -> "BaseAgent":
+        """Create a fresh instance sharing the same config, LLM, and tool registry.
+
+        Used by the parallel execution engine to give each parallel step its own
+        empty ``_conversation`` list.  Subclasses that require additional ``__init__``
+        arguments must override this method.
+        """
+        return type(self)(
+            config=self._config,
+            llm=self._llm,
+            tool_registry=self._tool_registry,
+        )
+
     def prepend_system_context(self, text: str) -> None:
         """Inject *text* at the top of the context block for the next run only.
 
