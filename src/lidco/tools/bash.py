@@ -81,13 +81,27 @@ class BashTool(BaseTool):
             if len(output) > 15000:
                 output = output[:8000] + "\n\n... (truncated) ...\n\n" + output[-7000:]
 
+            rc = process.returncode or 0
+            error_msg: str | None = None
+            if rc != 0:
+                last_stderr = ""
+                if stderr_text.strip():
+                    nonempty = [ln for ln in stderr_text.splitlines() if ln.strip()]
+                    if nonempty:
+                        last_stderr = nonempty[-1][:200]
+                error_msg = (
+                    f"Exit code {rc}: {last_stderr}"
+                    if last_stderr
+                    else f"Exit code {rc}"
+                )
             return ToolResult(
                 output=output,
-                success=process.returncode == 0,
-                error=f"Exit code: {process.returncode}" if process.returncode != 0 else None,
-                metadata={"exit_code": process.returncode or 0, "command": command},
+                success=rc == 0,
+                error=error_msg,
+                metadata={"exit_code": rc, "command": command},
             )
         except asyncio.TimeoutError:
+            process.kill()
             return ToolResult(
                 output="", success=False, error=f"Command timed out after {timeout}s"
             )

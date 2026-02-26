@@ -32,6 +32,51 @@ BANNER = """[bold magenta] LIDCO [/bold magenta][dim]- LLM-Integrated Developmen
 """
 
 
+def _show_session_summary(
+    console: Console,
+    turns: int,
+    tokens: int,
+    cost_usd: float,
+    tool_calls: int,
+    files_edited: set[str],
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+) -> None:
+    """Render a compact session summary panel to the console."""
+    if turns == 0:
+        return
+
+    from rich.panel import Panel
+
+    def _fmt_k(n: int) -> str:
+        return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+    lines: list[str] = []
+    lines.append(f"Turns:       {turns}")
+    if tool_calls:
+        lines.append(f"Tool calls:  {tool_calls}")
+    if files_edited:
+        lines.append(f"Files changed: {len(files_edited)}")
+        for path in sorted(files_edited)[:5]:
+            lines.append(f"  · {path}")
+        if len(files_edited) > 5:
+            lines.append(f"  · ... ({len(files_edited) - 5} more)")
+
+    if prompt_tokens or completion_tokens:
+        lines.append(
+            f"Tokens:      {_fmt_k(tokens)} ({_fmt_k(prompt_tokens)} in / {_fmt_k(completion_tokens)} out)"
+        )
+    else:
+        lines.append(f"Tokens:      {_fmt_k(tokens)}")
+
+    if cost_usd > 0:
+        # Use more decimal places for very small costs so we don't show $0.0000
+        cost_fmt = f"{cost_usd:.6f}".rstrip("0").rstrip(".")
+        lines.append(f"Cost:        ~${cost_fmt}")
+
+    console.print(Panel("\n".join(lines), title="Session Summary", border_style="dim"))
+
+
 async def process_slash_command(
     user_input: str, commands: CommandRegistry, renderer: Renderer
 ) -> bool:
@@ -77,6 +122,14 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
     lidco_session = Session()
     config = lidco_session.config
 
+    # Configure logging based on config
+    from lidco.core.logging import setup_logging
+    setup_logging(
+        format=config.logging.format,
+        level=config.logging.level,
+        log_file=config.logging.log_file,
+    )
+
     # Apply CLI flag overrides (highest precedence, runtime-only)
     if flags is not None:
         if flags.no_review:
@@ -87,6 +140,8 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
             config.llm.streaming = False
         if flags.model:
             config.llm.default_model = flags.model
+        if flags.timeout is not None:
+            config.agents.agent_timeout = flags.timeout
     commands = CommandRegistry()
     commands.set_session(lidco_session)
     permissions = PermissionManager(config.permissions, console)
@@ -151,6 +206,20 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
     lidco_session.orchestrator.set_permission_handler(permission_check)
     lidco_session.orchestrator.set_continue_handler(continue_check)
     lidco_session.orchestrator.set_clarification_handler(clarification_handler)
+
+    def plan_editor(plan_text: str) -> str | None:
+        """Show the interactive plan editor and return the filtered plan (or None to reject)."""
+        live = active_live[0]
+        if live is not None:
+            live.stop()
+        try:
+            from lidco.cli.plan_editor import edit_plan_interactively
+            return edit_plan_interactively(plan_text, console)
+        finally:
+            if live is not None:
+                live.start()
+
+    lidco_session.orchestrator.set_plan_editor(plan_editor)
 
     # Resolve default agent from flag (validated against registry)
     default_agent: str | None = None
@@ -239,8 +308,12 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
 
     # Session-level cumulative statistics
     session_tokens: int = 0
+    session_prompt_tokens: int = 0
+    session_completion_tokens: int = 0
     session_cost_usd: float = 0.0
     session_turns: int = 0
+    session_tool_calls: int = 0
+    session_files_edited: set[str] = set()
     current_agent: str = default_agent or "auto"
 
     def get_prompt() -> HTML:
@@ -283,6 +356,14 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
             elif default_agent:
                 forced_agent = default_agent
 
+            # Check token budget before routing to agent
+            from lidco.core.token_budget import TokenBudgetExceeded
+            try:
+                lidco_session.token_budget.check_remaining()
+            except TokenBudgetExceeded as exc:
+                renderer.error(str(exc))
+                continue
+
             # Route to agent orchestrator
             renderer.assistant_header(agent=forced_agent or "lidco")
             console.print()
@@ -295,6 +376,7 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                     # Streaming mode: persistent status bar at the bottom,
                     # reasoning text + tool events scroll above it.
                     stream_display = StreamDisplay(console)
+                    stream_display.set_debug_mode(lidco_session.debug_mode)
                     active_live[0] = stream_display.live
 
                     def on_status_stream(status: str) -> None:
@@ -311,11 +393,15 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                     ) -> None:
                         stream_display.on_tool_event(event, tool_name, args, result)
 
+                    def on_phase(name: str, phase_status: str) -> None:
+                        stream_display.set_phase(name, phase_status)
+
                     orch = lidco_session.orchestrator
                     orch.set_status_callback(on_status_stream)
                     orch.set_token_callback(on_tokens_stream)
                     orch.set_stream_callback(on_text_chunk)
                     orch.set_tool_event_callback(on_tool_event)
+                    orch.set_phase_callback(on_phase)
 
                     try:
                         response = await orch.handle(
@@ -327,6 +413,7 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                         orch.set_status_callback(None)
                         orch.set_stream_callback(None)
                         orch.set_tool_event_callback(None)
+                        orch.set_phase_callback(None)
                         stream_display.finish()
                         active_live[0] = None
 
@@ -355,6 +442,7 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                     finally:
                         active_live[0] = None
                         lidco_session.orchestrator.set_status_callback(None)
+                        lidco_session.orchestrator.set_token_callback(None)
 
                     # Show tool calls if configured (non-streaming only)
                     if config.cli.show_tool_calls and response.tool_calls_made:
@@ -367,9 +455,36 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                 turn_tokens = response.token_usage.total_tokens
                 turn_cost = getattr(response.token_usage, "total_cost_usd", 0.0) or 0.0
                 session_tokens += turn_tokens
+                session_prompt_tokens += response.token_usage.prompt_tokens
+                session_completion_tokens += response.token_usage.completion_tokens
                 session_cost_usd += turn_cost
                 session_turns += 1
+                session_tool_calls += len(response.tool_calls_made)
+                for tc in response.tool_calls_made:
+                    if tc.get("tool") in ("file_write", "file_edit"):
+                        path = tc.get("args", {}).get("path", "")
+                        if path:
+                            session_files_edited.add(path)
                 current_agent = forced_agent or getattr(response, "agent_used", None) or "auto"
+
+                # Show git diff and run linting when the agent edited files
+                _FILE_EDIT_TOOLS = frozenset({"file_write", "file_edit"})
+                _edited_tool_calls = [
+                    tc for tc in response.tool_calls_made
+                    if tc.get("tool") in _FILE_EDIT_TOOLS
+                ]
+                if _edited_tool_calls:
+                    from lidco.cli.diff_viewer import show_git_diff
+                    show_git_diff(console)
+
+                    _edited_paths = [
+                        tc.get("args", {}).get("path", "")
+                        for tc in _edited_tool_calls
+                    ]
+                    _edited_paths = list({p for p in _edited_paths if p})
+                    if _edited_paths:
+                        from lidco.cli.linter import show_lint_results
+                        show_lint_results(console, _edited_paths)
 
                 # Show summary and token info (both modes)
                 if response.tool_calls_made:
@@ -403,6 +518,19 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
         except EOFError:
             renderer.info("\nGoodbye!")
             break
+
+    lidco_session.close()
+
+    _show_session_summary(
+        console,
+        turns=session_turns,
+        tokens=session_tokens,
+        cost_usd=session_cost_usd,
+        tool_calls=session_tool_calls,
+        files_edited=session_files_edited,
+        prompt_tokens=session_prompt_tokens,
+        completion_tokens=session_completion_tokens,
+    )
 
 
 def run_cli(flags: "CLIFlags | None" = None) -> None:

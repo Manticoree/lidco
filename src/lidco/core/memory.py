@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -57,10 +57,12 @@ class MemoryStore:
         global_dir: Path | None = None,
         project_dir: Path | None = None,
         max_entries: int = 500,
+        ttl_days: int | None = None,
     ) -> None:
         self._global_dir = global_dir or (Path.home() / ".lidco" / "memory")
         self._project_dir = project_dir
         self._max_entries = max_entries
+        self._ttl_days = ttl_days
         self._entries: dict[str, MemoryEntry] = {}
         self._load()
 
@@ -91,6 +93,29 @@ class MemoryStore:
                         category="general",
                         source="MEMORY.md",
                     )
+
+    def _is_expired(self, entry: MemoryEntry) -> bool:
+        """Return True if the entry is older than ``ttl_days``."""
+        if self._ttl_days is None or not entry.created_at:
+            return False
+        try:
+            created = datetime.fromisoformat(entry.created_at)
+        except ValueError:
+            return False
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self._ttl_days)
+        # Make cutoff timezone-aware if created is naive (legacy entries)
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        return created < cutoff
+
+    def prune_expired(self) -> int:
+        """Remove all expired entries from the in-memory store. Returns count removed."""
+        expired_keys = [k for k, e in self._entries.items() if self._is_expired(e)]
+        for key in expired_keys:
+            del self._entries[key]
+        if expired_keys:
+            logger.debug("Pruned %d expired memory entries", len(expired_keys))
+        return len(expired_keys)
 
     def _get_dirs(self) -> list[Path]:
         """Get all memory directories (global + project)."""
@@ -127,6 +152,13 @@ class MemoryStore:
                 break
         if not found:
             existing.append(entry.to_dict())
+
+        # Prune expired entries before writing
+        if self._ttl_days is not None:
+            existing = [
+                e for e in existing
+                if not self._is_expired(MemoryEntry.from_dict(e))
+            ]
 
         # Enforce max entries per file
         if len(existing) > self._max_entries:
@@ -180,6 +212,9 @@ class MemoryStore:
             if entry.key == "__memory_md__":
                 continue
 
+            if self._is_expired(entry):
+                continue
+
             if category and entry.category != category:
                 continue
 
@@ -205,7 +240,7 @@ class MemoryStore:
         """List all memory entries, optionally filtered by category."""
         entries = [
             e for e in self._entries.values()
-            if e.key != "__memory_md__"
+            if e.key != "__memory_md__" and not self._is_expired(e)
         ]
         if category:
             entries = [e for e in entries if e.category == category]
@@ -220,16 +255,18 @@ class MemoryStore:
         if md_entry:
             parts.append(f"## Persistent Memory\n{md_entry.content}")
 
-        # Then categorized entries
+        # Then categorized entries (excluding expired)
         by_category: dict[str, list[MemoryEntry]] = {}
         for entry in self._entries.values():
             if entry.key == "__memory_md__":
+                continue
+            if self._is_expired(entry):
                 continue
             by_category.setdefault(entry.category, []).append(entry)
 
         for cat, entries in sorted(by_category.items()):
             parts.append(f"\n### {cat.title()}")
-            for entry in entries[-5:]:  # last 20 per category
+            for entry in entries[-5:]:  # last 5 per category
                 tags_str = f" [{', '.join(entry.tags)}]" if entry.tags else ""
                 parts.append(f"- **{entry.key}**{tags_str}: {entry.content}")
 
