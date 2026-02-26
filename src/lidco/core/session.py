@@ -231,6 +231,7 @@ class Session:
                 max_review_iterations=self.config.agents.max_review_iterations,
                 agent_timeout=self.config.agents.agent_timeout,
                 max_parallel_agents=self.config.agents.max_parallel_agents,
+                project_dir=self.project_dir,
             )
             orch.set_clarification_manager(self.clarification_mgr)
             orch.set_error_callback(self._error_history.append)
@@ -241,6 +242,9 @@ class Session:
             )
             orch.set_plan_critique(self.config.agents.plan_critique)
             orch.set_plan_revise(self.config.agents.plan_revise)
+            orch.set_plan_max_revisions(self.config.agents.plan_max_revisions)
+            orch.set_plan_memory(self.config.agents.plan_memory)
+            orch.set_preplan_snapshot(self.config.agents.preplan_snapshot)
             if self.config.memory.auto_save:
                 orch.set_memory_store(self.memory)
             if self.context_retriever:

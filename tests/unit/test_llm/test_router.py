@@ -4,7 +4,15 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from lidco.llm.base import Message, LLMResponse, BaseLLMProvider
+from lidco.llm.exceptions import LLMRetryExhausted
 from lidco.llm.router import ModelRouter
+
+
+def _make_exhausted(model: str) -> LLMRetryExhausted:
+    return LLMRetryExhausted(
+        f"Model {model} exhausted retries",
+        attempts=[(model, RuntimeError(f"Model {model} unavailable"))],
+    )
 
 
 class MockProvider(BaseLLMProvider):
@@ -16,7 +24,7 @@ class MockProvider(BaseLLMProvider):
     async def complete(self, messages, *, model=None, **kwargs):
         self.call_log.append(model)
         if model in self._fail_models:
-            raise RuntimeError(f"Model {model} unavailable")
+            raise _make_exhausted(model)
         return LLMResponse(
             content=f"Response from {model}",
             model=model or "default",
@@ -24,7 +32,7 @@ class MockProvider(BaseLLMProvider):
 
     async def stream(self, messages, *, model=None, **kwargs):
         if model in self._fail_models:
-            raise RuntimeError(f"Model {model} unavailable")
+            raise _make_exhausted(model)
         yield  # pragma: no cover
 
     def list_models(self):
@@ -46,9 +54,9 @@ class TestMessage:
 
 class TestLLMResponse:
     def test_creation(self):
-        resp = LLMResponse(content="hi", model="gpt-4")
+        resp = LLMResponse(content="hi", model="openai/glm-4.7")
         assert resp.content == "hi"
-        assert resp.model == "gpt-4"
+        assert resp.model == "openai/glm-4.7"
         assert resp.finish_reason == "stop"
 
 
@@ -83,7 +91,7 @@ class TestModelRouter:
             fallback_models=["model-b"],
         )
         messages = [Message(role="user", content="hi")]
-        with pytest.raises(RuntimeError, match="All models failed"):
+        with pytest.raises(LLMRetryExhausted, match="All .* model"):
             await router.complete(messages)
 
     @pytest.mark.asyncio

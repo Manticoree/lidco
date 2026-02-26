@@ -872,96 +872,45 @@ Uses SHA-256 hashes. `skip_dedup=True` for display-only calls. Reset on `/clear`
 
 | # | Task | Status | Est. | Impact |
 |---|------|--------|------|--------|
-| 73 | [Pre-planning context snapshot](#73-pre-planning-context-snapshot) | ☐ Todo | 1.5d | плануник стартует с готовым контекстом |
-| 74 | [Explicit assumption tracker](#74-explicit-assumption-tracker) | ☐ Todo | 1d | скрытые допущения видны пользователю |
-| 75 | [Multi-round critique/revise](#75-multi-round-critiqurevise) | ☐ Todo | 1d | итеративное устранение пробелов в плане |
-| 76 | [Similar plan warm-start](#76-similar-plan-warm-start) | ☐ Todo | 1.5d | повторные задачи планируются быстрее |
-| 77 | [Pre-planning symbol extraction](#77-pre-planning-symbol-extraction) | ☐ Todo | 1d | плануник не тратит итерации на очевидный grep |
+| 73 | [Pre-planning context snapshot](#73-pre-planning-context-snapshot) | ✅ Done | 1.5d | плануник стартует с готовым контекстом |
+| 74 | [Explicit assumption tracker](#74-explicit-assumption-tracker) | ✅ Done | 1d | скрытые допущения видны пользователю |
+| 75 | [Multi-round critique/revise](#75-multi-round-critiqurevise) | ✅ Done | 1d | итеративное устранение пробелов в плане |
+| 76 | [Similar plan warm-start](#76-similar-plan-warm-start) | ✅ Done | 1.5d | повторные задачи планируются быстрее |
+| 77 | [Pre-planning symbol extraction](#77-pre-planning-symbol-extraction) | ✅ Done | 1d | плануник не тратит итерации на очевидный grep |
 
 ---
 
 ## Task Details (Q16)
 
 ### 73. Pre-planning context snapshot
-**Files:** `src/lidco/agents/graph.py` → `_execute_planner_node`, new helper `_build_preplan_snapshot()`
-**Goal:** Before the planner agent starts, automatically collect and inject a compact snapshot of facts it would otherwise discover via tool calls: arch diagram of mentioned files, coverage data for affected modules, last-3-commit summary for touched paths. This snapshot becomes the first block of the planner's context, letting Phase 2 start from a richer baseline and use its iteration budget for genuinely novel exploration.
-
-**Approach:**
-- In `_execute_planner_node()`, before calling `planner.run()`, call `_build_preplan_snapshot(user_message, context)` in a background gather
-- Snapshot components (each failure-safe, max 1s timeout per component):
-  - `arch_diagram` on files/modules mentioned in the user message (regex: `\bsrc/\S+\.py\b`, `\b\w+\.py\b`)
-  - `find_test_gaps` for detected modules
-  - `git log --oneline -5 -- <detected_files>` for recent history
-  - Coverage % from `.lidco/coverage.json` for detected files
-- Inject as `## Pre-Planning Snapshot\n{snapshot}` prepended to `context`
-- Gate behind `config.agents.preplan_snapshot: bool = True`
-- Cap snapshot at 3000 chars; skip silently if planner tool registry unavailable
-
-**Config:** `AgentsConfig.preplan_snapshot: bool = True`
+**Files:** `src/lidco/agents/graph.py` → `_execute_planner_node`, `_build_preplan_snapshot()`, `_run_git_log()`
+**Goal:** Before the planner agent starts, automatically collect and inject a compact snapshot of facts it would otherwise discover via tool calls.
+**Status:** ✅ Done — `_build_preplan_snapshot(user_message)` runs `git log --oneline -10` (2s timeout) and `build_coverage_context()`, returns `## Pre-planning Snapshot` section. Injected as first block of planner context in `_execute_planner_node()`. Failure-safe: each source independently try/except. Gate: `config.agents.preplan_snapshot: bool = True`. New setter `set_preplan_snapshot(bool)`. Session wires `orch.set_preplan_snapshot(config.agents.preplan_snapshot)`. `GraphOrchestrator.__init__` gains `project_dir: Path | None = None` param. 5 tests in `test_preplan_snapshot.py`.
 
 ---
 
 ### 74. Explicit assumption tracker
 **Files:** `src/lidco/agents/builtin/planner.py`, `src/lidco/agents/graph.py`
-**Goal:** The planner must explicitly list every assumption it made during exploration (e.g., "I assume `Session` is always initialised before `handle()` is called"). The revision pass then challenges each assumption: if any assumption could be wrong, the revise prompt flags it as a risk. Visible to the user at approval time.
-
-**Approach:**
-- Add `**Assumptions:**` to `PLANNER_SYSTEM_PROMPT` output format (after `Chain of Thought`, before `Steps`):
-  ```
-  **Assumptions:**
-  - [numbered list of things taken as given that were NOT verified by tool calls]
-  - Mark each as: ✓ Verified (seen in code) | ⚠ Unverified (assumed)
-  ```
-- In `_REVISE_SYSTEM_PROMPT`: add instruction — "For every ⚠ Unverified assumption, either add a verification step to the plan or escalate it to the Risk Assessment table."
-- `GraphState.plan_assumptions: list[str]` — parse `**Assumptions:**` section after planner runs; inject into critique prompt as extra context
-- `/plan` command shows assumption count in the approval prompt header: `"Plan has 3 unverified assumptions"`
+**Goal:** The planner must explicitly list every assumption it made during exploration. The revision pass challenges each `[⚠ Unverified]` assumption.
+**Status:** ✅ Done — `**Assumptions:**` section added to `PLANNER_SYSTEM_PROMPT` output format (after `Alternative Considered`, before `Chain of Thought`). Each item marked `[✓ Verified — cite evidence]` or `[⚠ Unverified — describe risk]`. `_REVISE_SYSTEM_PROMPT` updated: "Challenge every [⚠ Unverified] assumption — confirm with reasoning or update plan to eliminate the dependency." `GraphState.plan_assumptions: list[str]` added. `_parse_plan_assumptions(plan_content)` static method parses the section. Stored in state after planner runs. 12 tests in `test_assumption_tracker.py`.
 
 ---
 
 ### 75. Multi-round critique/revise
 **Files:** `src/lidco/agents/graph.py`
-**Goal:** After the first revision, run the critique again. If it still finds HIGH-severity issues, do a second revision. Stop when no HIGH issues remain or `plan_max_revisions` is exhausted. Prevents plans that look fixed but still have critical gaps after one pass.
-
-**Approach:**
-- Add `plan_revision_round: int` to `GraphState` (starts at 0)
-- After `_revise_plan_node()`, run a lightweight re-critique (same prompt, same model, same timeout)
-- If re-critique finds lines starting with `**[` (any category) AND `plan_revision_round < max_rounds`: loop back to `_revise_plan_node()` with updated critique
-- Implement as a conditional edge: `revise_plan → re_critique → revise_plan` (loop) or `re_critique → approve_plan` when clean
-- `AgentsConfig.plan_max_revisions: int = 2` — default 2 rounds total (first revision + one re-pass)
-- Phase status bar shows: `"Revising plan (round 2/2)"`
-- Token accumulation continues across all rounds
-
-**Config:** `AgentsConfig.plan_max_revisions: int = 2`
+**Goal:** After the first revision, run critique again. Loop until clean or `plan_max_revisions` exhausted.
+**Status:** ✅ Done — `_re_critique_plan_node()` runs additional critique pass (same `_CRITIQUE_SYSTEM_PROMPT`, `role="routing"`, 45s timeout), increments `plan_revision_round`, sets new `plan_critique` in state. `_should_revise_again()` routing function: returns `"revise"` when `plan_critique` non-empty AND `plan_revision_round < _plan_max_revisions`, else `"done"`. Graph rewired: `revise_plan → re_critique_plan → {revise_plan (loop) | approve_plan}`. `AgentsConfig.plan_max_revisions: int = 1` default. `set_plan_max_revisions(n)` setter (negative clamped to 0). `GraphState.plan_revision_round: int` initialized to 0 in `handle()`. 16 tests in `test_multi_round_revise.py`.
 
 ---
 
 ### 76. Similar plan warm-start
-**Files:** `src/lidco/agents/graph.py`, `src/lidco/core/memory.py`
-**Goal:** Before the planner runs, search the memory store for approved plans from similar past tasks. If a similar plan is found, inject it as `## Similar Past Plan` context so the planner can reuse decisions already validated by the user. After each plan approval, save the approved plan to memory.
-
-**Approach:**
-- `MemoryStore` already supports `category` — add `category="approved_plans"` entries
-- Before `planner.run()`: call `memory.search(query=user_message, category="approved_plans", n=3)` (use BM25 over memory keys/content if RAG is off)
-- If matches found: inject top-1 as `## Similar Past Plan\n{content}` in context (cap 2000 chars, add `[similarity: {score:.2f}]` header)
-- After `_approve_plan_node()` returns `plan_approved=True`: save `{user_message[:100]}: {plan_content[:2000]}` to memory under `category="approved_plans"`, key = sha256(user_message)[:8]
-- Gate behind `config.agents.plan_memory: bool = True`
-- Stale plans (>30 days) excluded from retrieval via TTL filter
-
-**Config:** `AgentsConfig.plan_memory: bool = True`
+**Files:** `src/lidco/agents/graph.py`
+**Goal:** Before planner runs, retrieve similar past plans. After approval, save approved plan to memory.
+**Status:** ✅ Done — `_find_similar_plan(query)` keyword-scores all `category="approved_plans"` entries against query terms, returns top-1 as `## Similar Past Plan` context (capped at 2000 chars). `_save_approved_plan(user_message, plan_content)` saves to memory under key `plan_{md5[:8]}` (`category="approved_plans"`, `scope="project"`), stripping critique sections. Both injected into `_execute_planner_node()` (warm-start) and `_approve_plan_node()` (save). Gate: `config.agents.plan_memory: bool = True`. `set_plan_memory(bool)` setter. Session wires `orch.set_plan_memory(config.agents.plan_memory)`. 19 tests in `test_plan_memory.py`.
 
 ---
 
 ### 77. Pre-planning symbol extraction
-**Files:** `src/lidco/agents/graph.py` → `_execute_planner_node`
-**Goal:** Parse the user request for referenced symbols (`ClassName`, `method_name()`, `path/to/file.py`) and pre-grep their definitions, injecting `file:line:signature` tuples as `## Referenced Symbols` context. The planner skips redundant grep calls for symbols that are already resolved.
-
-**Approach:**
-- Regex extraction in `_extract_mentioned_symbols(user_message: str) -> list[str]`:
-  - `\b([A-Z][a-zA-Z]+)\b` — likely class names
-  - `` `([a-z_]+(?:\.[a-z_]+)*)\(\)` `` — method/function calls in backticks
-  - `\b(src/[^\s]+\.py)\b` — explicit file paths
-- For each extracted symbol (max 10): run `grep -n "def {sym}\|class {sym}" src/` via `ToolRegistry.get("grep")`
-- Collect first match per symbol: `{symbol}: {file}:{line} — {signature}`
-- Inject as `## Referenced Symbols\n{table}` prepended to planner context (before pre-planning snapshot)
-- Skip symbols that match common builtins or are <3 chars
-- Total budget: max 5s for all greps in parallel (`asyncio.gather` with timeout)
+**Files:** `src/lidco/agents/graph.py` → `_execute_planner_node`, `_extract_mentioned_symbols()`, `_build_symbol_context()`, `_grep_symbol()`
+**Goal:** Parse user request for backtick-quoted symbols and pre-grep their definitions, injecting results as `## Referenced Symbols` context.
+**Status:** ✅ Done — `_extract_mentioned_symbols(text)` regex-extracts backtick-quoted symbols (no spaces, ≤60 chars, capped at 10). `_grep_symbol(sym)` synchronously greps `*.py` files (3s timeout, first 10 lines). `_build_symbol_context(symbols)` runs greps concurrently via `run_in_executor` with 3s per-symbol timeout, returns `## Referenced Symbols` section. Injected before snapshot in `_execute_planner_node()`. Entirely failure-safe (skip on timeout/error). 12 tests in `test_preplan_snapshot.py`.

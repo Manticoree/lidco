@@ -14,7 +14,7 @@ from lidco.tools.base import ToolResult
 def _make_session(*, active_pr_context: str | None = None) -> SimpleNamespace:
     orchestrator = MagicMock()
     orchestrator._conversation_history = []
-    config = SimpleNamespace(llm=SimpleNamespace(default_model="gpt-4o"))
+    config = SimpleNamespace(llm=SimpleNamespace(default_model="openai/glm-4.7"))
     token_budget = SimpleNamespace(
         total_prompt_tokens=0, total_completion_tokens=0, total_cost_usd=0.0
     )

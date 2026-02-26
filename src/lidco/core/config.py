@@ -80,7 +80,7 @@ class LLMConfig(BaseModel):
     temperature: float = 0.1
     max_tokens: int = 4096
     streaming: bool = True
-    fallback_models: list[str] = Field(default_factory=lambda: ["openai/glm-4.5-air"])
+    fallback_models: list[str] = Field(default_factory=lambda: ["openai/glm-4.7"])
     session_token_limit: int = 0  # 0 = unlimited
     retry: RetryConfig = Field(default_factory=RetryConfig)
 
@@ -126,6 +126,9 @@ class AgentsConfig(BaseModel):
     agent_timeout: int = 0  # seconds; 0 = no timeout
     plan_critique: bool = True  # run auto-critique LLM pass before plan approval
     plan_revise: bool = True  # run planner revision pass after critique before approval
+    plan_max_revisions: int = 1  # extra re-critique/revise rounds after initial revision (0 = none)
+    plan_memory: bool = True  # save approved plans and retrieve similar ones as warm-start context
+    preplan_snapshot: bool = True  # auto-inject git log + coverage before planner starts
 
 
 class MemoryConfig(BaseModel):

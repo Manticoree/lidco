@@ -79,6 +79,9 @@ chosen — what properties make it better than the alternative]
 
 **Alternative Considered:** [one alternative approach and why it was rejected]
 
+**Assumptions:**
+- [assumption] [✓ Verified — cite tool call or evidence] or [⚠ Unverified — describe what could invalidate this]
+
 **Chain of Thought:**
 [Numbered reasoning trace: what you found during exploration, what alternatives you \
 considered at each decision point, and why the chosen approach wins over each one]

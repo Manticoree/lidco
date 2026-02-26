@@ -33,7 +33,7 @@ class TestQAAgentCreation:
 
     def test_has_required_tools(self):
         agent = _make_qa()
-        expected = {"file_read", "file_write", "file_edit", "bash", "glob", "grep", "git"}
+        expected = {"file_read", "file_write", "file_edit", "run_tests", "bash", "glob", "grep", "git"}
         assert expected == set(agent.config.tools)
 
     def test_temperature_is_low(self):

@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 
 import pytest
 
 from lidco.index.db import IndexDatabase
-from lidco.index.schema import FileRecord, ImportRecord, IndexStats, SymbolRecord
+from lidco.index.schema import (
+    CURRENT_SCHEMA_VERSION,
+    FileRecord,
+    ImportRecord,
+    IndexStats,
+    SymbolRecord,
+)
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -300,3 +307,128 @@ class TestStats:
     def test_last_indexed_at_none_when_unset(self, db: IndexDatabase) -> None:
         stats = db.get_stats()
         assert stats.last_indexed_at is None
+
+
+# ── Thread safety ─────────────────────────────────────────────────────────────
+
+
+class TestThreadSafety:
+    """Concurrent access from multiple threads must not crash or corrupt data."""
+
+    def test_concurrent_reads_do_not_crash(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "concurrent.db"
+        db = IndexDatabase(db_path)
+        # Pre-populate
+        for i in range(5):
+            db.upsert_file(_file(f"src/file{i}.py"))
+
+        errors: list[Exception] = []
+
+        def read_stats() -> None:
+            try:
+                stats = db.get_stats()
+                assert stats.total_files >= 0
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=read_stats) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], f"Thread errors: {errors}"
+        db.close()
+
+    def test_concurrent_writes_do_not_corrupt(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "concurrent_write.db"
+        db = IndexDatabase(db_path)
+        errors: list[Exception] = []
+
+        def write_file(idx: int) -> None:
+            try:
+                db.upsert_file(_file(f"src/w{idx}.py"))
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=write_file, args=(i,)) for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], f"Thread errors: {errors}"
+        # All 8 files should have been persisted
+        assert db.get_stats().total_files == 8
+        db.close()
+
+    def test_each_thread_gets_own_connection(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "local_conn.db"
+        db = IndexDatabase(db_path)
+        conn_ids: list[int] = []
+        lock = threading.Lock()
+
+        def capture_conn_id() -> None:
+            conn = db._conn
+            with lock:
+                conn_ids.append(id(conn))
+
+        threads = [threading.Thread(target=capture_conn_id) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Every thread should have received a distinct connection object
+        assert len(set(conn_ids)) == len(conn_ids), "Threads shared a connection"
+        db.close()
+
+
+# ── Schema versioning ──────────────────────────────────────────────────────────
+
+
+class TestSchemaVersioning:
+    """Tests for schema_versions tracking (Task 35)."""
+
+    def test_fresh_db_has_current_version(self, tmp_path: Path) -> None:
+        db = IndexDatabase(tmp_path / "ver.db")
+        row = db._conn.execute(
+            "SELECT MAX(version) FROM schema_versions"
+        ).fetchone()
+        assert row[0] == CURRENT_SCHEMA_VERSION
+
+    def test_schema_versions_table_exists(self, tmp_path: Path) -> None:
+        db = IndexDatabase(tmp_path / "ver.db")
+        tables = {
+            r[0] for r in db._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert "schema_versions" in tables
+
+    def test_applied_at_is_iso_timestamp(self, tmp_path: Path) -> None:
+        db = IndexDatabase(tmp_path / "ver.db")
+        row = db._conn.execute(
+            "SELECT applied_at FROM schema_versions WHERE version = ?",
+            (CURRENT_SCHEMA_VERSION,),
+        ).fetchone()
+        assert row is not None
+        # Should parse as ISO datetime without raising
+        from datetime import datetime
+        datetime.fromisoformat(row[0])
+
+    def test_reopening_db_does_not_duplicate_versions(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "ver.db"
+        IndexDatabase(db_path).close()
+        IndexDatabase(db_path).close()
+        db3 = IndexDatabase(db_path)
+        count = db3._conn.execute(
+            "SELECT COUNT(*) FROM schema_versions WHERE version = ?",
+            (CURRENT_SCHEMA_VERSION,),
+        ).fetchone()[0]
+        assert count == 1  # INSERT OR REPLACE — no duplicates
+
+    def test_existing_tables_still_work_after_migration(self, tmp_path: Path) -> None:
+        db = IndexDatabase(tmp_path / "ver.db")
+        db.upsert_file(_file())
+        assert db.get_stats().total_files == 1

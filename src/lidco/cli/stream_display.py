@@ -35,6 +35,7 @@ class _StatusBar:
         self._frame = 0
         self._total_tokens = 0
         self._total_cost_usd = 0.0
+        self._phase_steps: list[tuple[str, str]] = []  # (name, "active"|"done"|"pending")
 
     @property
     def label(self) -> str:
@@ -60,6 +61,28 @@ class _StatusBar:
     def total_cost_usd(self, value: float) -> None:
         self._total_cost_usd = value
 
+    def set_phase(self, name: str, status: str) -> None:
+        """Update or append a named phase step.
+
+        Args:
+            name: Display name of the phase (e.g. "Plan", "Execute", "Review").
+            status: One of "active", "done", or "pending".
+
+        Rebuilds the list atomically so that Rich's refresh thread iterating
+        the old list reference sees a consistent snapshot even without a lock.
+        """
+        updated = False
+        new_steps: list[tuple[str, str]] = []
+        for pname, pstatus in self._phase_steps:
+            if pname == name:
+                new_steps.append((name, status))
+                updated = True
+            else:
+                new_steps.append((pname, pstatus))
+        if not updated:
+            new_steps.append((name, status))
+        self._phase_steps = new_steps
+
     def __rich__(self) -> Text:
         self._frame = (self._frame + 1) % len(self.FRAMES)
         try:
@@ -83,6 +106,17 @@ class _StatusBar:
             text.append(f" · {tokens_str} tokens", style="dim")
         if self._total_cost_usd > 0:
             text.append(f" · ${self._total_cost_usd:.4f}", style="dim")
+        if self._phase_steps:
+            text.append("  ", style="dim")
+            for j, (pname, pstatus) in enumerate(self._phase_steps):
+                if j > 0:
+                    text.append(" \u2192 ", style="dim")
+                if pstatus == "done":
+                    text.append(f"{pname} \u2713", style="dim green")
+                elif pstatus == "active":
+                    text.append(pname, style="bold cyan")
+                else:
+                    text.append(pname, style="dim")
         return text
 
 
@@ -106,6 +140,7 @@ class StreamDisplay:
         self._console = console
         self._has_content = False
         self._needs_newline = False
+        self._debug_mode: bool = False
 
         self._status_bar = _StatusBar()
         self._live = Live(
@@ -134,8 +169,8 @@ class StreamDisplay:
 
     _READ_ONLY_LABELS: dict[str, str] = {
         "file_read": "Reading",
-        "glob": "Matching",
-        "grep": "Searching for",
+        "glob": "Finding",
+        "grep": "Searching",
     }
 
     def on_tool_event(
@@ -200,13 +235,17 @@ class StreamDisplay:
                 self._print_success(tool_name, args, result)
             else:
                 error_msg = getattr(result, "error", "failed") or "failed"
-                if len(error_msg) > 80:
-                    error_msg = error_msg[:77] + "..."
-                line = Text()
-                line.append("  ")
-                line.append("\u2717 ", style="bold red")
-                line.append(error_msg, style="dim red")
-                self._console.print(line)
+                tb = getattr(result, "traceback_str", None)
+                if self._debug_mode and tb:
+                    self._print_debug_error(tool_name, error_msg, tb)
+                else:
+                    if len(error_msg) > 80:
+                        error_msg = error_msg[:77] + "..."
+                    line = Text()
+                    line.append("  ")
+                    line.append("\u2717 ", style="bold red")
+                    line.append(error_msg, style="dim red")
+                    self._console.print(line)
         self._needs_newline = False
         self._console.print()
 
@@ -286,9 +325,43 @@ class StreamDisplay:
             trunc.append(f"    ... ({len(lines) - max_lines} more lines)", style="dim")
             self._console.print(trunc)
 
+    def set_debug_mode(self, enabled: bool) -> None:
+        """Enable or disable inline traceback rendering on tool failures."""
+        self._debug_mode = enabled
+
+    def _print_debug_error(
+        self, tool_name: str, error_msg: str, traceback_str: str
+    ) -> None:
+        """Render a Rich Panel with syntax-highlighted traceback (debug mode)."""
+        from rich.panel import Panel
+        from rich.syntax import Syntax
+
+        # Show last 50 non-empty lines of the traceback
+        lines = [ln for ln in traceback_str.splitlines() if ln.strip()]
+        shown_lines = lines[-50:]
+        tb_text = "\n".join(shown_lines)
+
+        syntax = Syntax(tb_text, "python", theme="monokai", word_wrap=True)
+        self._console.print(
+            Panel(
+                syntax,
+                title=f"Tool Error: {tool_name}",
+                border_style="red",
+            )
+        )
+
     def on_status(self, status: str) -> None:
         """Update the status bar label (e.g. 'Thinking (step 2)', 'Tool: file_read')."""
         self._status_bar.label = status
+
+    def set_phase(self, name: str, status: str) -> None:
+        """Update the phase breadcrumb shown at the right of the status bar.
+
+        Args:
+            name: Phase name e.g. "Plan", "Execute", "Review".
+            status: "active" (currently running), "done" (completed), "pending".
+        """
+        self._status_bar.set_phase(name, status)
 
     def update_tokens(self, total: int, total_cost_usd: float = 0.0) -> None:
         """Update the token count and cost displayed in the status bar."""
@@ -331,12 +404,16 @@ def _format_tokens(total: int) -> str:
 
 def _extract_key_arg(tool_name: str, args: dict) -> str:
     """Extract the most informative argument for display."""
+    from pathlib import Path
     if tool_name in ("file_read", "file_write", "file_edit"):
-        return str(args.get("path", ""))
+        return Path(str(args.get("path", ""))).name
     if tool_name == "bash":
         cmd = str(args.get("command", ""))
         return cmd[:60] + "..." if len(cmd) > 60 else cmd
-    if tool_name in ("grep", "glob"):
+    if tool_name == "grep":
+        pattern = str(args.get("pattern", ""))
+        return f"'{pattern}'"
+    if tool_name == "glob":
         return str(args.get("pattern", ""))
     if tool_name == "git":
         return str(args.get("subcommand", ""))

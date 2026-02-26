@@ -57,9 +57,9 @@ class TestReadOnlyTools:
     @pytest.mark.parametrize(
         "tool,args,expected_text",
         [
-            ("file_read", {"path": "src/main.py"}, "Reading src/main.py"),
-            ("glob", {"pattern": "*.py"}, "Matching *.py"),
-            ("grep", {"pattern": "TODO"}, "Searching for TODO"),
+            ("file_read", {"path": "src/main.py"}, "Reading main.py"),
+            ("glob", {"pattern": "*.py"}, "Finding *.py"),
+            ("grep", {"pattern": "TODO"}, "Searching 'TODO'"),
         ],
     )
     def test_start_shows_inline_marker(self, captured_console, tool, args, expected_text):
@@ -350,7 +350,7 @@ class TestStatusBarLifecycle:
 
 class TestExtractKeyArg:
     def test_file_tools(self):
-        assert _extract_key_arg("file_read", {"path": "src/x.py"}) == "src/x.py"
+        assert _extract_key_arg("file_read", {"path": "src/x.py"}) == "x.py"
         assert _extract_key_arg("file_write", {"path": "out.txt"}) == "out.txt"
         assert _extract_key_arg("file_edit", {"path": "f.py"}) == "f.py"
 
@@ -364,7 +364,7 @@ class TestExtractKeyArg:
         assert result.endswith("...")
 
     def test_search_tools(self):
-        assert _extract_key_arg("grep", {"pattern": "TODO"}) == "TODO"
+        assert _extract_key_arg("grep", {"pattern": "TODO"}) == "'TODO'"
         assert _extract_key_arg("glob", {"pattern": "*.py"}) == "*.py"
 
     def test_git(self):
@@ -372,6 +372,83 @@ class TestExtractKeyArg:
 
     def test_unknown_tool(self):
         assert _extract_key_arg("custom_tool", {"foo": "bar"}) == ""
+
+
+class TestSetPhase:
+    """Phase breadcrumb is tracked and rendered in the status bar."""
+
+    def test_set_phase_adds_step(self, captured_console):
+        console, _ = captured_console
+        sd = StreamDisplay(console)
+        sd.set_phase("Plan", "active")
+        assert len(sd._status_bar._phase_steps) == 1
+        assert sd._status_bar._phase_steps[0] == ("Plan", "active")
+        sd.finish()
+
+    def test_set_phase_updates_existing(self, captured_console):
+        console, _ = captured_console
+        sd = StreamDisplay(console)
+        sd.set_phase("Plan", "active")
+        sd.set_phase("Plan", "done")
+        assert len(sd._status_bar._phase_steps) == 1
+        assert sd._status_bar._phase_steps[0] == ("Plan", "done")
+        sd.finish()
+
+    def test_set_phase_accumulates_multiple(self, captured_console):
+        console, _ = captured_console
+        sd = StreamDisplay(console)
+        sd.set_phase("Plan", "done")
+        sd.set_phase("Execute", "active")
+        assert len(sd._status_bar._phase_steps) == 2
+        assert sd._status_bar._phase_steps[0] == ("Plan", "done")
+        assert sd._status_bar._phase_steps[1] == ("Execute", "active")
+        sd.finish()
+
+    def test_phase_done_checkmark_in_render(self, captured_console):
+        console, buf = captured_console
+        sd = StreamDisplay(console)
+        sd.set_phase("Plan", "done")
+        # Force a render by calling __rich__ directly
+        text = sd._status_bar.__rich__()
+        rendered = text.plain
+        assert "Plan" in rendered
+        assert "\u2713" in rendered
+        sd.finish()
+
+    def test_phase_active_in_render(self, captured_console):
+        console, buf = captured_console
+        sd = StreamDisplay(console)
+        sd.set_phase("Execute", "active")
+        text = sd._status_bar.__rich__()
+        rendered = text.plain
+        assert "Execute" in rendered
+        sd.finish()
+
+    def test_phase_arrow_separator(self, captured_console):
+        console, _ = captured_console
+        sd = StreamDisplay(console)
+        sd.set_phase("Plan", "done")
+        sd.set_phase("Execute", "active")
+        text = sd._status_bar.__rich__()
+        rendered = text.plain
+        assert "\u2192" in rendered
+        sd.finish()
+
+    def test_no_phases_renders_cleanly(self, captured_console):
+        console, _ = captured_console
+        sd = StreamDisplay(console)
+        text = sd._status_bar.__rich__()
+        rendered = text.plain
+        # Without phases, no arrow or checkmark expected
+        assert "\u2192" not in rendered
+        sd.finish()
+
+    def test_status_bar_set_phase_directly(self, captured_console):
+        console, _ = captured_console
+        sd = StreamDisplay(console)
+        sd._status_bar.set_phase("Review", "active")
+        assert ("Review", "active") in sd._status_bar._phase_steps
+        sd.finish()
 
 
 class TestBriefResult:

@@ -8,17 +8,25 @@ providing CRUD methods.  All business logic lives in ProjectIndexer.
 from __future__ import annotations
 
 import sqlite3
+import threading
 import time
 from pathlib import Path
 from typing import Any
 
+import logging
+
 from lidco.index.schema import (
+    CURRENT_SCHEMA_VERSION,
+    MIGRATIONS,
     SCHEMA_SQL,
     FileRecord,
     ImportRecord,
     IndexStats,
     SymbolRecord,
+    _SCHEMA_VERSIONS_DDL,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class IndexDatabase:
@@ -27,16 +35,72 @@ class IndexDatabase:
     def __init__(self, db_path: Path) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._path = db_path
-        self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
+        self._local = threading.local()
         self._apply_schema()
+
+    # ── Connection management ─────────────────────────────────────────────────
+
+    @property
+    def _conn(self) -> sqlite3.Connection:
+        """Return the per-thread SQLite connection, creating it on first access.
+
+        Each OS thread gets its own ``sqlite3.Connection`` so concurrent FastAPI
+        request handlers never share a connection object.  SQLite itself
+        serialises writes at the file level (WAL mode enables concurrent reads).
+        """
+        if not hasattr(self._local, "conn"):
+            conn = sqlite3.connect(str(self._path))
+            conn.row_factory = sqlite3.Row
+            self._local.conn = conn
+        return self._local.conn
 
     # ── Schema ────────────────────────────────────────────────────────────────
 
     def _apply_schema(self) -> None:
-        """Apply DDL statements (idempotent — uses CREATE IF NOT EXISTS)."""
-        self._conn.executescript(SCHEMA_SQL)
-        self._conn.commit()
+        """Apply pending schema migrations, recording each in ``schema_versions``.
+
+        Algorithm:
+        1. Bootstrap: ensure the ``schema_versions`` table itself exists.
+        2. Determine the current version (max recorded, or 0 for a fresh DB).
+        3. Warn when the on-disk version is newer than what this code knows about
+           (DB was created by a newer LIDCO release).
+        4. Apply all migrations with version > current in ascending order.
+        """
+        from datetime import datetime, timezone
+
+        conn = self._conn
+
+        # Step 1: bootstrap version tracking (idempotent)
+        conn.executescript(_SCHEMA_VERSIONS_DDL)
+        conn.commit()
+
+        # Step 2: query current version
+        row = conn.execute("SELECT MAX(version) FROM schema_versions").fetchone()
+        current_version: int = row[0] if row[0] is not None else 0
+
+        # Step 3: warn if DB is from the future
+        if current_version > CURRENT_SCHEMA_VERSION:
+            logger.warning(
+                "Index DB schema version %d is newer than this LIDCO build (%d). "
+                "Some features may not work correctly.",
+                current_version,
+                CURRENT_SCHEMA_VERSION,
+            )
+            return
+
+        # Step 4: apply pending migrations
+        for version in sorted(MIGRATIONS):
+            if version <= current_version:
+                continue
+            sql = MIGRATIONS[version]
+            conn.executescript(sql)
+            applied_at = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_versions (version, applied_at) VALUES (?, ?)",
+                (version, applied_at),
+            )
+            conn.commit()
+            logger.debug("Applied index schema migration %d", version)
 
     # ── Files ─────────────────────────────────────────────────────────────────
 
@@ -278,8 +342,10 @@ class IndexDatabase:
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def close(self) -> None:
-        """Close the database connection."""
-        self._conn.close()
+        """Close the current thread's database connection."""
+        if hasattr(self._local, "conn"):
+            self._local.conn.close()
+            del self._local.conn
 
     def __enter__(self) -> IndexDatabase:
         return self

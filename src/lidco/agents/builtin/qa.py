@@ -56,7 +56,7 @@ def create_qa_agent(llm: BaseLLMProvider, tool_registry: ToolRegistry) -> BaseAg
         system_prompt=QA_SYSTEM_PROMPT,
         temperature=0.1,
         max_iterations=60,
-        tools=["file_read", "file_write", "file_edit", "bash", "glob", "grep", "git"],
+        tools=["file_read", "file_write", "file_edit", "run_tests", "bash", "glob", "grep", "git"],
     )
 
     class QAAgent(BaseAgent):

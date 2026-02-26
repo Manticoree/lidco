@@ -1,6 +1,19 @@
 """LIDCO - LLM-Integrated Development COmpanion."""
 
 import sys
+
+# Force UTF-8 I/O on Windows (prevents charmap UnicodeDecodeError with non-ASCII content).
+# Must happen before any other imports that touch stdin/stdout/stderr.
+if sys.platform == "win32":
+    import io
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    # Also wrap stdin to avoid charmap errors when reading user input
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,11 +32,13 @@ REPL options:
   --no-review        Disable automatic post-response code review
   --no-plan          Disable automatic pre-task planning
   --no-streaming     Disable token streaming (show response all at once)
+  --timeout <secs>   Agent timeout in seconds (default: 600, 0 = no timeout)
   --help, -h         Show this help message and exit
 
 Examples:
   lidco --agent reviewer --no-plan
   lidco --model ollama/llama3.1 --no-streaming
+  lidco --timeout 0          (disable timeout for long-running tasks)
   lidco --no-review --no-plan
 """
 
@@ -37,6 +52,7 @@ class CLIFlags:
     no_review: bool = False
     no_plan: bool = False
     no_streaming: bool = False
+    timeout: int | None = None  # None = use config value; 0 = no timeout
 
 
 def main() -> None:
@@ -76,6 +92,13 @@ def _parse_repl_flags(args: list[str]) -> CLIFlags:
             i += 2
         elif arg == "--model" and i + 1 < len(args):
             flags.model = args[i + 1]
+            i += 2
+        elif arg == "--timeout" and i + 1 < len(args):
+            try:
+                flags.timeout = int(args[i + 1])
+            except ValueError:
+                print(f"--timeout requires an integer (seconds), got: {args[i + 1]}")
+                sys.exit(1)
             i += 2
         else:
             print(f"Unknown argument: {arg}")

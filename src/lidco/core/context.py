@@ -80,6 +80,15 @@ class GitInfo:
 
 
 @dataclass(frozen=True)
+class RecentChanges:
+    """Summary of recent git changes (since last commit)."""
+
+    diff_stat: str = ""        # output of git diff HEAD~1 --stat
+    last_commit_hash: str = "" # short hash of HEAD commit
+    last_commit_msg: str = ""  # subject line of HEAD commit
+
+
+@dataclass(frozen=True)
 class ProjectDependencies:
     """Parsed project dependencies."""
 
@@ -152,6 +161,39 @@ class ProjectContext:
             remote=remote.strip(),
             recent_commits=recent_commits,
             dirty_files=dirty_files,
+        )
+
+    def get_recent_changes(self, max_stat_lines: int = 20) -> RecentChanges:
+        """Return a summary of changes since the previous commit.
+
+        Runs ``git diff HEAD~1 --stat`` to list modified files with
+        insertion/deletion counts.  Also captures the HEAD commit subject so
+        agents know what was last committed without having to run git themselves.
+
+        Returns a :class:`RecentChanges` with empty strings if git is
+        unavailable or the repo has fewer than 2 commits.
+        """
+        diff_stat_raw = self._run_git("diff", "HEAD~1", "--stat")
+        last_commit_raw = self._run_git("log", "-1", "--pretty=format:%h %s")
+
+        # Truncate very long diff stats to keep context compact
+        stat_lines = diff_stat_raw.strip().splitlines()
+        if len(stat_lines) > max_stat_lines:
+            kept = stat_lines[:max_stat_lines]
+            omitted = len(stat_lines) - max_stat_lines
+            kept.append(f"... ({omitted} more files)")
+            diff_stat = "\n".join(kept)
+        else:
+            diff_stat = diff_stat_raw.strip()
+
+        parts = last_commit_raw.strip().split(" ", 1)
+        last_hash = parts[0] if parts else ""
+        last_msg = parts[1] if len(parts) > 1 else ""
+
+        return RecentChanges(
+            diff_stat=diff_stat,
+            last_commit_hash=last_hash,
+            last_commit_msg=last_msg,
         )
 
     def get_structure(self, max_depth: int = 2, max_entries: int = 30) -> str:
@@ -236,6 +278,10 @@ class ProjectContext:
         rules = self.load_rules()
         if rules:
             sections.append(f"## Project Rules\n\n{rules}")
+
+        changes = self.get_recent_changes()
+        if changes.diff_stat:
+            sections.append(self._format_recent_changes(changes))
 
         return "\n\n".join(sections)
 
@@ -557,6 +603,16 @@ class ProjectContext:
                 lines.append(f"  - `{f}`")
             if len(gi.dirty_files) > 5:
                 lines.append(f"  - ... and {len(gi.dirty_files) - 5} more")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_recent_changes(changes: RecentChanges) -> str:
+        """Format RecentChanges as a compact markdown section."""
+        lines = ["## Recent Changes\n"]
+        if changes.last_commit_hash:
+            lines.append(f"Last commit: `{changes.last_commit_hash}` {changes.last_commit_msg}")
+        if changes.diff_stat:
+            lines.append(f"\n```\n{changes.diff_stat}\n```")
         return "\n".join(lines)
 
     @staticmethod

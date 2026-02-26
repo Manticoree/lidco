@@ -249,13 +249,17 @@ class TestPlanningFlow:
         assert planner.last_message is None  # planner was not called
 
     @pytest.mark.asyncio
-    async def test_no_planning_for_non_coder_agents(self):
-        """Planning only triggers when routed to coder, not other agents."""
+    async def test_no_planning_for_non_planning_agents(self):
+        """Planning only triggers for agents in _PLANNING_AGENTS (coder, debugger, etc.).
+
+        reviewer is not in _PLANNING_AGENTS, so even if the router says
+        needs_planning=True the planner should be skipped.
+        """
         planner = _StubAgent(name="planner", response_content="plan")
-        debugger = _StubAgent(name="debugger", response_content="bug fixed")
+        reviewer = _StubAgent(name="reviewer", response_content="looks good")
         coder = _StubAgent(name="coder", response_content="code")
-        registry = _build_registry(planner=planner, debugger=debugger, coder=coder)
-        llm = _router_llm("debugger", needs_planning=True)
+        registry = _build_registry(planner=planner, reviewer=reviewer, coder=coder)
+        llm = _router_llm("reviewer", needs_planning=True)
 
         orch = GraphOrchestrator(
             llm=llm,
@@ -264,10 +268,10 @@ class TestPlanningFlow:
             auto_plan=True,
         )
 
-        response = await orch.handle("fix the bug")
+        response = await orch.handle("review the code")
 
-        assert "bug fixed" in response.content
-        assert planner.last_message is None  # planner not triggered
+        assert "looks good" in response.content
+        assert planner.last_message is None  # planner not triggered for reviewer
 
 
 # ---------------------------------------------------------------------------

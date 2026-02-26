@@ -38,30 +38,18 @@ providers:
     api_key: "${ZAI_API_KEY}"
     models:
       - openai/glm-4.7
-      - openai/glm-4.7-flash
-      - openai/glm-4.5-air
-
-  # ── Z.AI Free — отключён (endpoint нестабилен) ──
-  # zai-free:
-  #   api_base: "https://open.bigmodel.cn/api/paas/v4"
-  #   api_key: "${ZAI_API_KEY}"
-  #   models:
-  #     - openai/glm-4.7-flash-free
-  #     - openai/glm-4.5-flash-free
 
   # ── Cloud providers (отключены, раскомментируйте при необходимости) ──
   #
   # openai:
   #   api_key: "${OPENAI_API_KEY}"
   #   models:
-  #     - gpt-4o
-  #     - gpt-4o-mini
+  #     - openai/glm-4.7
   #
   # anthropic:
   #   api_key: "${ANTHROPIC_API_KEY}"
   #   models:
-  #     - claude-sonnet-4-5-20250514
-  #     - claude-haiku-4-5-20251001
+  #     - openai/glm-4.7
 
 
 # ── 2. Per-Role Model Assignments ───────────────────────────────────────────
@@ -85,82 +73,80 @@ providers:
 #   max_tokens   — Override max tokens for this role (optional)
 
 role_models:
-  # ── Стратегия для Lite ($3/мес, ~120 промптов / 5 часов): ──
-  #   Бесплатные модели → routing, completion, docs, tester
-  #   Платные модели    → coder, reviewer, architect, debugger, planner, refactor
-  #
-  # GLM-4.7    — сильная общая модель для кода (200K контекст)
-  # GLM-4.5-Air — быстрая, дешевле квоты
-  # GLM-4.7-Flash-Free — бесплатная, 200K контекст
-  # GLM-4.5-Flash-Free — бесплатная
+  # ── Стратегия: все агенты используют openai/glm-4.7 ──
 
-  # Fallback для всех ролей, не указанных явно
+  # Fallback для ролей, не указанных явно
   default:
     model: "openai/glm-4.7"
-    fallback: "openai/glm-4.5-air"
+    fallback: "openai/glm-4.7"
     temperature: 0.1
 
-  # Оркестратор — быстрая модель для выбора агента
+  # Оркестратор — выбор агента
   routing:
-    model: "openai/glm-4.7-flash"
+    model: "openai/glm-4.7"
     temperature: 0.0
     max_tokens: 50
 
-  # Автодополнение — быстрая модель
+  # Автодополнение
   completion:
-    model: "openai/glm-4.7-flash"
+    model: "openai/glm-4.7"
     temperature: 0.0
     max_tokens: 256
 
-  # ── Агенты (платные — тратят квоту) ──
+  # ── Все агенты — openai/glm-4.7 ──────────────────────────────────────────
 
-  # Кодер — главный агент, лучшая доступная модель
   coder:
     model: "openai/glm-4.7"
-    fallback: "openai/glm-4.5-air"
+    fallback: "openai/glm-4.7"
     temperature: 0.1
     max_tokens: 4096
 
-  # Ревьюер — анализ кода, поиск багов
   reviewer:
     model: "openai/glm-4.7"
-    fallback: "openai/glm-4.5-air"
+    fallback: "openai/glm-4.7"
     temperature: 0.0
 
-  # Планировщик — декомпозиция задач
   planner:
     model: "openai/glm-4.7"
-    fallback: "openai/glm-4.5-air"
+    fallback: "openai/glm-4.7"
     temperature: 0.1
 
-  # Архитектор — дизайн системы
   architect:
     model: "openai/glm-4.7"
-    fallback: "openai/glm-4.5-air"
+    fallback: "openai/glm-4.7"
     temperature: 0.1
 
-  # Дебаггер — поиск и исправление ошибок
   debugger:
     model: "openai/glm-4.7"
-    fallback: "openai/glm-4.5-air"
+    fallback: "openai/glm-4.7"
     temperature: 0.0
 
-  # Рефакторинг — нужна хорошая модель для понимания кода
   refactor:
     model: "openai/glm-4.7"
-    fallback: "openai/glm-4.5-air"
+    fallback: "openai/glm-4.7"
     temperature: 0.1
 
-  # ── Агенты (бесплатные/дешёвые — экономят квоту) ──
-
-  # Тестер — генерация тестов, менее критично
   tester:
-    model: "openai/glm-4.5-air"
-    fallback: "openai/glm-4.7-flash"
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.7"
     temperature: 0.1
 
-  # Документация — наименее критично
   docs:
-    model: "openai/glm-4.5-air"
-    fallback: "openai/glm-4.7-flash"
-    temperature: 0.3
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.7"
+    temperature: 0.2
+
+  researcher:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.7"
+    temperature: 0.2
+
+  qa:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.7"
+    temperature: 0.1
+
+  security:
+    model: "openai/glm-4.7"
+    fallback: "openai/glm-4.7"
+    temperature: 0.0

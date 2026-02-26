@@ -138,3 +138,21 @@ class TestRouterPromptKeywords:
 
     def test_original_bug_keyword_still_present(self):
         assert "bug" in ROUTER_PROMPT.lower()
+
+    def test_security_keyword_routes_to_security(self):
+        assert "security" in ROUTER_PROMPT.lower()
+
+    def test_vulnerability_keyword_routes_to_security(self):
+        assert "vulnerability" in ROUTER_PROMPT.lower()
+
+    def test_owasp_keyword_routes_to_security(self):
+        assert "owasp" in ROUTER_PROMPT.lower()
+
+    def test_injection_keyword_routes_to_security(self):
+        assert "injection" in ROUTER_PROMPT.lower()
+
+    def test_xss_keyword_routes_to_security(self):
+        assert "xss" in ROUTER_PROMPT.lower()
+
+    def test_secrets_keyword_routes_to_security(self):
+        assert "secrets" in ROUTER_PROMPT.lower()

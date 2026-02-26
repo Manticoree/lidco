@@ -1,6 +1,8 @@
 """Tests for token budget tracking."""
 
-from lidco.core.token_budget import TokenBudget
+import pytest
+
+from lidco.core.token_budget import TokenBudget, TokenBudgetExceeded
 
 
 class TestTokenBudget:
@@ -115,3 +117,38 @@ class TestTokenBudgetCost:
         budget.record(100, "coder")
         s = budget.summary()
         assert "$" not in s
+
+
+class TestTokenBudgetExceeded:
+    def test_check_remaining_passes_when_unlimited(self):
+        budget = TokenBudget(session_limit=0)
+        budget.record(1_000_000)
+        budget.check_remaining()  # should not raise
+
+    def test_check_remaining_passes_under_limit(self):
+        budget = TokenBudget(session_limit=1000)
+        budget.record(500)
+        budget.check_remaining()  # should not raise
+
+    def test_check_remaining_raises_when_exhausted(self):
+        budget = TokenBudget(session_limit=100)
+        budget.record(100)
+        with pytest.raises(TokenBudgetExceeded) as exc_info:
+            budget.check_remaining()
+        assert exc_info.value.used == 100
+        assert exc_info.value.limit == 100
+
+    def test_exception_message_contains_counts(self):
+        budget = TokenBudget(session_limit=500)
+        budget.record(600)
+        with pytest.raises(TokenBudgetExceeded) as exc_info:
+            budget.check_remaining()
+        msg = str(exc_info.value)
+        assert "600" in msg
+        assert "500" in msg
+
+    def test_check_remaining_at_exactly_limit(self):
+        budget = TokenBudget(session_limit=200)
+        budget.record(200)
+        with pytest.raises(TokenBudgetExceeded):
+            budget.check_remaining()

@@ -64,7 +64,7 @@ class TestYAMLLoader:
 name: test-agent
 description: "A test agent"
 model:
-  preferred: gpt-4o
+  preferred: openai/glm-4.7
   temperature: 0.3
 system_prompt: "You are a test."
 tools:
@@ -80,7 +80,7 @@ tools:
 
         assert agent.name == "test-agent"
         assert agent.description == "A test agent"
-        assert agent.config.model == "gpt-4o"
+        assert agent.config.model == "openai/glm-4.7"
         assert agent.config.temperature == 0.3
         assert agent.config.tools == ["file_read", "grep"]
 

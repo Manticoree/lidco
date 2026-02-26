@@ -15,6 +15,7 @@ from litellm.exceptions import (
     Timeout,
 )
 
+from lidco.llm.exceptions import LLMRetryExhausted
 from lidco.llm.retry import RetryConfig, with_retry
 
 
@@ -135,7 +136,7 @@ async def test_max_retries_exceeded(no_jitter_config: RetryConfig) -> None:
     fn = AsyncMock(side_effect=error)
 
     with patch("lidco.llm.retry.asyncio.sleep", new_callable=AsyncMock):
-        with pytest.raises(RateLimitError):
+        with pytest.raises(LLMRetryExhausted):
             await with_retry(fn, no_jitter_config)
 
     # 1 initial + 3 retries = 4 total
@@ -176,7 +177,7 @@ async def test_exponential_backoff_delays(no_jitter_config: RetryConfig) -> None
     fn = AsyncMock(side_effect=error)
 
     with patch("lidco.llm.retry.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-        with pytest.raises(RateLimitError):
+        with pytest.raises(LLMRetryExhausted):
             await with_retry(fn, no_jitter_config)
 
     delays = [call.args[0] for call in mock_sleep.call_args_list]
@@ -193,7 +194,7 @@ async def test_max_delay_cap() -> None:
     fn = AsyncMock(side_effect=error)
 
     with patch("lidco.llm.retry.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-        with pytest.raises(RateLimitError):
+        with pytest.raises(LLMRetryExhausted):
             await with_retry(fn, config)
 
     delays = [call.args[0] for call in mock_sleep.call_args_list]
@@ -210,7 +211,7 @@ async def test_jitter_varies_delay(jitter_config: RetryConfig) -> None:
     fn = AsyncMock(side_effect=error)
 
     with patch("lidco.llm.retry.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-        with pytest.raises(RateLimitError):
+        with pytest.raises(LLMRetryExhausted):
             await with_retry(fn, jitter_config)
 
     delays = [call.args[0] for call in mock_sleep.call_args_list]
@@ -229,7 +230,7 @@ async def test_zero_retries_raises_immediately() -> None:
     error = _make_litellm_error(RateLimitError)
     fn = AsyncMock(side_effect=error)
 
-    with pytest.raises(RateLimitError):
+    with pytest.raises(LLMRetryExhausted):
         await with_retry(fn, config)
 
     assert fn.await_count == 1

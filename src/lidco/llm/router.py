@@ -7,6 +7,7 @@ from typing import Any, AsyncIterator
 
 from lidco.core.config import LLMProvidersConfig, RoleModelConfig
 from lidco.llm.base import BaseLLMProvider, LLMResponse, Message, StreamChunk
+from lidco.llm.exceptions import LLMRetryExhausted
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,7 @@ class ModelRouter(BaseLLMProvider):
                 max_tokens = role_cfg.max_tokens
 
         chain = self._get_model_chain(model, role=role)
-        last_error: Exception | None = None
+        all_attempts: list[tuple[str, Exception]] = []
 
         for candidate in chain:
             try:
@@ -119,13 +120,17 @@ class ModelRouter(BaseLLMProvider):
                     tools=tools,
                     tool_choice=tool_choice,
                 )
-            except Exception as e:
-                last_error = e
-                logger.warning("Model %s failed: %s. Trying next.", candidate, e)
+            except LLMRetryExhausted as e:
+                all_attempts.extend(e.attempts)
+                logger.warning(
+                    "Model %s exhausted retries: %s. Trying next.", candidate, e
+                )
 
-        raise RuntimeError(
-            f"All models failed. Last error: {last_error}"
-        ) from last_error
+        raise LLMRetryExhausted(
+            f"All {len(chain)} model(s) in the fallback chain failed. "
+            f"Tried: {chain}",
+            attempts=all_attempts,
+        )
 
     async def stream(
         self,
@@ -147,7 +152,7 @@ class ModelRouter(BaseLLMProvider):
                 max_tokens = role_cfg.max_tokens
 
         chain = self._get_model_chain(model, role=role)
-        last_error: Exception | None = None
+        all_attempts: list[tuple[str, Exception]] = []
 
         for candidate in chain:
             try:
@@ -161,13 +166,20 @@ class ModelRouter(BaseLLMProvider):
                 ):
                     yield chunk
                 return
-            except Exception as e:
-                last_error = e
-                logger.warning("Model %s failed: %s. Trying next.", candidate, e)
+            except LLMRetryExhausted as e:
+                # Only retry-exhausted errors trigger fallback.
+                # Mid-stream errors or non-retryable errors propagate immediately.
+                all_attempts.extend(e.attempts)
+                logger.warning(
+                    "Model %s exhausted retries (stream): %s. Trying next.",
+                    candidate, e,
+                )
 
-        raise RuntimeError(
-            f"All models failed. Last error: {last_error}"
-        ) from last_error
+        raise LLMRetryExhausted(
+            f"All {len(chain)} model(s) in the fallback chain failed (stream). "
+            f"Tried: {chain}",
+            attempts=all_attempts,
+        )
 
     def list_models(self) -> list[str]:
         """List available models."""

@@ -4,6 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# ── Schema versioning ─────────────────────────────────────────────────────────
+
+# Increment this whenever a new migration is added.
+CURRENT_SCHEMA_VERSION: int = 1
+
+# Bootstrap DDL — creates the version tracking table.  Run *before* migrations.
+_SCHEMA_VERSIONS_DDL = """
+CREATE TABLE IF NOT EXISTS schema_versions (
+    version    INTEGER PRIMARY KEY,
+    applied_at TEXT    NOT NULL
+);
+"""
 
 # ── DDL ───────────────────────────────────────────────────────────────────────
 
@@ -57,6 +69,17 @@ CREATE TABLE IF NOT EXISTS imports (
 CREATE INDEX IF NOT EXISTS idx_imports_from     ON imports(from_file_id);
 CREATE INDEX IF NOT EXISTS idx_imports_resolved ON imports(resolved_path);
 """
+
+# ── Migration registry ────────────────────────────────────────────────────────
+# Each entry maps a version number to the SQL that upgrades the DB *to* that
+# version.  Migration 1 is the initial schema — always idempotent because it
+# uses ``CREATE TABLE IF NOT EXISTS``.  Future migrations use ``ALTER TABLE``,
+# ``CREATE INDEX IF NOT EXISTS``, etc.
+
+MIGRATIONS: dict[int, str] = {
+    1: SCHEMA_SQL,
+    # 2: "ALTER TABLE files ADD COLUMN checksum TEXT NOT NULL DEFAULT '';",
+}
 
 # Valid values for FileRecord.role
 FILE_ROLES = frozenset({

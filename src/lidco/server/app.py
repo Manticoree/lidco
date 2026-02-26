@@ -12,7 +12,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from lidco import __version__
 from lidco.core.session import Session
-from lidco.server.middleware import AuthTokenMiddleware, RequestLoggingMiddleware
+from lidco.server.middleware import AuthTokenMiddleware, RateLimitMiddleware, RequestLoggingMiddleware
 from lidco.server.models import (
     AgentInfo,
     ChatRequest,
@@ -59,6 +59,13 @@ def create_app(project_dir: Path | None = None) -> FastAPI:
     )
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(AuthTokenMiddleware)
+    app.add_middleware(
+        RateLimitMiddleware,
+        path_limits={
+            "/chat": (60, 60),    # 60 requests / minute
+            "/index": (10, 60),   # 10 requests / minute
+        },
+    )
 
     # ── Session (lazy singleton) ────────────────────────────────────────────
 
@@ -313,7 +320,7 @@ def create_app(project_dir: Path | None = None) -> FastAPI:
     async def get_context() -> ContextResponse:
         session = _get_session()
         return ContextResponse(
-            context=session.get_full_context(),
+            context=session.get_full_context(skip_dedup=True),
             project_dir=str(session.project_dir),
         )
 
@@ -358,6 +365,12 @@ def run_server(
 ) -> None:
     """Start the LIDCO HTTP server."""
     import uvicorn
+
+    from lidco.core.config import load_config
+    from lidco.core.logging import setup_logging
+
+    cfg = load_config(project_dir)
+    setup_logging(format=cfg.logging.format, level=cfg.logging.level, log_file=cfg.logging.log_file)
 
     app = create_app(project_dir=project_dir)
     logger.info("Starting LIDCO server on %s:%d", host, port)

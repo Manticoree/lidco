@@ -113,6 +113,22 @@ class TestSecurityAgent:
         assert agent.name == "security"
         assert "OWASP" in agent.get_system_prompt()
 
+    def test_security_agent_uses_readonly_tools(self) -> None:
+        from unittest.mock import MagicMock
+        from lidco.agents.builtin.security import create_security_agent
+
+        agent = create_security_agent(MagicMock(), MagicMock())
+        assert set(agent.config.tools) == {"file_read", "glob", "grep"}
+
+    def test_security_agent_cannot_write(self) -> None:
+        from unittest.mock import MagicMock
+        from lidco.agents.builtin.security import create_security_agent
+
+        agent = create_security_agent(MagicMock(), MagicMock())
+        assert "file_write" not in agent.config.tools
+        assert "file_edit" not in agent.config.tools
+        assert "bash" not in agent.config.tools
+
     def test_security_agent_in_session(self) -> None:
         from unittest.mock import MagicMock, patch
         from lidco.core.config import LidcoConfig

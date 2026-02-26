@@ -5,10 +5,8 @@ name: security-reviewer
 description: "Analyzes code for security vulnerabilities"
 version: "1.0"
 
-model:
-  preferred: "gpt-4o"
-  fallback: "claude-sonnet-4-5-20250514"
-  temperature: 0.1
+model: "openai/glm-4.7"
+temperature: 0.1
 
 system_prompt: |
   You are a security expert specializing in code review.

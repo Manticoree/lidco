@@ -99,6 +99,70 @@ class TestDebugCommand:
         result = _run(reg.get("debug").handler(arg="on"))
         assert "not initialized" in result.lower()
 
+    def test_unknown_arg_mentions_analyze(self):
+        session = _make_session()
+        reg = _make_registry(session)
+        result = _run(reg.get("debug").handler(arg="blah"))
+        assert "analyze" in result.lower() or "usage" in result.lower()
+
+
+# ── /debug analyze subcommand ──────────────────────────────────────────────────
+
+
+class TestDebugAnalyzeCommand:
+    def _make_session_with_orchestrator(self, error_history=None):
+        from unittest.mock import AsyncMock as _AM
+        from lidco.agents.base import AgentResponse, TokenUsage
+
+        session = _make_session()
+        if error_history is not None:
+            session._error_history = error_history
+        mock_orch = MagicMock()
+        mock_orch.handle = _AM(return_value=AgentResponse(
+            content="Debugger analysis result",
+            tool_calls_made=[],
+            iterations=1,
+            model_used="m",
+            token_usage=TokenUsage(),
+        ))
+        session.orchestrator = mock_orch
+        return session
+
+    def test_analyze_no_errors_returns_message(self):
+        session = self._make_session_with_orchestrator()  # empty history
+        reg = _make_registry(session)
+        result = _run(reg.get("debug").handler(arg="analyze"))
+        assert "no errors" in result.lower()
+
+    def test_analyze_calls_session_handle_with_debugger(self):
+        history = ErrorHistory()
+        history.append(_make_record(1, tb="Traceback:\n  File foo.py\nError"))
+        session = self._make_session_with_orchestrator(error_history=history)
+        reg = _make_registry(session)
+        result = _run(reg.get("debug").handler(arg="analyze"))
+        # Should have called orchestrator.handle
+        session.orchestrator.handle.assert_called_once()
+        call_kwargs = session.orchestrator.handle.call_args
+        assert call_kwargs.kwargs.get("agent_name") == "debugger"
+        # Response content should be returned
+        assert "Debugger analysis result" in result
+
+    def test_analyze_error_context_passed_in_message(self):
+        history = ErrorHistory()
+        history.append(_make_record(1, tb="Traceback:\n  File foo.py\nValueError: bang"))
+        session = self._make_session_with_orchestrator(error_history=history)
+        reg = _make_registry(session)
+        _run(reg.get("debug").handler(arg="analyze"))
+
+        call_args = session.orchestrator.handle.call_args
+        message = call_args.args[0] if call_args.args else call_args.kwargs.get("user_message", "")
+        assert "Recent Errors" in message or "error" in message.lower()
+
+    def test_analyze_no_session_returns_message(self):
+        reg = CommandRegistry()
+        result = _run(reg.get("debug").handler(arg="analyze"))
+        assert "not initialized" in result.lower()
+
 
 # ── /errors command ───────────────────────────────────────────────────────────
 

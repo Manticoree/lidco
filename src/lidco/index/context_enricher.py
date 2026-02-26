@@ -18,6 +18,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from lidco.index.db import IndexDatabase
+from lidco.index.dependency_graph import DependencyGraph
 from lidco.index.schema import FileRecord
 
 logger = logging.getLogger(__name__)
@@ -112,13 +113,41 @@ class IndexContextEnricher:
                 result.append(rec)
         return result
 
-    def get_context(self, query: str = "", max_chars: int = 3000) -> str:
+    def get_related_files(
+        self,
+        file_path: str,
+        limit: int = 5,
+    ) -> str:
+        """Return a compact '## Related files' section for *file_path*.
+
+        Uses the import dependency graph to find files that import or are
+        imported by *file_path*.  Returns an empty string when the file is not
+        in the index or has no import relationships.
+        """
+        graph = DependencyGraph(self._db)
+        related = graph.get_related(file_path, limit=limit)
+        if not related:
+            return ""
+
+        lines = ["## Related files"]
+        for rel in related:
+            arrow = "← imported by" if rel.relation == "imported_by" else "→ imports"
+            lines.append(f"  - `{rel.record.path}` ({arrow})")
+        return "\n".join(lines)
+
+    def get_context(
+        self,
+        query: str = "",
+        max_chars: int = 3000,
+        current_file: str = "",
+    ) -> str:
         """Return a compact structural context string for agent injection.
 
         Includes:
         1. Project summary line
         2. Entrypoints (if any)
         3. Query-relevant files with their top symbols (when *query* provided)
+        4. Related files by import dependency (when *current_file* provided)
 
         Returns an empty string if the index is empty.
         Truncates at *max_chars* to stay token-budget-friendly.
@@ -153,10 +182,46 @@ class IndexContextEnricher:
                     suffix = f" — {sym_str}" if sym_str else ""
                     lines.append(f"  - `{f.path}` ({f.language}){suffix}")
 
+        # Import-related files for the current file being worked on
+        if current_file:
+            related_section = self.get_related_files(current_file)
+            if related_section:
+                lines.append(related_section)
+
         result = "\n".join(lines)
         if len(result) > max_chars:
             result = result[: max_chars - 3] + "..."
         return result
+
+    def get_file_symbol_summary(self, file_path: str) -> str:
+        """Return a formatted symbol summary block for *file_path*.
+
+        Used by FileReadTool to compress large file reads when the index has
+        structural information about the file.  Returns an empty string when
+        the file is not in the index or has no recorded symbols.
+        """
+        rec = self._db.get_file_by_path(file_path)
+        if rec is None:
+            return ""
+        symbols = self._db.query_symbols(file_id=rec.id)
+        if not symbols:
+            return ""
+
+        header = (
+            f"## File summary ({file_path}"
+            f" — {rec.lines_count} lines, {len(symbols)} symbols)"
+        )
+        lines = [header]
+        for sym in symbols:
+            line_info = f"line {sym.line_start}"
+            if sym.line_end and sym.line_end != sym.line_start:
+                line_info += f"–{sym.line_end}"
+            if sym.parent_name:
+                entry = f"  - {sym.kind} `{sym.name}` (in `{sym.parent_name}`) · {line_info}"
+            else:
+                entry = f"  - {sym.kind} `{sym.name}` · {line_info}"
+            lines.append(entry)
+        return "\n".join(lines)
 
     # ── Class-level factory ───────────────────────────────────────────────────
 

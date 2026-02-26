@@ -1,14 +1,13 @@
 # LIDCO Default Configuration
 
 llm:
-  default_model: "openai/glm-4.7-flash"
+  default_model: "openai/glm-4.7"
   temperature: 0.1
   max_tokens: 4096
   streaming: true
 
   fallback_models:
-    - "openai/glm-4.5-flash"
-    - "openai/glm-4.5-air"
+    - "openai/glm-4.7"
 
   retry:
     max_retries: 3

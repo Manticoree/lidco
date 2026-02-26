@@ -139,6 +139,14 @@ class PermissionManager:
         self._session_allowed: set[str] = set()
         self._allow_all: bool = False
 
+    @staticmethod
+    def _is_git_commit(tool_name: str, params: dict) -> bool:
+        """Return True if this is a git commit operation."""
+        if tool_name != "git":
+            return False
+        command = str(params.get("command", "")).strip().lower()
+        return command.startswith("commit")
+
     def check(self, tool_name: str, params: dict) -> bool:
         """Check if a tool execution is allowed.
 
@@ -151,6 +159,14 @@ class PermissionManager:
             return False
 
         if level == ToolPermission.AUTO:
+            return True
+
+        # git commit always requires explicit approval — bypass all session-allow shortcuts
+        if self._is_git_commit(tool_name, params):
+            choice = _run_permission_prompt(tool_name, params, self._console)
+            if choice == "n":
+                self._console.print("[red]Denied.[/red]")
+                return False
             return True
 
         if self._allow_all or tool_name in self._session_allowed:

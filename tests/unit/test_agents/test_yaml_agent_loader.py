@@ -50,7 +50,7 @@ class TestLoadAgentFromYaml:
             "name": "my-agent",
             "description": "Does cool things",
             "system_prompt": "You are an expert.",
-            "model": "openai/gpt-4o",
+            "model": "openai/glm-4.7",
             "temperature": 0.3,
             "tools": ["file_read", "glob"],
             "routing_keywords": ["deploy", "ship"],
@@ -61,7 +61,7 @@ class TestLoadAgentFromYaml:
         assert agent.name == "my-agent"
         assert agent.description == "Does cool things"
         assert agent.config.system_prompt == "You are an expert."
-        assert agent.config.model == "openai/gpt-4o"
+        assert agent.config.model == "openai/glm-4.7"
         assert agent.config.temperature == 0.3
         assert agent.config.tools == ["file_read", "glob"]
         assert agent.config.routing_keywords == ["deploy", "ship"]
@@ -179,15 +179,15 @@ class TestNestedModelBackwardCompat:
         f = _write_yaml(tmp_path / "legacy.yaml", {
             "name": "legacy",
             "system_prompt": "Legacy agent.",
-            "model": {"preferred": "openai/gpt-4", "temperature": 0.5, "fallback": "openai/gpt-3.5"},
+            "model": {"preferred": "openai/glm-4.7", "temperature": 0.5, "fallback": "openai/glm-4.7"},
         })
         import logging
         with caplog.at_level(logging.WARNING, logger="lidco.agents.loader"):
             agent = load_agent_from_yaml(f, mock_llm, mock_registry)
 
-        assert agent.config.model == "openai/gpt-4"
+        assert agent.config.model == "openai/glm-4.7"
         assert agent.config.temperature == 0.5
-        assert agent.config.fallback_model == "openai/gpt-3.5"
+        assert agent.config.fallback_model == "openai/glm-4.7"
         assert any("deprecated" in r.message for r in caplog.records)
 
 

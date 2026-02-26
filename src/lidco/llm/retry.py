@@ -16,6 +16,8 @@ from litellm.exceptions import (
     Timeout,
 )
 
+from lidco.llm.exceptions import LLMRetryExhausted
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -45,11 +47,16 @@ class RetryConfig:
 async def with_retry(
     fn: Callable[[], Awaitable[T]],
     config: RetryConfig,
+    model_name: str = "unknown",
 ) -> T:
     """Execute an async callable with exponential backoff retry.
 
     Retries only on exceptions listed in ``config.retryable_exceptions``.
     Non-retryable exceptions propagate immediately.
+
+    Raises:
+        LLMRetryExhausted: when all ``config.max_retries + 1`` attempts fail.
+        Any other exception: propagated immediately without retry.
     """
     last_error: BaseException | None = None
 
@@ -59,20 +66,28 @@ async def with_retry(
         except tuple(config.retryable_exceptions) as exc:
             last_error = exc
             if attempt == config.max_retries:
-                raise
+                raise LLMRetryExhausted(
+                    f"LLM call to '{model_name}' failed after"
+                    f" {config.max_retries + 1} attempt(s): {exc}",
+                    attempts=[(model_name, exc)],
+                ) from exc
 
             delay = min(config.base_delay * (2 ** attempt), config.max_delay)
             if config.jitter:
                 delay *= random.uniform(0.5, 1.5)
 
             logger.warning(
-                "Retry %d/%d after %.1fs: %s",
+                "Retry %d/%d for '%s' after %.1fs: %s",
                 attempt + 1,
                 config.max_retries,
+                model_name,
                 delay,
                 exc,
             )
             await asyncio.sleep(delay)
 
     # Unreachable, but satisfies type checker
-    raise last_error  # type: ignore[misc]
+    raise LLMRetryExhausted(  # type: ignore[misc]
+        f"LLM call to '{model_name}' failed: {last_error}",
+        attempts=[(model_name, last_error)],  # type: ignore[list-item]
+    )

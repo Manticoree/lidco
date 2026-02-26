@@ -321,6 +321,98 @@ class TestFromProjectDir:
         assert "main.py" in ctx
 
 
+# ── get_file_symbol_summary ───────────────────────────────────────────────────
+
+
+class TestGetFileSymbolSummary:
+    def test_unknown_file_returns_empty(self, enricher: IndexContextEnricher) -> None:
+        assert enricher.get_file_symbol_summary("src/missing.py") == ""
+
+    def test_file_with_no_symbols_returns_empty(
+        self, db: IndexDatabase, enricher: IndexContextEnricher
+    ) -> None:
+        _insert_file(db, "src/empty.py")
+        assert enricher.get_file_symbol_summary("src/empty.py") == ""
+
+    def test_includes_file_path_in_header(
+        self, db: IndexDatabase, enricher: IndexContextEnricher
+    ) -> None:
+        fid = _insert_file(db, "src/foo.py")
+        _insert_symbol(db, fid, "my_func")
+        result = enricher.get_file_symbol_summary("src/foo.py")
+        assert "src/foo.py" in result
+
+    def test_includes_symbol_name(
+        self, db: IndexDatabase, enricher: IndexContextEnricher
+    ) -> None:
+        fid = _insert_file(db, "src/foo.py")
+        _insert_symbol(db, fid, "parse_config", kind="function")
+        result = enricher.get_file_symbol_summary("src/foo.py")
+        assert "parse_config" in result
+
+    def test_includes_symbol_kind(
+        self, db: IndexDatabase, enricher: IndexContextEnricher
+    ) -> None:
+        fid = _insert_file(db, "src/foo.py")
+        _insert_symbol(db, fid, "MyClass", kind="class")
+        result = enricher.get_file_symbol_summary("src/foo.py")
+        assert "class" in result
+
+    def test_includes_line_number(
+        self, db: IndexDatabase, enricher: IndexContextEnricher
+    ) -> None:
+        fid = _insert_file(db, "src/foo.py")
+        db.insert_symbols([
+            SymbolRecord(file_id=fid, name="func", kind="function", line_start=42)
+        ])
+        result = enricher.get_file_symbol_summary("src/foo.py")
+        assert "42" in result
+
+    def test_includes_line_range_when_line_end_set(
+        self, db: IndexDatabase, enricher: IndexContextEnricher
+    ) -> None:
+        fid = _insert_file(db, "src/foo.py")
+        db.insert_symbols([
+            SymbolRecord(file_id=fid, name="func", kind="function", line_start=10, line_end=30)
+        ])
+        result = enricher.get_file_symbol_summary("src/foo.py")
+        assert "10" in result
+        assert "30" in result
+
+    def test_includes_parent_name_for_methods(
+        self, db: IndexDatabase, enricher: IndexContextEnricher
+    ) -> None:
+        fid = _insert_file(db, "src/foo.py")
+        db.insert_symbols([
+            SymbolRecord(
+                file_id=fid, name="save", kind="method",
+                line_start=5, parent_name="UserModel"
+            )
+        ])
+        result = enricher.get_file_symbol_summary("src/foo.py")
+        assert "UserModel" in result
+
+    def test_multiple_symbols_all_listed(
+        self, db: IndexDatabase, enricher: IndexContextEnricher
+    ) -> None:
+        fid = _insert_file(db, "src/foo.py")
+        _insert_symbol(db, fid, "alpha")
+        _insert_symbol(db, fid, "beta")
+        _insert_symbol(db, fid, "gamma")
+        result = enricher.get_file_symbol_summary("src/foo.py")
+        assert "alpha" in result
+        assert "beta" in result
+        assert "gamma" in result
+
+    def test_header_starts_with_file_summary(
+        self, db: IndexDatabase, enricher: IndexContextEnricher
+    ) -> None:
+        fid = _insert_file(db, "src/foo.py")
+        _insert_symbol(db, fid, "fn")
+        result = enricher.get_file_symbol_summary("src/foo.py")
+        assert result.startswith("## File summary")
+
+
 # ── Integration: real project ─────────────────────────────────────────────────
 
 
