@@ -23,10 +23,11 @@ def create_coder_agent(llm: BaseLLMProvider, tool_registry: ToolRegistry) -> Bas
     """Create the default coder agent."""
     config = AgentConfig(
         name="coder",
-        description="Code writing, debugging, modification.",
+        description="Code writing and file modification.",
         system_prompt=CODER_SYSTEM_PROMPT,
         temperature=0.1,
         max_iterations=200,
+        tools=["file_read", "file_write", "file_edit", "bash", "glob", "grep", "git", "ask_user", "run_tests"],
     )
 
     class CoderAgent(BaseAgent):

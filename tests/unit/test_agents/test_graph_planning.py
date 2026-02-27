@@ -261,7 +261,9 @@ class TestPlannerExecution:
 
         result = await orch._execute_planner_node(state)
         assert result["plan_response"] is None
-        assert result["plan_approved"] is True
+        # plan_approved is NOT set by this node; _approve_plan_node handles it
+        # when plan_response is None (auto-approves with empty parallel_steps)
+        assert result.get("plan_approved", False) is False
 
 
 class TestPlanApproval:

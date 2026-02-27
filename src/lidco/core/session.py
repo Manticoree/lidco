@@ -286,7 +286,7 @@ class Session:
 
     def _register_yaml_agents(self) -> None:
         """Discover and register YAML-defined custom agents."""
-        agents = discover_yaml_agents(self.llm, self.tool_registry)
+        agents = discover_yaml_agents(self.llm, self.tool_registry, project_dir=self.project_dir)
         for agent in agents:
             if self.agent_registry.get(agent.name) is not None:
                 logger.info(

@@ -97,16 +97,20 @@ def discover_yaml_agents(
     llm: BaseLLMProvider,
     tool_registry: ToolRegistry,
     search_dirs: list[Path] | None = None,
+    project_dir: Path | None = None,
 ) -> list[BaseAgent]:
     """Discover and load all YAML agents from standard directories.
 
-    Searches ``~/.lidco/agents/`` and ``.lidco/agents/`` (relative to cwd)
-    by default. Invalid files are skipped with a WARNING.
+    Searches ``~/.lidco/agents/`` and ``<project_dir>/.lidco/agents/``
+    by default (falls back to cwd when ``project_dir`` is not supplied).
+    Both ``.yaml`` and ``.yml`` extensions are supported.
+    Invalid files are skipped with a WARNING.
     """
     if search_dirs is None:
+        project_agents_dir = (project_dir or Path.cwd()) / ".lidco" / "agents"
         search_dirs = [
             Path.home() / ".lidco" / "agents",
-            Path.cwd() / ".lidco" / "agents",
+            project_agents_dir,
         ]
 
     agents: list[BaseAgent] = []
@@ -114,7 +118,10 @@ def discover_yaml_agents(
     for directory in search_dirs:
         if not directory.exists():
             continue
-        for yaml_file in sorted(directory.glob("*.yaml")):
+        yaml_files = sorted(
+            list(directory.glob("*.yaml")) + list(directory.glob("*.yml"))
+        )
+        for yaml_file in yaml_files:
             try:
                 agent = load_agent_from_yaml(yaml_file, llm, tool_registry)
                 agents.append(agent)

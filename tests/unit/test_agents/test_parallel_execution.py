@@ -235,22 +235,25 @@ class TestExecuteParallelNode:
         assert "ghost" in result["agent_response"].content
 
     @pytest.mark.asyncio
-    async def test_max_parallel_cap_limits_steps(self):
-        """Only up to max_parallel_agents steps are executed."""
+    async def test_max_parallel_cap_limits_concurrency(self):
+        """All steps execute, but concurrency is capped at max_parallel_agents.
+
+        The semaphore limits how many steps run simultaneously, but does NOT
+        drop any steps from the plan (P2-02 fix: truncation removed).
+        """
         registry = _make_registry("coder")
         orch = _make_orch(registry, max_parallel=2)
 
-        # 5 steps but max_parallel=2 — only first 2 should run
+        # 5 steps — all 5 should execute (semaphore limits concurrency, not count)
         state = _parallel_state(["s1", "s2", "s3", "s4", "s5"])
         result = await orch._execute_parallel_node(state)
 
-        assert _TrackingAgent.call_count == 2
+        assert _TrackingAgent.call_count == 5
         resp = result["agent_response"]
         assert resp is not None
-        # Only the first 2 step headers should appear
+        # All 5 step headers should appear
         assert "Parallel Step 1" in resp.content
-        assert "Parallel Step 2" in resp.content
-        assert "Parallel Step 3" not in resp.content
+        assert "Parallel Step 5" in resp.content
 
     @pytest.mark.asyncio
     async def test_tokens_accumulated_from_all_steps(self):

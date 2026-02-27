@@ -30,7 +30,7 @@ def create_tester_agent(llm: BaseLLMProvider, tool_registry: ToolRegistry) -> Ba
         system_prompt=TESTER_SYSTEM_PROMPT,
         temperature=0.1,
         max_iterations=200,
-        tools=["file_read", "file_write", "file_edit", "bash", "glob", "grep"],
+        tools=["file_read", "file_write", "file_edit", "bash", "glob", "grep", "run_tests"],
     )
 
     class TestAgent(BaseAgent):

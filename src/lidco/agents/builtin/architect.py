@@ -28,7 +28,7 @@ def create_architect_agent(llm: BaseLLMProvider, tool_registry: ToolRegistry) ->
         system_prompt=ARCHITECT_SYSTEM_PROMPT,
         temperature=0.2,
         max_iterations=200,
-        tools=["file_read", "glob", "grep", "ask_user"],
+        tools=["file_read", "glob", "grep", "ask_user", "tree", "arch_diagram", "find_test_gaps"],
     )
 
     class ArchitectAgent(BaseAgent):

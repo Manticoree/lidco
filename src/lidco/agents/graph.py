@@ -26,7 +26,7 @@ MAX_REVIEW_ITERATIONS = 2
 
 # Agents that benefit from a planning phase before execution.
 # Reviewer, researcher, and docs agents work well without upfront planning.
-_PLANNING_AGENTS = frozenset({"coder", "architect", "tester", "refactor", "debugger", "profiler"})
+_PLANNING_AGENTS = frozenset({"coder", "architect", "tester", "refactor", "debugger", "profiler", "security"})
 
 
 class GraphState(TypedDict, total=False):
@@ -104,7 +104,7 @@ Available agents:
 {agents}
 
 needs_review=true for code modifications. needs_planning=true for new features, multi-file, architecture.
-Rules: plan/design→planner, review/audit→reviewer, debug/error/bug/traceback/exception/attributeerror/typeerror/importerror/keyerror/stack trace→debugger, architecture→architect, test/coverage→tester, refactor/cleanup→refactor, docs/docstring/readme→docs, search/research/web→researcher, validate/qa/check compilation/run tests after feature→qa, profile/performance/hotspot/slow/optimize speed→profiler, explain/what does/how does/walk me through/describe→explain, security/vulnerability/owasp/injection/xss/csrf/secrets/pentest→security, else→coder.
+Rules: plan/design→planner, review/audit→reviewer, debug/error/bug/traceback/exception/attributeerror/typeerror/importerror/keyerror/stack trace→debugger, architecture→architect, test/coverage→tester, refactor/cleanup→refactor, docs/docstring/readme→docs, search/research/web→researcher, validate/qa/check compilation/run tests after feature→qa, profile/performance/hotspot/slow/optimize speed→profiler, explain/what does/how does/walk me through/describe→explain, security/vulnerability/owasp/injection/xss/csrf/secrets/pentest→security, implement/create/write/add/build→coder, else→coder.
 """
 
 
@@ -304,6 +304,23 @@ class GraphOrchestrator(BaseOrchestrator):
         """
         self._preplan_snapshot_enabled = enabled
 
+    # --- Live-reloadable config setters (override BaseOrchestrator no-ops) ---
+
+    def set_agent_timeout(self, timeout: int) -> None:
+        self._agent_timeout = timeout
+
+    def set_auto_plan(self, enabled: bool) -> None:
+        self._auto_plan = enabled
+
+    def set_auto_review(self, enabled: bool) -> None:
+        self._auto_review = enabled
+
+    def set_max_review_iterations(self, n: int) -> None:
+        self._max_review_iterations = n
+
+    def set_default_agent(self, name: str) -> None:
+        self._default_agent = name
+
     def _report_status(self, status: str) -> None:
         if self._status_callback is not None:
             self._status_callback(status)
@@ -440,10 +457,10 @@ class GraphOrchestrator(BaseOrchestrator):
             return state
 
         # Ask the user each question and collect answers
-        import asyncio
+        loop = asyncio.get_running_loop()
         answers: list[str] = []
         for q in questions:
-            answer = await asyncio.get_event_loop().run_in_executor(
+            answer = await loop.run_in_executor(
                 None,
                 self._clarification_handler,
                 q.question,
@@ -744,8 +761,9 @@ class GraphOrchestrator(BaseOrchestrator):
         parallel_steps = state.get("parallel_steps") or []
         agent_name = state["selected_agent"]
 
-        # Cap to max_parallel_agents
-        steps_to_run = parallel_steps[: self._max_parallel_agents]
+        # Use semaphore as a concurrency cap (not a step count cap) so that
+        # plans with more steps than max_parallel_agents still execute all steps.
+        steps_to_run = parallel_steps
         n = len(steps_to_run)
 
         self._report_status(f"Running {n} steps in parallel ({agent_name})")
@@ -785,7 +803,7 @@ class GraphOrchestrator(BaseOrchestrator):
             advisory_parts.append(base_context)
         shared_context = "\n\n".join(advisory_parts)
 
-        semaphore = asyncio.Semaphore(self._max_parallel_agents)
+        semaphore = asyncio.Semaphore(max(1, self._max_parallel_agents))
         timeout = self._agent_timeout if self._agent_timeout > 0 else None
 
         async def _run_step(step_desc: str) -> AgentResponse:
@@ -800,6 +818,26 @@ class GraphOrchestrator(BaseOrchestrator):
                 fresh.set_stream_callback(self._stream_callback)
                 fresh.set_tool_event_callback(self._tool_event_callback)
                 fresh.set_error_callback(self._error_callback)
+
+                # Mirror debug context injection from _execute_agent_node
+                if fresh.config.name == "debugger" and self._error_context_builder is not None:
+                    snippets = self._error_context_builder()
+                    if snippets:
+                        fresh.prepend_system_context(snippets)
+                if (
+                    self._debug_mode
+                    and fresh.config.name != "debugger"
+                    and fresh.config.name in _PLANNING_AGENTS
+                    and self._error_summary_builder is not None
+                ):
+                    summary = self._error_summary_builder()
+                    if summary:
+                        fresh.prepend_system_context(
+                            "## Active Debug Context\n\n"
+                            "Debug mode is active. Recent tool failures are listed below — "
+                            "avoid patterns that triggered these errors.\n\n"
+                            + summary
+                        )
 
                 message = (
                     f"{state['user_message']}\n\n"
@@ -837,11 +875,12 @@ class GraphOrchestrator(BaseOrchestrator):
         all_tool_calls: list[dict[str, Any]] = []
         for resp in responses:
             all_tool_calls.extend(resp.tool_calls_made)
-        total_tokens = sum(r.token_usage.total_tokens for r in responses)
-        total_cost = sum(r.token_usage.total_cost_usd for r in responses)
-        merged_usage = TokenUsage(total_tokens=total_tokens, total_cost_usd=total_cost)
-        merged_usage.prompt_tokens = sum(r.token_usage.prompt_tokens for r in responses)
-        merged_usage.completion_tokens = sum(r.token_usage.completion_tokens for r in responses)
+        merged_usage = TokenUsage(
+            total_tokens=sum(r.token_usage.total_tokens for r in responses),
+            total_cost_usd=sum(r.token_usage.total_cost_usd for r in responses),
+            prompt_tokens=sum(r.token_usage.prompt_tokens for r in responses),
+            completion_tokens=sum(r.token_usage.completion_tokens for r in responses),
+        )
 
         merged = AgentResponse(
             content=merged_content,
@@ -856,8 +895,8 @@ class GraphOrchestrator(BaseOrchestrator):
             **state,
             "agent_response": merged,
             "error": None,
-            "accumulated_tokens": state.get("accumulated_tokens", 0) + total_tokens,
-            "accumulated_cost_usd": state.get("accumulated_cost_usd", 0.0) + total_cost,
+            "accumulated_tokens": state.get("accumulated_tokens", 0) + merged_usage.total_tokens,
+            "accumulated_cost_usd": state.get("accumulated_cost_usd", 0.0) + merged_usage.total_cost_usd,
         }
 
     async def _plan_gate_node(self, state: GraphState) -> GraphState:
@@ -895,7 +934,7 @@ class GraphOrchestrator(BaseOrchestrator):
         planner = self._registry.get("planner")
         if not planner:
             logger.warning("Planner agent not found, skipping planning")
-            return {**state, "plan_response": None, "plan_approved": True}
+            return {**state, "plan_response": None}
 
         # Propagate callbacks
         planner.set_status_callback(self._status_callback)
@@ -958,12 +997,12 @@ class GraphOrchestrator(BaseOrchestrator):
             logger.error("Planner timed out after %ss", timeout)
             self._report_status("Planning timed out — continuing without plan")
             self._report_phase("Plan", "done")
-            return {**state, "plan_response": None, "plan_approved": True}
+            return {**state, "plan_response": None}
         except Exception as e:
             logger.error("Planner failed: %s", e)
             self._report_status("Planning failed — continuing without plan")
             self._report_phase("Plan", "done")
-            return {**state, "plan_response": None, "plan_approved": True}
+            return {**state, "plan_response": None}
 
     @staticmethod
     def _parse_parallel_steps(plan_content: str) -> list[str]:
@@ -976,15 +1015,21 @@ class GraphOrchestrator(BaseOrchestrator):
         steps: list[str] = []
         for line in plan_content.splitlines():
             stripped = line.strip()
-            if "[PARALLEL]" in stripped.upper():
-                # Extract description before the marker, preserving original case
-                idx = stripped.upper().find("[PARALLEL]")
-                step = stripped[:idx].strip()
-                step = re.sub(r"^\d+\.\s*", "", step)
-                step = re.sub(r"^[-•*]\s*", "", step)
-                if step:
-                    steps.append(step)
-        return steps
+            upper = stripped.upper()
+            if "[PARALLEL]" not in upper:
+                continue
+            idx = upper.find("[PARALLEL]")
+            marker_end = idx + len("[PARALLEL]")
+            # Text may appear before OR after the marker
+            before = stripped[:idx].strip()
+            after = stripped[marker_end:].strip()
+            step = before or after
+            step = re.sub(r"^\d+\.\s*", "", step)
+            step = re.sub(r"^[-•*]\s*", "", step)
+            if step:
+                steps.append(step)
+        # Deduplicate while preserving order
+        return list(dict.fromkeys(steps))
 
     @staticmethod
     def _extract_mentioned_symbols(text: str) -> list[str]:
@@ -1101,7 +1146,7 @@ class GraphOrchestrator(BaseOrchestrator):
             return ""
 
         parts: list[str] = []
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         # Git log: last 10 commits
         try:
@@ -1114,10 +1159,13 @@ class GraphOrchestrator(BaseOrchestrator):
         except Exception:
             pass
 
-        # Coverage context
+        # Coverage context (blocking disk I/O — run off event loop)
         try:
             from lidco.core.coverage_reader import build_coverage_context
-            cov_ctx = build_coverage_context(self._project_dir)
+            cov_ctx = await asyncio.wait_for(
+                loop.run_in_executor(None, build_coverage_context, self._project_dir),
+                timeout=2.0,
+            )
             if cov_ctx:
                 parts.append(cov_ctx)
         except Exception:
@@ -1206,10 +1254,10 @@ class GraphOrchestrator(BaseOrchestrator):
                         Message(role="user", content=plan_content),
                     ],
                     temperature=0.0,
-                    max_tokens=400,
+                    max_tokens=800,
                     role="routing",
                 ),
-                timeout=30,
+                timeout=45,
             )
             critique_text = (critique_response.content or "").strip()
             if not critique_text:
@@ -1227,7 +1275,13 @@ class GraphOrchestrator(BaseOrchestrator):
                 "plan_critique": critique_text,
                 "accumulated_tokens": (
                     state.get("accumulated_tokens", 0)
-                    + critique_response.usage.get("total_tokens", 0)
+                    + (
+                        critique_response.usage.get("total_tokens")
+                        or (
+                            critique_response.usage.get("prompt_tokens", 0)
+                            + critique_response.usage.get("completion_tokens", 0)
+                        )
+                    )
                 ),
                 "accumulated_cost_usd": (
                     state.get("accumulated_cost_usd", 0.0)
@@ -1311,7 +1365,13 @@ class GraphOrchestrator(BaseOrchestrator):
                 "plan_revision": revised_text,
                 "accumulated_tokens": (
                     state.get("accumulated_tokens", 0)
-                    + revision_response.usage.get("total_tokens", 0)
+                    + (
+                        revision_response.usage.get("total_tokens")
+                        or (
+                            revision_response.usage.get("prompt_tokens", 0)
+                            + revision_response.usage.get("completion_tokens", 0)
+                        )
+                    )
                 ),
                 "accumulated_cost_usd": (
                     state.get("accumulated_cost_usd", 0.0)
@@ -1320,7 +1380,9 @@ class GraphOrchestrator(BaseOrchestrator):
             }
         except Exception as e:
             logger.warning("Plan revision failed (non-fatal): %s", e)
-            return state
+            # Clear critique so _should_revise_again exits the loop instead of
+            # burning tokens on another revision attempt that will also fail.
+            return {**state, "plan_critique": None}
 
     async def _re_critique_plan_node(self, state: GraphState) -> GraphState:
         """Run an additional critique pass after revision for multi-round refinement.
@@ -1360,7 +1422,13 @@ class GraphOrchestrator(BaseOrchestrator):
                 "plan_revision_round": round_num,
                 "accumulated_tokens": (
                     state.get("accumulated_tokens", 0)
-                    + critique_response.usage.get("total_tokens", 0)
+                    + (
+                        critique_response.usage.get("total_tokens")
+                        or (
+                            critique_response.usage.get("prompt_tokens", 0)
+                            + critique_response.usage.get("completion_tokens", 0)
+                        )
+                    )
                 ),
                 "accumulated_cost_usd": (
                     state.get("accumulated_cost_usd", 0.0)
@@ -1432,13 +1500,13 @@ class GraphOrchestrator(BaseOrchestrator):
                 f"{plan_context}\n\n{existing_context}" if existing_context else plan_context
             )
             parallel_steps = self._parse_parallel_steps(filtered_plan)
-            self._save_approved_plan(state["user_message"], filtered_plan)
+            await asyncio.get_running_loop().run_in_executor(None, self._save_approved_plan, state["user_message"], filtered_plan)
             return {**state, "plan_approved": True, "context": merged, "parallel_steps": parallel_steps}
 
         # ── Fallback: standard clarification-handler flow ────────────────────
         if not self._clarification_handler:
             parallel_steps = self._parse_parallel_steps(plan_response.content)
-            self._save_approved_plan(state["user_message"], plan_response.content)
+            await asyncio.get_running_loop().run_in_executor(None, self._save_approved_plan, state["user_message"], plan_response.content)
             return {**state, "plan_approved": True, "parallel_steps": parallel_steps}
 
         try:
@@ -1452,7 +1520,7 @@ class GraphOrchestrator(BaseOrchestrator):
         except Exception as e:
             logger.error("Plan approval failed: %s", e)
             parallel_steps = self._parse_parallel_steps(plan_response.content)
-            self._save_approved_plan(state["user_message"], plan_response.content)
+            await asyncio.get_running_loop().run_in_executor(None, self._save_approved_plan, state["user_message"], plan_response.content)
             return {**state, "plan_approved": True, "parallel_steps": parallel_steps}
 
         answer_lower = (answer or "").strip().lower()
@@ -1464,7 +1532,7 @@ class GraphOrchestrator(BaseOrchestrator):
                 f"{plan_context}\n\n{existing_context}" if existing_context else plan_context
             )
             parallel_steps = self._parse_parallel_steps(plan_response.content)
-            self._save_approved_plan(state["user_message"], plan_response.content)
+            await asyncio.get_running_loop().run_in_executor(None, self._save_approved_plan, state["user_message"], plan_response.content)
             return {**state, "plan_approved": True, "context": merged, "parallel_steps": parallel_steps}
 
         if answer_lower in ("reject", "n", "no"):
@@ -1487,12 +1555,12 @@ class GraphOrchestrator(BaseOrchestrator):
         )
         # Parse parallel steps from the approved plan only (not user edit notes)
         parallel_steps = self._parse_parallel_steps(plan_response.content)
-        self._save_approved_plan(state["user_message"], plan_response.content)
+        await asyncio.get_running_loop().run_in_executor(None, self._save_approved_plan, state["user_message"], plan_response.content)
         return {**state, "plan_approved": True, "context": merged, "parallel_steps": parallel_steps}
 
     def _plan_approved(self, state: GraphState) -> Literal["parallel", "sequential", "rejected"]:
         """Route based on plan approval status and parallel step detection."""
-        if not state.get("plan_approved", True):
+        if not state.get("plan_approved", False):
             return "rejected"
         if state.get("parallel_steps"):
             return "parallel"
@@ -1665,7 +1733,7 @@ class GraphOrchestrator(BaseOrchestrator):
         lines = [e.content for e in recent if e.content]
         if not lines:
             return ""
-        hint = "## Past review patterns (emphasise these):\n" + "\n".join(f"- {l}" for l in lines) + "\n\n"
+        hint = "## Past review patterns (emphasise these):\n" + "\n".join(f"- {line}" for line in lines) + "\n\n"
         return hint
 
     def _should_fix(self, state: GraphState) -> Literal["fix", "done"]:
@@ -1693,9 +1761,9 @@ class GraphOrchestrator(BaseOrchestrator):
         if self._memory_store and state.get("agent_response"):
             await self._extract_memory(state)
 
-        # Update RAG index for any files modified during this run
+        # Update RAG index for any files modified during this run (blocking I/O)
         if self._context_retriever and state.get("agent_response"):
-            self._update_rag_index(state)
+            await asyncio.get_running_loop().run_in_executor(None, self._update_rag_index, state)
 
         return state
 
@@ -1898,4 +1966,10 @@ class GraphOrchestrator(BaseOrchestrator):
 
     def restore_history(self, messages: list[dict[str, str]]) -> None:
         """Restore conversation history from a list of message dicts."""
-        self._conversation_history = list(messages)
+        valid: list[dict[str, str]] = []
+        for i, m in enumerate(messages):
+            if not isinstance(m, dict) or "role" not in m or "content" not in m:
+                logger.warning("restore_history: skipping invalid message at index %d", i)
+                continue
+            valid.append(m)
+        self._conversation_history = valid

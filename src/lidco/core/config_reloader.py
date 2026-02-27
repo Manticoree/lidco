@@ -145,7 +145,7 @@ class ConfigReloader:
         # ── Agents mutable fields ─────────────────────────────────────────────
         agent_fields = (
             "auto_review", "auto_plan", "max_review_iterations",
-            "agent_timeout", "max_iterations", "default",
+            "agent_timeout", "default",
             "plan_critique", "plan_revise", "plan_max_revisions",
             "plan_memory", "preplan_snapshot",
         )
@@ -161,27 +161,30 @@ class ConfigReloader:
         # Replace the config object on the session
         self._session.config = new
 
-        # Propagate to GraphOrchestrator if it exposes mutable setters
+        # Propagate to orchestrator via public setters (BaseOrchestrator no-ops
+        # for fields the simple Orchestrator doesn't support)
         try:
             orch = self._session.orchestrator
             if new.agents.agent_timeout != old.agents.agent_timeout:
-                orch._agent_timeout = new.agents.agent_timeout  # type: ignore[attr-defined]
+                orch.set_agent_timeout(new.agents.agent_timeout)
             if new.agents.auto_review != old.agents.auto_review:
-                orch._auto_review = new.agents.auto_review  # type: ignore[attr-defined]
+                orch.set_auto_review(new.agents.auto_review)
             if new.agents.auto_plan != old.agents.auto_plan:
-                orch._auto_plan = new.agents.auto_plan  # type: ignore[attr-defined]
+                orch.set_auto_plan(new.agents.auto_plan)
             if new.agents.max_review_iterations != old.agents.max_review_iterations:
-                orch._max_review_iterations = new.agents.max_review_iterations  # type: ignore[attr-defined]
+                orch.set_max_review_iterations(new.agents.max_review_iterations)
+            if new.agents.default != old.agents.default:
+                orch.set_default_agent(new.agents.default)
             if new.agents.plan_critique != old.agents.plan_critique:
-                orch.set_plan_critique(new.agents.plan_critique)  # type: ignore[attr-defined]
+                orch.set_plan_critique(new.agents.plan_critique)
             if new.agents.plan_revise != old.agents.plan_revise:
-                orch.set_plan_revise(new.agents.plan_revise)  # type: ignore[attr-defined]
+                orch.set_plan_revise(new.agents.plan_revise)
             if new.agents.plan_max_revisions != old.agents.plan_max_revisions:
-                orch.set_plan_max_revisions(new.agents.plan_max_revisions)  # type: ignore[attr-defined]
+                orch.set_plan_max_revisions(new.agents.plan_max_revisions)
             if new.agents.plan_memory != old.agents.plan_memory:
-                orch.set_plan_memory(new.agents.plan_memory)  # type: ignore[attr-defined]
+                orch.set_plan_memory(new.agents.plan_memory)
             if new.agents.preplan_snapshot != old.agents.preplan_snapshot:
-                orch.set_preplan_snapshot(new.agents.preplan_snapshot)  # type: ignore[attr-defined]
+                orch.set_preplan_snapshot(new.agents.preplan_snapshot)
         except Exception as exc:
             logger.debug("Could not propagate changes to orchestrator: %s", exc)
 

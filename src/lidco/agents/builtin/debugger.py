@@ -89,6 +89,7 @@ def create_debugger_agent(llm: BaseLLMProvider, tool_registry: ToolRegistry) -> 
         system_prompt=DEBUGGER_SYSTEM_PROMPT,
         temperature=0.1,
         max_iterations=200,
+        tools=["file_read", "file_edit", "bash", "glob", "grep", "git", "run_tests", "error_report"],
     )
 
     class DebuggerAgent(BaseAgent):

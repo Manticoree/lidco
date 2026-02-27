@@ -8,7 +8,8 @@ from typing import Any, AsyncIterator
 import litellm
 
 from lidco.llm.base import BaseLLMProvider, LLMResponse, Message, StreamChunk
-from lidco.llm.retry import RetryConfig, with_retry
+from lidco.llm.exceptions import LLMRetryExhausted
+from lidco.llm.retry import RETRYABLE_EXCEPTIONS, RetryConfig, with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ def calculate_cost(model: str, usage: dict[str, int]) -> float:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
         )
-        if cost:
+        if cost is not None and cost >= 0.0:
             return cost
     except Exception:
         pass
@@ -301,10 +302,37 @@ class LiteLLMProvider(BaseLLMProvider):
 
         response = await with_retry(_call, self._retry_config, model_name=kwargs["model"])
 
-        async for chunk in response:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta is None:
-                # Some providers send a usage-only chunk with no choices
+        model_name = kwargs["model"]
+        try:
+            async for chunk in response:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta is None:
+                    # Some providers send a usage-only chunk with no choices
+                    chunk_usage = {}
+                    if hasattr(chunk, "usage") and chunk.usage:
+                        chunk_usage = {
+                            "prompt_tokens": getattr(chunk.usage, "prompt_tokens", 0),
+                            "completion_tokens": getattr(chunk.usage, "completion_tokens", 0),
+                            "total_tokens": getattr(chunk.usage, "total_tokens", 0),
+                        }
+                        yield StreamChunk(usage=chunk_usage)
+                    continue
+
+                tool_calls_raw = []
+                if hasattr(delta, "tool_calls") and delta.tool_calls:
+                    tool_calls_raw = [
+                        {
+                            "index": tc.index,
+                            "id": getattr(tc, "id", None),
+                            "type": "function",
+                            "function": {
+                                "name": getattr(tc.function, "name", None),
+                                "arguments": getattr(tc.function, "arguments", ""),
+                            },
+                        }
+                        for tc in delta.tool_calls
+                    ]
+
                 chunk_usage = {}
                 if hasattr(chunk, "usage") and chunk.usage:
                     chunk_usage = {
@@ -312,38 +340,20 @@ class LiteLLMProvider(BaseLLMProvider):
                         "completion_tokens": getattr(chunk.usage, "completion_tokens", 0),
                         "total_tokens": getattr(chunk.usage, "total_tokens", 0),
                     }
-                    yield StreamChunk(usage=chunk_usage)
-                continue
 
-            tool_calls_raw = []
-            if hasattr(delta, "tool_calls") and delta.tool_calls:
-                tool_calls_raw = [
-                    {
-                        "index": tc.index,
-                        "id": getattr(tc, "id", None),
-                        "type": "function",
-                        "function": {
-                            "name": getattr(tc.function, "name", None),
-                            "arguments": getattr(tc.function, "arguments", ""),
-                        },
-                    }
-                    for tc in delta.tool_calls
-                ]
-
-            chunk_usage = {}
-            if hasattr(chunk, "usage") and chunk.usage:
-                chunk_usage = {
-                    "prompt_tokens": getattr(chunk.usage, "prompt_tokens", 0),
-                    "completion_tokens": getattr(chunk.usage, "completion_tokens", 0),
-                    "total_tokens": getattr(chunk.usage, "total_tokens", 0),
-                }
-
-            yield StreamChunk(
-                content=delta.content or "",
-                tool_calls=tool_calls_raw,
-                finish_reason=chunk.choices[0].finish_reason,
-                usage=chunk_usage,
-            )
+                yield StreamChunk(
+                    content=delta.content or "",
+                    tool_calls=tool_calls_raw,
+                    finish_reason=chunk.choices[0].finish_reason,
+                    usage=chunk_usage,
+                )
+        except RETRYABLE_EXCEPTIONS as exc:
+            # Mid-stream transient error: re-raise as LLMRetryExhausted so the
+            # ModelRouter's fallback chain can try the next model.
+            raise LLMRetryExhausted(
+                f"Stream from '{model_name}' interrupted: {exc}",
+                attempts=[(model_name, exc)],
+            ) from exc
 
     def list_models(self) -> list[str]:
         """List available models from litellm's registry."""

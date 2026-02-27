@@ -57,6 +57,52 @@ class BaseOrchestrator(ABC):
         Default implementation is a no-op.
         """
 
+    # --- Public setters for live-reloadable orchestrator configuration ---
+    # Default no-ops; concrete implementations override the ones they support.
+
+    def set_agent_timeout(self, timeout: int) -> None:
+        """Set the per-agent timeout in seconds (0 = disabled)."""
+
+    def set_auto_plan(self, enabled: bool) -> None:
+        """Enable or disable automatic planning before coder invocation."""
+
+    def set_auto_review(self, enabled: bool) -> None:
+        """Enable or disable automatic code review after execution."""
+
+    def set_max_review_iterations(self, n: int) -> None:
+        """Set the maximum number of review-fix cycles."""
+
+    def set_default_agent(self, name: str) -> None:
+        """Set the fallback agent name used when routing is ambiguous."""
+
+    # --- No-op stubs for GraphOrchestrator-only features ---
+    # These prevent AttributeError when session.py calls them on the fallback
+    # Orchestrator (used when LangGraph is not installed).
+
+    def set_error_callback(self, callback: Any) -> None:
+        """No-op stub. GraphOrchestrator fires this on tool errors."""
+
+    def set_debug_mode(self, enabled: bool) -> None:
+        """No-op stub. GraphOrchestrator injects debug context when enabled."""
+
+    def set_error_summary_builder(self, builder: Any) -> None:
+        """No-op stub. GraphOrchestrator uses this to build error context."""
+
+    def set_error_context_builder(self, builder: Any) -> None:
+        """No-op stub. GraphOrchestrator uses this to format error context."""
+
+    def set_error_count_reader(self, reader: Any) -> None:
+        """No-op stub. GraphOrchestrator uses this to count recent errors."""
+
+    def set_clarification_manager(self, manager: Any) -> None:
+        """No-op stub. GraphOrchestrator uses this for clarification flows."""
+
+    def set_memory_store(self, store: Any) -> None:
+        """No-op stub. GraphOrchestrator uses this for plan memory."""
+
+    def set_context_retriever(self, retriever: Any) -> None:
+        """No-op stub. GraphOrchestrator uses this for RAG context."""
+
     @abstractmethod
     async def handle(
         self,
@@ -75,7 +121,7 @@ class BaseOrchestrator(ABC):
 
 ROUTER_SYSTEM_PROMPT = """\
 Route to agent. Output name only. Default: coder.
-plan/design→planner, review/audit→reviewer, debug/error/bug/traceback/exception/attributeerror/typeerror/importerror/keyerror/stack trace→debugger, architecture→architect, test/coverage→tester, refactor/cleanup→refactor, docs/docstring/readme→docs, search/research/web→researcher, validate/qa/check compilation/run tests after feature→qa, profile/performance/hotspot/slow/optimize speed→profiler, explain/what does/how does/walk me through/describe→explain, security/vulnerability/owasp/injection/xss/csrf/secrets/pentest→security, else→coder.
+plan/design→planner, review/audit→reviewer, debug/error/bug/traceback/exception/attributeerror/typeerror/importerror/keyerror/stack trace→debugger, architecture→architect, test/coverage→tester, refactor/cleanup→refactor, docs/docstring/readme→docs, search/research/web→researcher, validate/qa/check compilation/run tests after feature→qa, profile/performance/hotspot/slow/optimize speed→profiler, explain/what does/how does/walk me through/describe→explain, security/vulnerability/owasp/injection/xss/csrf/secrets/pentest→security, implement/create/write/add/build→coder, else→coder.
 
 Available agents:
 {agents_description}
@@ -136,6 +182,16 @@ class Orchestrator(BaseOrchestrator):
     def set_tool_event_callback(self, callback: Any) -> None:
         """Set a callback for tool call events. Propagated to agents."""
         self._tool_event_callback = callback
+
+    def set_agent_timeout(self, timeout: int) -> None:
+        self._agent_timeout = timeout
+
+    def set_auto_plan(self, enabled: bool) -> None:
+        self._auto_plan = enabled
+
+    def set_default_agent(self, name: str) -> None:
+        self._default_agent = name
+        self._router_system_cache = None  # Invalidate cache (description may change)
 
     def _report_status(self, status: str) -> None:
         if self._status_callback is not None:
@@ -311,4 +367,10 @@ class Orchestrator(BaseOrchestrator):
 
     def restore_history(self, messages: list[dict[str, str]]) -> None:
         """Restore conversation history from a list of message dicts."""
-        self._conversation_history = list(messages)
+        valid: list[dict[str, str]] = []
+        for i, m in enumerate(messages):
+            if not isinstance(m, dict) or "role" not in m or "content" not in m:
+                logger.warning("restore_history: skipping invalid message at index %d", i)
+                continue
+            valid.append(m)
+        self._conversation_history = valid

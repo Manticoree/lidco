@@ -471,6 +471,15 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                             session_files_edited.add(path)
                 current_agent = forced_agent or getattr(response, "agent_used", None) or "auto"
 
+                # Record into token budget (enables budget limit enforcement)
+                lidco_session.token_budget.record(
+                    tokens=turn_tokens,
+                    prompt_tokens=response.token_usage.prompt_tokens,
+                    completion_tokens=response.token_usage.completion_tokens,
+                    cost_usd=turn_cost,
+                    role=current_agent,
+                )
+
                 # Show git diff and run linting when the agent edited files
                 _FILE_EDIT_TOOLS = frozenset({"file_write", "file_edit"})
                 _edited_tool_calls = [
