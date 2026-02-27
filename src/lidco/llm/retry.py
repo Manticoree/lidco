@@ -86,8 +86,8 @@ async def with_retry(
             )
             await asyncio.sleep(delay)
 
-    # Unreachable, but satisfies type checker
-    raise LLMRetryExhausted(  # type: ignore[misc]
+    # Unreachable — loop raises on last attempt; kept to satisfy type checker
+    raise LLMRetryExhausted(  # type: ignore[misc]  # pragma: no cover
         f"LLM call to '{model_name}' failed: {last_error}",
         attempts=[(model_name, last_error)],  # type: ignore[list-item]
     )

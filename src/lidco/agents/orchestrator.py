@@ -13,6 +13,8 @@ from lidco.llm.base import BaseLLMProvider, Message
 
 logger = logging.getLogger(__name__)
 
+_HISTORY_CONTEXT_MESSAGES = 5  # number of recent history messages injected into context
+
 
 class BaseOrchestrator(ABC):
     """Common interface shared by all orchestrator implementations."""
@@ -191,6 +193,7 @@ class Orchestrator(BaseOrchestrator):
         """
         planner = self._registry.get("planner")
         if not planner or not self._clarification_handler:
+            logger.info("Auto-planning skipped: planner/clarification not registered")
             return context, True
 
         self._report_status("Planning")
@@ -260,7 +263,7 @@ class Orchestrator(BaseOrchestrator):
         # Build context from conversation history
         history_context = ""
         if self._conversation_history:
-            recent = self._conversation_history[-5:]
+            recent = self._conversation_history[-_HISTORY_CONTEXT_MESSAGES:]
             history_lines = [f"{m['role']}: {m['content'][:200]}" for m in recent]
             history_context = "\n".join(history_lines)
 

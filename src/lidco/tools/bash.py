@@ -101,7 +101,10 @@ class BashTool(BaseTool):
                 metadata={"exit_code": rc, "command": command},
             )
         except asyncio.TimeoutError:
-            process.kill()
+            try:
+                process.kill()
+            except Exception:
+                pass
             return ToolResult(
                 output="", success=False, error=f"Command timed out after {timeout}s"
             )

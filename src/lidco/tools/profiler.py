@@ -8,6 +8,7 @@ import logging
 import pstats
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Callable
 
@@ -97,7 +98,6 @@ class ProfilerTool(BaseTool):
 
         if not script_path.exists():
             # Treat as inline code
-            import tempfile
             tmp = tempfile.NamedTemporaryFile(
                 mode="w", suffix=".py", delete=False, encoding="utf-8"
             )
@@ -106,8 +106,8 @@ class ProfilerTool(BaseTool):
             script_path = Path(tmp.name)
             use_temp = True
 
+        stats_file: str | None = None
         try:
-            import tempfile
             stats_file = tempfile.mktemp(suffix=".prof")
             cmd = [
                 sys.executable, "-m", "cProfile",
@@ -142,8 +142,6 @@ class ProfilerTool(BaseTool):
                 profile_output = buf.getvalue()
             except Exception as e:
                 profile_output = f"(Could not parse profile stats: {e})"
-            finally:
-                Path(stats_file).unlink(missing_ok=True)
 
             stderr_hint = ""
             if stderr_str.strip():
@@ -167,6 +165,8 @@ class ProfilerTool(BaseTool):
             logger.warning("ProfilerTool error: %s", exc)
             return ToolResult(success=False, output=f"Profiler error: {exc}")
         finally:
+            if stats_file is not None:
+                Path(stats_file).unlink(missing_ok=True)
             if use_temp:
                 script_path.unlink(missing_ok=True)
 

@@ -145,6 +145,9 @@ class TestBM25Index:
                     sys.modules.pop("rank_bm25", None)
                 else:
                     sys.modules["rank_bm25"] = original
+                # Reset the class-level unavailability flag so subsequent tests
+                # that rely on rank_bm25 being importable are not affected.
+                BM25Index._rank_bm25_unavailable = False
 
     def test_search_respects_n_results_limit(self) -> None:
         idx = BM25Index()

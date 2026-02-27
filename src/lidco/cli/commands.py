@@ -684,8 +684,8 @@ class CommandRegistry:
                     rag_result = retriever.retrieve(query, max_results=5)
                     if rag_result:
                         results_parts.append(rag_result)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("RAG search failed: %s", e)
 
             # 2. Structural symbol index search (requires /index to have been run)
             enricher = getattr(registry._session, "index_enricher", None)
@@ -708,8 +708,8 @@ class CommandRegistry:
                         if len(symbols) > 20:
                             lines.append(f"\n_...{len(symbols) - 20} more — refine your query_")
                         results_parts.append("\n".join(lines))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Symbol index search failed: %s", e)
 
             if not results_parts:
                 tips: list[str] = []

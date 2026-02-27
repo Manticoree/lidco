@@ -636,7 +636,7 @@ class BaseAgent(ABC):
 
         Subclasses may override this method to extend or replace these defaults.
         """
-        prompt = self._config.system_prompt
+        prompt = self._config.system_prompt or self.get_system_prompt()
 
         if self._stream_callback is not None:
             prompt += _STREAMING_NARRATION_PROMPT

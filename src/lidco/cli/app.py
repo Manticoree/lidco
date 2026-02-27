@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,8 @@ from lidco.cli.renderer import Renderer
 from lidco.cli.stream_display import StreamDisplay
 from lidco.cli.thinking import ThinkingTimer
 from lidco.core.session import Session
+
+logger = logging.getLogger(__name__)
 
 
 BANNER = """[bold magenta] LIDCO [/bold magenta][dim]- LLM-Integrated Development COmpanion v0.1.0[/dim]
@@ -511,6 +514,7 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                         )
 
             except Exception as e:
+                logger.exception("Agent error")
                 renderer.error(f"Agent error: {e}")
 
         except KeyboardInterrupt:

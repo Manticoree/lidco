@@ -371,11 +371,11 @@ class StreamDisplay:
     def finish(self) -> None:
         """Stop the status bar and finalize output."""
         if self._live is not None:
+            live, self._live = self._live, None
             try:
-                self._live.stop()
+                live.stop()
             except Exception as exc:
                 logger.debug("Error stopping Live display: %s", exc)
-            self._live = None
         if self._needs_newline:
             self._console.print()
             self._needs_newline = False

@@ -105,6 +105,8 @@ def edit_plan_interactively(plan_text: str, console: "Console") -> str | None:
             if "-" in token:
                 parts = token.split("-", 1)
                 start, end = int(parts[0]), int(parts[1])
+                if start > end:
+                    start, end = end, start
                 selected_nums.update(range(start, end + 1))
             else:
                 selected_nums.add(int(token))

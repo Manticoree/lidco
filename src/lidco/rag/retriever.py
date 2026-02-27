@@ -121,11 +121,14 @@ class ContextRetriever:
 
         result_str = _format_results(results) if results else ""
 
-        if len(self._retrieve_cache) >= _CACHE_MAX:
-            oldest_key = min(self._retrieve_cache, key=lambda k: self._retrieve_cache[k][0])
-            del self._retrieve_cache[oldest_key]
+        # Only cache non-empty results — empty results may reflect a temporarily
+        # empty index that could be populated before the TTL expires.
+        if result_str:
+            if len(self._retrieve_cache) >= _CACHE_MAX:
+                oldest_key = min(self._retrieve_cache, key=lambda k: self._retrieve_cache[k][0])
+                del self._retrieve_cache[oldest_key]
+            self._retrieve_cache[cache_key] = (now, result_str)
 
-        self._retrieve_cache[cache_key] = (now, result_str)
         return result_str
 
     def _retrieve_expanded(

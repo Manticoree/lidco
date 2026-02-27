@@ -33,6 +33,8 @@ class BM25Index:
     call after any mutation (``add_many``, ``remove_ids``, or ``clear``).
     """
 
+    _rank_bm25_unavailable: bool = False  # class-level flag; set on first ImportError
+
     def __init__(self) -> None:
         self._corpus: list[tuple[str, list[str]]] = []  # (chunk_id, tokens)
         self._dirty: bool = False
@@ -173,6 +175,11 @@ class BM25Index:
         if not self._dirty:
             return
 
+        if BM25Index._rank_bm25_unavailable:
+            self._dirty = False
+            self._dirty_count = 0
+            return
+
         corpus_size = len(self._corpus)
         if (
             self._bm25 is not None
@@ -194,6 +201,7 @@ class BM25Index:
         try:
             from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
         except ImportError:
+            BM25Index._rank_bm25_unavailable = True
             logger.debug("rank_bm25 not available; BM25 search disabled")
             self._bm25 = None
             self._dirty = False

@@ -1485,8 +1485,8 @@ class GraphOrchestrator(BaseOrchestrator):
         merged = (
             f"{plan_context}\n\n{existing_context}" if existing_context else plan_context
         )
-        # Parse parallel steps from edited plan (original + user edits)
-        parallel_steps = self._parse_parallel_steps(plan_response.content + "\n" + answer)
+        # Parse parallel steps from the approved plan only (not user edit notes)
+        parallel_steps = self._parse_parallel_steps(plan_response.content)
         self._save_approved_plan(state["user_message"], plan_response.content)
         return {**state, "plan_approved": True, "context": merged, "parallel_steps": parallel_steps}
 

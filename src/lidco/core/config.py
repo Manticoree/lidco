@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -194,6 +195,9 @@ class EnvSettings(BaseSettings):
 
 _SECTION_NAMES: frozenset[str] = frozenset(
     {"llm", "cli", "permissions", "agents", "memory", "rag", "logging", "index"}
+    # Note: "llm_providers" is intentionally absent — it is loaded separately
+    # via _load_llm_providers() with its own multi-file precedence chain and
+    # cannot be overridden with LIDCO_<SECTION>_<FIELD> env vars.
 )
 
 
@@ -368,7 +372,7 @@ def load_config(project_dir: Path | None = None) -> LidcoConfig:
     # Legacy: LIDCO_DEFAULT_MODEL (without section prefix) — kept for back-compat
     env = EnvSettings()
     if env.default_model and not any(
-        k.upper().startswith("LIDCO_LLM_") for k in __import__("os").environ
+        k.upper().startswith("LIDCO_LLM_") for k in os.environ
     ):
         config = config.model_copy(
             update={"llm": config.llm.model_copy(update={"default_model": env.default_model})}

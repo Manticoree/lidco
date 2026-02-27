@@ -236,7 +236,11 @@ class IndexContextEnricher:
             return None
         try:
             db = IndexDatabase(db_path)
-            return cls(db)
+            try:
+                return cls(db)
+            except Exception:
+                db.close()
+                raise
         except Exception as exc:
             logger.debug("Could not open project index at %s: %s", db_path, exc)
             return None

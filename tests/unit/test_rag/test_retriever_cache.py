@@ -10,10 +10,24 @@ import pytest
 from lidco.rag.retriever import ContextRetriever, _CACHE_MAX
 
 
+def _fake_search_result() -> MagicMock:
+    """Return a minimal SearchResult-like mock so _format_results produces a non-empty string."""
+    chunk = MagicMock()
+    chunk.file_path = "test.py"
+    chunk.start_line = 1
+    chunk.chunk_type = "function"
+    chunk.name = "test_func"
+    chunk.language = "python"
+    chunk.content = "def test_func(): pass"
+    result = MagicMock()
+    result.chunk = chunk
+    return result
+
+
 def _make_retriever(ttl: float = 30.0) -> tuple[ContextRetriever, MagicMock]:
     """Return a retriever backed by a mock store and a reference to that mock."""
     store = MagicMock()
-    store.search_hybrid.return_value = []
+    store.search_hybrid.return_value = [_fake_search_result()]
     indexer = MagicMock()
     retriever = ContextRetriever(
         store=store,
@@ -72,6 +86,30 @@ class TestRetrieveCacheHit:
         retriever.retrieve("query", path_prefix="src/agents/")
         call_kwargs = store.search_hybrid.call_args
         assert call_kwargs.kwargs.get("path_prefix") == "src/agents/"
+
+
+class TestRetrieveCacheEmptyResults:
+    def test_empty_results_not_cached(self):
+        """Empty search results must NOT be stored in the cache so that a
+        freshly built index is visible on the very next retrieve() call
+        (within the normal TTL window)."""
+        retriever, store = _make_retriever()
+        store.search_hybrid.return_value = []  # simulate empty index
+
+        retriever.retrieve("q")
+        retriever.retrieve("q")
+
+        # Both calls hit the store — empty result was not cached
+        assert store.search_hybrid.call_count == 2
+
+    def test_non_empty_results_are_cached(self):
+        """Non-empty results must still be cached to avoid redundant searches."""
+        retriever, store = _make_retriever()  # returns non-empty results
+
+        retriever.retrieve("q")
+        retriever.retrieve("q")
+
+        assert store.search_hybrid.call_count == 1
 
 
 class TestRetrieveCacheTTL:

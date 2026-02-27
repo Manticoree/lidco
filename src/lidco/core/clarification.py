@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -185,15 +186,11 @@ class ClarificationManager:
             )
 
             raw = response.content.strip()
-            json_str = raw
-            if "```" in json_str:
-                json_str = json_str.split("```")[1].lstrip("json\n")
-            if "{" in json_str:
-                json_str = json_str[json_str.index("{"):json_str.rindex("}") + 1]
-            else:
+            m = re.search(r"\{.*\}", raw, re.DOTALL)
+            if not m:
                 return None
 
-            result = json.loads(json_str)
+            result = json.loads(m.group(0))
 
             if result.get("clear", True):
                 return None
