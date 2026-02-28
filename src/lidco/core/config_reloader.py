@@ -147,7 +147,7 @@ class ConfigReloader:
             "auto_review", "auto_plan", "max_review_iterations",
             "agent_timeout", "default",
             "plan_critique", "plan_revise", "plan_max_revisions",
-            "plan_memory", "preplan_snapshot",
+            "plan_memory", "preplan_snapshot", "debug_mode",
         )
         for fname in agent_fields:
             if getattr(new.agents, fname) != getattr(old.agents, fname):
@@ -185,6 +185,9 @@ class ConfigReloader:
                 orch.set_plan_memory(new.agents.plan_memory)
             if new.agents.preplan_snapshot != old.agents.preplan_snapshot:
                 orch.set_preplan_snapshot(new.agents.preplan_snapshot)
+            if new.agents.debug_mode != old.agents.debug_mode:
+                orch.set_debug_mode(new.agents.debug_mode)
+                self._session.debug_mode = new.agents.debug_mode
         except Exception as exc:
             logger.debug("Could not propagate changes to orchestrator: %s", exc)
 

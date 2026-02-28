@@ -354,6 +354,13 @@ class LiteLLMProvider(BaseLLMProvider):
                 f"Stream from '{model_name}' interrupted: {exc}",
                 attempts=[(model_name, exc)],
             ) from exc
+        except Exception as exc:
+            # Non-retryable stream error (malformed chunk, AttributeError, etc.)
+            # Convert to LLMRetryExhausted so ModelRouter can try the next model.
+            raise LLMRetryExhausted(
+                f"Stream from '{model_name}' failed unexpectedly: {exc}",
+                attempts=[(model_name, exc)],
+            ) from exc
 
     def list_models(self) -> list[str]:
         """List available models from litellm's registry."""

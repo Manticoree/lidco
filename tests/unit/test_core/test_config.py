@@ -52,6 +52,7 @@ class TestLidcoConfig:
         assert config.llm.streaming is True
         assert config.agents.default == "coder"
         assert config.memory.enabled is True
+        assert config.agents.debug_mode is False  # P1-14: debug_mode defaults to False
 
     def test_custom_values(self):
         config = LidcoConfig(

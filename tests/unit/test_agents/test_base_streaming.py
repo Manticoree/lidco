@@ -222,3 +222,88 @@ class TestToolEventCallbacks:
         assert events[1][1] == "test_tool"
         assert events[1][2] is not None
         assert events[1][2].success is True
+
+
+class TestLLMErrorRecording:
+    """BaseAgent records all LLM errors in error_callback, not just LLMRetryExhausted."""
+
+    @pytest.mark.asyncio
+    async def test_llm_retry_exhausted_recorded(self):
+        """LLMRetryExhausted is recorded with error_type='llm_error'."""
+        from lidco.llm.exceptions import LLMRetryExhausted
+
+        class FailProvider(BaseLLMProvider):
+            async def complete(self, messages, **kwargs):
+                raise LLMRetryExhausted("exhausted", attempts=[("m", RuntimeError("err"))])
+
+            async def stream(self, messages, **kwargs):
+                raise LLMRetryExhausted("exhausted", attempts=[("m", RuntimeError("err"))])
+                yield  # pragma: no cover
+
+            def list_models(self):
+                return []
+
+        registry = ToolRegistry()
+        config = AgentConfig(name="coder", description="x", system_prompt="x", max_iterations=1)
+        agent = ConcreteAgent(config, FailProvider(), registry)
+
+        errors = []
+        agent.set_error_callback(errors.append)
+
+        with pytest.raises(LLMRetryExhausted):
+            await agent.run("test")
+
+        assert len(errors) == 1
+        assert errors[0].error_type == "llm_error"
+        assert errors[0].tool_name == "llm"
+        assert errors[0].agent_name == "coder"
+
+    @pytest.mark.asyncio
+    async def test_non_retryable_llm_error_recorded(self):
+        """Non-LLMRetryExhausted errors are also recorded with their type name."""
+        class FailProvider(BaseLLMProvider):
+            async def complete(self, messages, **kwargs):
+                raise AttributeError("Malformed response chunk")
+
+            async def stream(self, messages, **kwargs):
+                raise AttributeError("Malformed response chunk")
+                yield  # pragma: no cover
+
+            def list_models(self):
+                return []
+
+        registry = ToolRegistry()
+        config = AgentConfig(name="coder", description="x", system_prompt="x", max_iterations=1)
+        agent = ConcreteAgent(config, FailProvider(), registry)
+
+        errors = []
+        agent.set_error_callback(errors.append)
+
+        with pytest.raises(AttributeError):
+            await agent.run("test")
+
+        assert len(errors) == 1
+        assert errors[0].error_type == "attributeerror"
+        assert errors[0].tool_name == "llm"
+
+    @pytest.mark.asyncio
+    async def test_no_error_callback_no_crash_on_llm_error(self):
+        """When no error_callback set, LLM errors still propagate without crashing."""
+        class FailProvider(BaseLLMProvider):
+            async def complete(self, messages, **kwargs):
+                raise ValueError("some error")
+
+            async def stream(self, messages, **kwargs):
+                raise ValueError("some error")
+                yield  # pragma: no cover
+
+            def list_models(self):
+                return []
+
+        registry = ToolRegistry()
+        config = AgentConfig(name="coder", description="x", system_prompt="x", max_iterations=1)
+        agent = ConcreteAgent(config, FailProvider(), registry)
+        # No error_callback set
+
+        with pytest.raises(ValueError, match="some error"):
+            await agent.run("test")

@@ -130,6 +130,7 @@ class AgentsConfig(BaseModel):
     plan_max_revisions: int = 1  # extra re-critique/revise rounds after initial revision (0 = none)
     plan_memory: bool = True  # save approved plans and retrieve similar ones as warm-start context
     preplan_snapshot: bool = True  # auto-inject git log + coverage before planner starts
+    debug_mode: bool = False  # enable debug mode (full tracebacks, active error context injection)
 
 
 class MemoryConfig(BaseModel):

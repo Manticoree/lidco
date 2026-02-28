@@ -16,9 +16,10 @@ def _make_exhausted(model: str) -> LLMRetryExhausted:
 
 
 class MockProvider(BaseLLMProvider):
-    def __init__(self, responses=None, fail_models=None):
+    def __init__(self, responses=None, fail_models=None, raw_fail_models=None):
         self._responses = responses or {}
         self._fail_models = fail_models or set()
+        self._raw_fail_models = raw_fail_models or set()  # raise raw Exception (not LLMRetryExhausted)
         self.call_log = []
 
     async def complete(self, messages, *, model=None, **kwargs):
@@ -31,8 +32,11 @@ class MockProvider(BaseLLMProvider):
         )
 
     async def stream(self, messages, *, model=None, **kwargs):
+        self.call_log.append(model)
         if model in self._fail_models:
             raise _make_exhausted(model)
+        if model in self._raw_fail_models:
+            raise AttributeError(f"Malformed chunk from {model}")
         yield  # pragma: no cover
 
     def list_models(self):
@@ -106,3 +110,82 @@ class TestModelRouter:
         provider = MockProvider()
         router = ModelRouter(provider, default_model="model-a")
         assert router.list_models() == ["model-a", "model-b"]
+
+
+class TestModelRouterStream:
+    @pytest.mark.asyncio
+    async def test_stream_fallback_on_retry_exhausted(self):
+        """Router falls back to next model when primary raises LLMRetryExhausted during stream."""
+        chunks_received = []
+
+        class ChunkProvider(BaseLLMProvider):
+            def __init__(self):
+                self.call_log = []
+
+            async def complete(self, messages, *, model=None, **kwargs):
+                return LLMResponse(content="", model=model or "default")
+
+            async def stream(self, messages, *, model=None, **kwargs):
+                self.call_log.append(model)
+                if model == "model-a":
+                    raise _make_exhausted("model-a")
+                from lidco.llm.base import StreamChunk
+                yield StreamChunk(content="chunk-from-b")
+
+            def list_models(self):
+                return []
+
+        provider = ChunkProvider()
+        router = ModelRouter(provider, default_model="model-a", fallback_models=["model-b"])
+        messages = [Message(role="user", content="hi")]
+
+        async for chunk in router.stream(messages):
+            chunks_received.append(chunk)
+
+        assert provider.call_log == ["model-a", "model-b"]
+        assert len(chunks_received) == 1
+        assert chunks_received[0].content == "chunk-from-b"
+
+    @pytest.mark.asyncio
+    async def test_stream_fallback_on_raw_exception(self):
+        """Router falls back to next model when primary raises a raw (non-LLMRetryExhausted) exception."""
+        chunks_received = []
+
+        class ChunkProvider(BaseLLMProvider):
+            def __init__(self):
+                self.call_log = []
+
+            async def complete(self, messages, *, model=None, **kwargs):
+                return LLMResponse(content="", model=model or "default")
+
+            async def stream(self, messages, *, model=None, **kwargs):
+                self.call_log.append(model)
+                if model == "model-a":
+                    raise AttributeError("Malformed chunk from model-a")
+                from lidco.llm.base import StreamChunk
+                yield StreamChunk(content="fallback-chunk")
+
+            def list_models(self):
+                return []
+
+        provider = ChunkProvider()
+        router = ModelRouter(provider, default_model="model-a", fallback_models=["model-b"])
+        messages = [Message(role="user", content="hi")]
+
+        async for chunk in router.stream(messages):
+            chunks_received.append(chunk)
+
+        assert provider.call_log == ["model-a", "model-b"]
+        assert len(chunks_received) == 1
+        assert chunks_received[0].content == "fallback-chunk"
+
+    @pytest.mark.asyncio
+    async def test_stream_all_fail_raises_retry_exhausted(self):
+        """When all models fail during stream, raises LLMRetryExhausted."""
+        provider = MockProvider(raw_fail_models={"model-a", "model-b"})
+        router = ModelRouter(provider, default_model="model-a", fallback_models=["model-b"])
+        messages = [Message(role="user", content="hi")]
+
+        with pytest.raises(LLMRetryExhausted, match="All .* model"):
+            async for _ in router.stream(messages):
+                pass

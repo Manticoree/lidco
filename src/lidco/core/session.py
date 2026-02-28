@@ -140,7 +140,7 @@ class Session:
         self.tool_registry.register(ErrorReportTool(self._error_history))
 
         # Debug mode — when True, StreamDisplay renders full tracebacks inline
-        self.debug_mode: bool = False
+        self.debug_mode: bool = self.config.agents.debug_mode
 
         # Agents
         self.agent_registry = AgentRegistry()
@@ -245,6 +245,7 @@ class Session:
             orch.set_plan_max_revisions(self.config.agents.plan_max_revisions)
             orch.set_plan_memory(self.config.agents.plan_memory)
             orch.set_preplan_snapshot(self.config.agents.preplan_snapshot)
+            orch.set_debug_mode(self.config.agents.debug_mode)
             if self.config.memory.auto_save:
                 orch.set_memory_store(self.memory)
             if self.context_retriever:

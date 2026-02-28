@@ -391,16 +391,19 @@ class BaseAgent(ABC):
                         **llm_kwargs,
                     )
             except Exception as _llm_exc:
-                # Import here to avoid circular imports at module load time.
-                from lidco.llm.exceptions import LLMRetryExhausted
-                if isinstance(_llm_exc, LLMRetryExhausted) and self._error_callback is not None:
+                if self._error_callback is not None:
+                    from lidco.llm.exceptions import LLMRetryExhausted
                     from lidco.core.errors import ErrorRecord
                     _record = ErrorRecord(
                         id=uuid.uuid4().hex,
                         timestamp=datetime.now(timezone.utc),
                         tool_name="llm",
                         agent_name=self._config.name,
-                        error_type="llm_error",
+                        error_type=(
+                            "llm_error"
+                            if isinstance(_llm_exc, LLMRetryExhausted)
+                            else type(_llm_exc).__name__.lower()
+                        ),
                         message=str(_llm_exc),
                         traceback_str=None,
                         file_hint=None,

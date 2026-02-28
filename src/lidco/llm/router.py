@@ -172,11 +172,15 @@ class ModelRouter(BaseLLMProvider):
                     yield chunk
                 return
             except LLMRetryExhausted as e:
-                # Only retry-exhausted errors trigger fallback.
-                # Mid-stream errors or non-retryable errors propagate immediately.
                 all_attempts.extend(e.attempts)
                 logger.warning(
                     "Model %s exhausted retries (stream): %s. Trying next.",
+                    candidate, e,
+                )
+            except Exception as e:
+                all_attempts.append((candidate, e))
+                logger.warning(
+                    "Model %s stream error: %s. Trying next.",
                     candidate, e,
                 )
 
