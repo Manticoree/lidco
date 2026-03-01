@@ -28,6 +28,16 @@ MAX_REVIEW_ITERATIONS = 2
 # Reviewer, researcher, and docs agents work well without upfront planning.
 _PLANNING_AGENTS = frozenset({"coder", "architect", "tester", "refactor", "debugger", "profiler", "security"})
 
+# Required sections that a complete implementation plan must contain.
+# Used by _check_plan_sections() to surface structural gaps early.
+_REQUIRED_PLAN_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("**Goal:**", "Goal"),
+    ("**Assumptions:**", "Assumptions"),
+    ("**Steps:**", "Steps"),
+    ("**Risk Assessment:**", "Risk Assessment"),
+    ("**Test Impact:**", "Test Impact"),
+)
+
 
 class GraphState(TypedDict, total=False):
     """State passed between nodes in the orchestration graph."""
@@ -52,9 +62,15 @@ class GraphState(TypedDict, total=False):
     medium_issues: str  # MEDIUM severity issues from reviewer (advisory, non-blocking)
     parallel_steps: list[str]  # Step descriptions marked [PARALLEL] in the approved plan
     plan_critique: str | None  # Auto-generated critique appended to plan before approval
+    plan_critique_addressed: str | None  # Critique text that was addressed by last revision
     plan_revision: str | None  # Revised plan content produced after critique feedback
     plan_assumptions: list[str]  # Assumption lines extracted from **Assumptions:** section
     plan_revision_round: int  # Counts extra re-critique/revise rounds that have run
+    execution_map: dict | None  # Parsed **Execution Map:** section from approved plan
+    plan_step_deps: dict | None  # {step_num: [dep_nums]} parsed from Deps: lines
+    plan_bad_assumptions: list[str]  # Assumption texts that failed verification
+    plan_section_issues: list[str]  # Required section names absent from the plan
+    plan_health_score: int  # 0–100 quality score emitted before user approval
 
 
 _CRITIQUE_SYSTEM_PROMPT = """\
@@ -71,6 +87,10 @@ Categories:
 5. Over-engineering — unnecessarily complex steps that could be simplified
 6. Security — user input, authentication, authorization, or sensitive data affected
 7. Performance — loops, I/O, or DB queries on hot paths affected by the changes
+8. Plan coverage — does the plan fully address the original request? \
+   Call out anything the user asked for that the plan doesn't handle.
+9. Step decomposition — steps that bundle multiple unrelated changes into one, \
+   or that lack a clear Files/Verify/Deps structure.
 
 Format each issue on its own line:
 **[Category]** `file.py:symbol()` — what is wrong and why it matters.
@@ -94,7 +114,27 @@ Rules:
   Impact, Callers/Dependents, Risks & Decisions, Clarifications)
 - Add a final "## Addressed Critique" section mapping each flagged issue to your fix \
   or your reason for dismissal
+- Ensure all revised steps follow the decomposition format: \
+  Files (specific paths), Action (what exactly), Verify (done criterion), Deps (step numbers or "none")
 - Do not pad with unnecessary words — be precise and actionable
+"""
+
+_RE_CRITIQUE_SYSTEM_PROMPT = """\
+You are a technical plan reviewer performing a follow-up review after plan revision.
+
+Your task is NOT to find new issues. Your task is to verify whether each point from \
+the original critique was addressed in the revised plan.
+
+For each original critique point:
+- If fully addressed: skip it entirely — do not mention it
+- If partially addressed: report what is still missing
+- If not addressed at all: repeat the issue prefixed with "[UNRESOLVED]"
+
+Only report issues that remain unresolved or are only partially resolved.
+If all original critique points were addressed, reply with: "All critique points addressed."
+
+Format each remaining issue on its own line:
+**[Category]** `file.py:symbol()` — what remains unresolved and why it matters.
 """
 
 ROUTER_PROMPT = """\
@@ -368,6 +408,7 @@ class GraphOrchestrator(BaseOrchestrator):
         graph.add_node("critique_plan", self._critique_plan_node)
         graph.add_node("revise_plan", self._revise_plan_node)
         graph.add_node("re_critique_plan", self._re_critique_plan_node)
+        graph.add_node("verify_assumptions", self._verify_assumptions_node)
         graph.add_node("approve_plan", self._approve_plan_node)
         graph.add_node("execute_agent", self._execute_agent_node)
         graph.add_node("execute_parallel", self._execute_parallel_node)
@@ -397,9 +438,10 @@ class GraphOrchestrator(BaseOrchestrator):
             self._should_revise_again,
             {
                 "revise": "revise_plan",
-                "done": "approve_plan",
+                "done": "verify_assumptions",
             },
         )
+        graph.add_edge("verify_assumptions", "approve_plan")
         graph.add_conditional_edges(
             "approve_plan",
             self._plan_approved,
@@ -751,22 +793,44 @@ class GraphOrchestrator(BaseOrchestrator):
             }
 
     async def _execute_parallel_node(self, state: GraphState) -> GraphState:
-        """Execute multiple plan steps concurrently using asyncio.gather().
+        """Execute parallel plan steps using dependency-aware wave scheduling.
 
-        Each step marked ``[PARALLEL]`` in the approved plan is run as a
-        separate coroutine against a fresh instance of the selected agent.
+        Steps are grouped into *waves* using ``_build_dep_waves``: within each
+        wave all steps can run concurrently (``asyncio.gather``); the next wave
+        starts only after every step in the current wave has finished.
+
+        When ``plan_step_deps`` is absent or empty the node falls back to the
+        original single-gather behaviour (all steps at once).
+
         A semaphore caps concurrent invocations at ``_max_parallel_agents``.
         Results are merged into a single ``AgentResponse`` before returning.
         """
         parallel_steps = state.get("parallel_steps") or []
         agent_name = state["selected_agent"]
+        plan_step_deps = state.get("plan_step_deps") or {}
 
-        # Use semaphore as a concurrency cap (not a step count cap) so that
-        # plans with more steps than max_parallel_agents still execute all steps.
-        steps_to_run = parallel_steps
-        n = len(steps_to_run)
+        # Re-parse all step descriptions to build the description→number mapping
+        # needed by _build_dep_waves.  plan_response is always present when we
+        # reach this node (approved plan path), but guard defensively.
+        plan_response = state.get("plan_response")
+        if plan_response and plan_response.content:
+            from lidco.cli.plan_editor import parse_plan_steps  # local: avoid circular
+            all_steps = parse_plan_steps(plan_response.content)
+        else:
+            all_steps = []
 
-        self._report_status(f"Running {n} steps in parallel ({agent_name})")
+        waves = self._build_dep_waves(parallel_steps, plan_step_deps, all_steps)
+        if not waves:
+            waves = [list(parallel_steps)]  # defensive fallback
+
+        n = len(parallel_steps)
+        n_waves = len(waves)
+        if n_waves > 1:
+            self._report_status(
+                f"Running {n} steps in {n_waves} dependency waves ({agent_name})"
+            )
+        else:
+            self._report_status(f"Running {n} steps in parallel ({agent_name})")
         self._report_phase("Execute", "active")
 
         template_agent = self._registry.get(agent_name)
@@ -861,14 +925,32 @@ class GraphOrchestrator(BaseOrchestrator):
                         iterations=0,
                     )
 
-        responses: list[AgentResponse] = await asyncio.gather(
-            *[_run_step(step) for step in steps_to_run]
-        )
+        # Execute wave by wave; within each wave all steps run concurrently.
+        all_step_responses: list[tuple[str, AgentResponse]] = []
+        for wave_idx, wave in enumerate(waves):
+            if n_waves > 1:
+                self._report_status(
+                    f"Wave {wave_idx + 1}/{n_waves}: {len(wave)} step(s) ({agent_name})"
+                )
+            wave_responses: list[AgentResponse] = await asyncio.gather(
+                *[_run_step(step) for step in wave]
+            )
+            all_step_responses.extend(zip(wave, wave_responses))
+
+        responses = [resp for _, resp in all_step_responses]
+        steps_to_run = [step for step, _ in all_step_responses]
 
         # Merge responses into one AgentResponse
         content_parts: list[str] = []
-        for i, (step, resp) in enumerate(zip(steps_to_run, responses), 1):
-            header = f"### Parallel Step {i}: {step[:80]}"
+        for i, (step, resp) in enumerate(all_step_responses, 1):
+            wave_tag = ""
+            if n_waves > 1:
+                # Find which wave this step belongs to for the header annotation
+                for w_idx, w in enumerate(waves):
+                    if step in w:
+                        wave_tag = f" [wave {w_idx + 1}]"
+                        break
+            header = f"### Parallel Step {i}{wave_tag}: {step[:80]}"
             content_parts.append(f"{header}\n{resp.content}")
 
         merged_content = "\n\n".join(content_parts)
@@ -1070,6 +1152,46 @@ class GraphOrchestrator(BaseOrchestrator):
                 assumptions.append(stripped)
         return assumptions
 
+    @staticmethod
+    def _parse_execution_map(plan_content: str) -> dict:
+        """Parse **Execution Map:** section from a plan.
+
+        Returns a dict with keys ``critical_path``, ``parallel_groups``, and
+        ``integration_points``.  Returns empty defaults when the section is
+        absent or unparseable — never raises.
+        """
+        result: dict = {"critical_path": [], "parallel_groups": [], "integration_points": []}
+        lines = plan_content.splitlines()
+        in_map = False
+        for line in lines:
+            stripped = line.strip()
+            if "**Execution Map:**" in stripped:
+                in_map = True
+                continue
+            if not in_map:
+                continue
+            # Stop at next bold header or ## section
+            if (stripped.startswith("**") and stripped.endswith("**")) or stripped.startswith("##"):
+                break
+            if not stripped.startswith("-"):
+                continue
+            content = stripped.lstrip("-").strip()
+            lower = content.lower()
+            if lower.startswith("critical path:"):
+                result["critical_path"] = [int(n) for n in re.findall(r"\d+", content)]
+            elif re.match(r"parallel group", lower):
+                # Extract step numbers from [N, M, ...] bracket notation only;
+                # ignore numbers in parenthetical "(run after step N)" text.
+                bracket = re.search(r"\[([^\]]+)\]", content)
+                nums = [int(n) for n in re.findall(r"\d+", bracket.group(1))] if bracket else []
+                if nums:
+                    result["parallel_groups"].append(nums)
+            elif lower.startswith("integration point"):
+                # Only the step number(s) before any parenthetical comment.
+                step_part = re.split(r"\(", content, maxsplit=1)[0]
+                result["integration_points"].extend(int(n) for n in re.findall(r"\d+", step_part))
+        return result
+
     def _grep_symbol(self, sym: str) -> str:
         """Synchronously grep for *sym* in the project directory (Python files only).
 
@@ -1132,12 +1254,28 @@ class GraphOrchestrator(BaseOrchestrator):
         except Exception:
             return ""
 
+    def _run_git_status(self) -> str:
+        """Synchronously run ``git status --short`` to show uncommitted changes."""
+        import subprocess
+
+        try:
+            proc = subprocess.run(
+                ["git", "status", "--short"],
+                capture_output=True,
+                text=True,
+                cwd=str(self._project_dir),
+                timeout=2,
+            )
+            return (proc.stdout or "").strip()
+        except Exception:
+            return ""
+
     async def _build_preplan_snapshot(self, user_message: str) -> str:
         """Build a pre-planning context snapshot for the planner.
 
-        Combines the recent git log and coverage context into a
-        ``## Pre-planning Snapshot`` section.  Returns an empty string when
-        disabled or when both sources yield no data.
+        Combines the recent git log, uncommitted changes, and coverage context
+        into a ``## Pre-planning Snapshot`` section.  Returns an empty string
+        when disabled or when all sources yield no data.
 
         The *user_message* parameter is kept for future file-mention filtering
         but is not currently used to narrow the git log.
@@ -1156,6 +1294,17 @@ class GraphOrchestrator(BaseOrchestrator):
             )
             if git_log:
                 parts.append(f"### Recent Commits\n```\n{git_log}\n```")
+        except Exception:
+            pass
+
+        # Git status: uncommitted changes
+        try:
+            git_status = await asyncio.wait_for(
+                loop.run_in_executor(None, self._run_git_status),
+                timeout=1.5,
+            )
+            if git_status:
+                parts.append(f"### Uncommitted Changes\n```\n{git_status}\n```")
         except Exception:
             pass
 
@@ -1228,6 +1377,29 @@ class GraphOrchestrator(BaseOrchestrator):
         except Exception as e:
             logger.debug("Could not save approved plan: %s", e)
 
+    @staticmethod
+    def _compute_critique_budget(plan_content: str) -> int:
+        """Return max_tokens for the critique LLM call scaled by plan step count.
+
+        Avoids spending the full critique budget on trivial plans:
+
+        * 0–2 steps  → 300 tokens  (quick sanity check)
+        * 3–5 steps  → 500 tokens  (moderate depth)
+        * 6+ steps   → 800 tokens  (full critique)
+
+        Never raises — falls back to 500 (moderate) on any parsing error.
+        """
+        try:
+            from lidco.cli.plan_editor import parse_plan_steps  # local: avoid circular
+            n = len(parse_plan_steps(plan_content))
+        except Exception:
+            return 500
+        if n <= 2:
+            return 300
+        if n <= 5:
+            return 500
+        return 800
+
     async def _critique_plan_node(self, state: GraphState) -> GraphState:
         """Run a cheap LLM critique pass on the plan before the user sees it.
 
@@ -1246,15 +1418,19 @@ class GraphOrchestrator(BaseOrchestrator):
             return state
 
         self._report_status("Reviewing plan for gaps")
+        user_message = state.get("user_message", "")
         try:
             critique_response = await asyncio.wait_for(
                 self._llm.complete(
                     [
                         Message(role="system", content=_CRITIQUE_SYSTEM_PROMPT),
-                        Message(role="user", content=plan_content),
+                        Message(role="user", content=(
+                            f"## Original Request\n{user_message}\n\n"
+                            f"## Implementation Plan\n{plan_content}"
+                        )),
                     ],
                     temperature=0.0,
-                    max_tokens=800,
+                    max_tokens=self._compute_critique_budget(plan_content),
                     role="routing",
                 ),
                 timeout=45,
@@ -1263,6 +1439,10 @@ class GraphOrchestrator(BaseOrchestrator):
             if not critique_text:
                 return state
 
+            # Always append critique to plan display so the user can see it.
+            # Only set plan_critique (to trigger revision) when there are real issues;
+            # a clean-pass message ("No critical gaps identified.") skips revision.
+            is_clean_pass = "no critical gaps" in critique_text.lower()
             from dataclasses import replace as dc_replace
             updated_content = (
                 f"{plan_content}\n\n---\n"
@@ -1272,7 +1452,7 @@ class GraphOrchestrator(BaseOrchestrator):
             return {
                 **state,
                 "plan_response": updated_response,
-                "plan_critique": critique_text,
+                "plan_critique": None if is_clean_pass else critique_text,
                 "accumulated_tokens": (
                     state.get("accumulated_tokens", 0)
                     + (
@@ -1358,11 +1538,14 @@ class GraphOrchestrator(BaseOrchestrator):
                 return state
 
             updated_response = dc_replace(plan_response, content=revised_text)
+            updated_assumptions = self._parse_plan_assumptions(revised_text)
             return {
                 **state,
                 "plan_response": updated_response,
                 "plan_critique": None,  # consumed — cleared so approve sees clean plan
+                "plan_critique_addressed": plan_critique,  # save what was addressed
                 "plan_revision": revised_text,
+                "plan_assumptions": updated_assumptions,  # re-parsed from revised plan
                 "accumulated_tokens": (
                     state.get("accumulated_tokens", 0)
                     + (
@@ -1401,24 +1584,33 @@ class GraphOrchestrator(BaseOrchestrator):
             return state
 
         self._report_status("Re-reviewing revised plan")
+        original_critique = state.get("plan_critique_addressed") or ""
         try:
             critique_response = await asyncio.wait_for(
                 self._llm.complete(
                     [
-                        Message(role="system", content=_CRITIQUE_SYSTEM_PROMPT),
-                        Message(role="user", content=plan_content),
+                        Message(role="system", content=_RE_CRITIQUE_SYSTEM_PROMPT),
+                        Message(role="user", content=(
+                            f"## Original Critique\n{original_critique}\n\n"
+                            f"## Revised Plan\n{plan_content}"
+                        )),
                     ],
                     temperature=0.0,
-                    max_tokens=400,
+                    max_tokens=max(150, self._compute_critique_budget(plan_content) // 2),
                     role="routing",
                 ),
                 timeout=45,
             )
             critique_text = (critique_response.content or "").strip()
             round_num = state.get("plan_revision_round", 0) + 1
+            # Normalize clean-pass message to None so the revision loop exits
+            is_clean_pass = (
+                not critique_text
+                or "all critique points addressed" in critique_text.lower()
+            )
             return {
                 **state,
-                "plan_critique": critique_text or None,
+                "plan_critique": None if is_clean_pass else critique_text,
                 "plan_revision_round": round_num,
                 "accumulated_tokens": (
                     state.get("accumulated_tokens", 0)
@@ -1457,6 +1649,379 @@ class GraphOrchestrator(BaseOrchestrator):
             return "revise"
         return "done"
 
+    def _augment_parallel_steps(
+        self, parallel_steps: list[str], execution_map: dict, plan_content: str
+    ) -> list[str]:
+        """Supplement *parallel_steps* with steps named in execution-map groups.
+
+        Steps referenced by number in ``execution_map["parallel_groups"]`` are
+        added to *parallel_steps* if not already present.  Uses
+        ``parse_plan_steps`` (imported locally to avoid circular import) to
+        resolve 1-based step numbers to step-description strings.
+        """
+        if not execution_map["parallel_groups"]:
+            return parallel_steps
+        from lidco.cli.plan_editor import parse_plan_steps  # local import: avoid circular
+        all_steps = parse_plan_steps(plan_content)
+        result = list(parallel_steps)
+        for group in execution_map["parallel_groups"]:
+            for step_num in group:
+                idx = step_num - 1  # 1-based → 0-based
+                if 0 <= idx < len(all_steps):
+                    step_desc = all_steps[idx]
+                    # Normalize: strip [PARALLEL] marker so dedup works whether
+                    # the step was already added via marker or via execution map.
+                    normalized = re.sub(r"\s*\[PARALLEL\]\s*", "", step_desc, flags=re.IGNORECASE).strip()
+                    if normalized not in result and step_desc not in result:
+                        result.append(normalized)
+        return result
+
+    @staticmethod
+    def _check_plan_sections(plan_content: str) -> list[str]:
+        """Return names of required sections missing from *plan_content*.
+
+        Checks for the 5 core sections mandated by the planner output format:
+        Goal, Assumptions, Steps, Risk Assessment, Test Impact.
+
+        Returns an empty list when all are present.  Never raises.
+        """
+        lower = plan_content.lower()
+        return [
+            name
+            for marker, name in _REQUIRED_PLAN_SECTIONS
+            if marker.lower() not in lower
+        ]
+
+    @staticmethod
+    def _verify_one_assumption(text: str, project_dir: Path) -> tuple[str, str]:
+        """Check one ``[⚠ Unverified]`` assumption against the filesystem.
+
+        Extracts all backtick-quoted tokens and probes each one:
+
+        * **File path** (contains ``/`` or has a known extension) → ``Path.exists()``
+          with a fallback ``rglob`` by filename.
+        * **Python module** (dotted identifier, no slashes) → ``importlib.util.find_spec``.
+        * **Symbol** (pure identifier, >2 chars) → ``grep -r --include=*.py``.
+
+        Returns ``(status, detail)`` where *status* is:
+
+        * ``"verified"`` — at least one check passed and none explicitly failed.
+        * ``"wrong"``    — at least one check failed.
+        * ``"skip"``     — nothing verifiable found (status unchanged).
+
+        Subprocess errors and missing tools are silently ignored (treated as
+        "skip") so Windows environments without ``grep`` on PATH work fine.
+        Never raises.
+        """
+        import importlib.util
+        import subprocess
+
+        _FILE_EXTS = frozenset({
+            ".py", ".ts", ".js", ".jsx", ".tsx",
+            ".yaml", ".yml", ".json", ".toml", ".md", ".txt", ".cfg", ".ini",
+        })
+
+        tokens = re.findall(r"`([^`\n]+)`", text)
+        if not tokens:
+            return "skip", ""
+
+        passed: list[str] = []
+        failed: list[str] = []
+
+        for token in tokens[:6]:
+            token = token.strip()
+            if not token or len(token) > 200:
+                continue
+
+            has_slash = "/" in token or "\\" in token
+            has_known_ext = any(token.endswith(ext) for ext in _FILE_EXTS)
+            has_dot = "." in token
+            is_pure_id = bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", token))
+
+            if has_slash or has_known_ext:
+                # File path check
+                candidate = project_dir / token
+                if candidate.exists():
+                    passed.append(token)
+                else:
+                    filename = Path(token).name
+                    found = next(iter(project_dir.rglob(filename)), None)
+                    if found:
+                        passed.append(token)
+                    else:
+                        failed.append(f"file not found: {token}")
+                continue
+
+            if has_dot and not has_slash and " " not in token:
+                # Python module import check (dotted identifier, not a version string)
+                parts = token.split(".")
+                if all(p.isidentifier() for p in parts if p):
+                    try:
+                        spec = importlib.util.find_spec(token)
+                        if spec is not None:
+                            passed.append(token)
+                        else:
+                            failed.append(f"module not importable: {token}")
+                    except Exception:
+                        failed.append(f"module not importable: {token}")
+                continue
+
+            if is_pure_id and len(token) > 2:
+                # Symbol check via grep — errors/missing tool → skip (no penalty)
+                try:
+                    result = subprocess.run(
+                        ["grep", "-r", "--include=*.py", "-l",
+                         rf"\b{re.escape(token)}\b", str(project_dir)],
+                        capture_output=True,
+                        text=True,
+                        timeout=2,
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        passed.append(token)
+                    elif result.returncode == 1:
+                        # grep exit 1 = no matches found
+                        failed.append(f"symbol not found: {token}")
+                    # returncode > 1 = grep error → skip
+                except Exception:
+                    pass  # No grep or timeout → treat as skip
+
+        if failed:
+            return "wrong", "; ".join(failed[:2])
+        if passed:
+            return "verified", ""
+        return "skip", ""
+
+    async def _verify_assumptions_node(self, state: GraphState) -> GraphState:
+        """Verify ``[⚠ Unverified]`` assumptions against the filesystem.
+
+        Runs after ``re_critique_plan`` and before ``approve_plan``.  For each
+        unverified assumption (capped at 10 to bound execution time):
+
+        1. Calls ``_verify_one_assumption`` in a thread-pool executor.
+        2. Annotates the matching line in ``plan_response.content``:
+           ``[⚠ Unverified]`` → ``[✓ Verified]`` or ``[✗ Wrong: detail]``.
+        3. Collects failures in ``plan_bad_assumptions``.
+
+        When failures are found, appends a visible
+        ``## Assumption Verification Issues`` section to the plan so the user
+        sees them prominently during the approval step.
+
+        On any error the node passes state through unchanged.
+        """
+        plan_response = state.get("plan_response")
+        assumptions = state.get("plan_assumptions") or []
+        unverified = [a for a in assumptions if "[⚠" in a]
+
+        if not plan_response:
+            return {**state, "plan_bad_assumptions": [], "plan_section_issues": []}
+
+        if not unverified:
+            # Still run section completeness check even with no unverified assumptions.
+            section_issues = self._check_plan_sections(plan_response.content or "")
+            return {**state, "plan_bad_assumptions": [], "plan_section_issues": section_issues}
+
+        self._report_status("Verifying plan assumptions")
+        loop = asyncio.get_running_loop()
+        plan_content = plan_response.content or ""
+        lines = plan_content.split("\n")
+        bad_assumptions: list[str] = []
+
+        for assumption in unverified[:10]:
+            try:
+                status, detail = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None, self._verify_one_assumption, assumption, self._project_dir
+                    ),
+                    timeout=5.0,
+                )
+            except Exception:
+                status, detail = "skip", ""
+
+            if status == "skip":
+                continue
+
+            replacement = (
+                "[✓ Verified]"
+                if status == "verified"
+                else (f"[✗ Wrong: {detail}]" if detail else "[✗ Wrong]")
+            )
+
+            # Update the target line in-place (assumption == line.strip())
+            for i, line in enumerate(lines):
+                if line.strip() == assumption:
+                    lines[i] = line.replace("[⚠ Unverified]", replacement, 1)
+                    break
+
+            if status == "wrong":
+                label = re.sub(r"\[⚠\s*Unverified\]", "", assumption).strip().lstrip("-•* ").strip()
+                bad_assumptions.append(f"{label}: {detail}" if detail else label)
+
+        plan_content = "\n".join(lines)
+
+        if bad_assumptions:
+            issues = "\n".join(f"- {b}" for b in bad_assumptions)
+            plan_content += (
+                "\n\n---\n## Assumption Verification Issues\n"
+                "The following assumptions could **not** be verified and may indicate "
+                "planning errors:\n\n" + issues
+            )
+
+        # Section completeness check — report missing required sections.
+        # Runs as a pure analysis pass (no plan content modification) so that
+        # the health score in _approve_plan_node can factor in structural gaps.
+        section_issues = self._check_plan_sections(plan_content)
+
+        from dataclasses import replace as dc_replace
+        updated_response = dc_replace(plan_response, content=plan_content)
+        updated_assumptions = self._parse_plan_assumptions(plan_content)
+
+        return {
+            **state,
+            "plan_response": updated_response,
+            "plan_assumptions": updated_assumptions,
+            "plan_bad_assumptions": bad_assumptions,
+            "plan_section_issues": section_issues,
+        }
+
+    @staticmethod
+    def _compute_plan_health(
+        plan_content: str,
+        bad_assumptions: list[str],
+        plan_critique: str | None,
+        section_issues: list[str],
+    ) -> int:
+        """Compute a 0–100 quality score for the plan.
+
+        Four equal-weight components (25 pts each):
+
+        1. **Section completeness** — all 5 required sections present.
+        2. **Assumption health**    — no failed assumption checks.
+        3. **Critique resolved**    — ``plan_critique`` is ``None`` (clean pass or all
+           issues addressed before approval).
+        4. **Step format**          — ≥ 50 % of numbered steps have a ``Verify:`` field.
+
+        Never raises.
+        """
+        score = 0
+
+        # 1. Section completeness
+        if not section_issues:
+            score += 25
+
+        # 2. Assumption health
+        if not bad_assumptions:
+            score += 25
+
+        # 3. Critique resolved
+        if not plan_critique:
+            score += 25
+
+        # 4. Step format compliance
+        try:
+            from lidco.cli.plan_editor import parse_plan_steps  # local: avoid circular
+            n_steps = len(parse_plan_steps(plan_content))
+            n_verify = sum(
+                1 for line in plan_content.splitlines()
+                if re.match(r"^\s*verify\s*:", line, re.IGNORECASE)
+            )
+            if n_steps == 0:
+                score += 12  # no numbered steps — give partial credit
+            elif n_verify / n_steps >= 0.5:
+                score += 25
+        except Exception:
+            score += 12  # error in step parsing — give partial credit
+
+        return score
+
+    def _parse_parallel_info(self, plan_content: str) -> tuple[list[str], dict, dict]:
+        """Return ``(parallel_steps, execution_map, plan_step_deps)`` from plan text.
+
+        Consolidates the three parallel-related parsing calls that every approval
+        path in ``_approve_plan_node`` needs:
+        1. Extract ``[PARALLEL]``-marked step descriptions.
+        2. Parse the ``**Execution Map:**`` section.
+        3. Augment ``parallel_steps`` with groups from the execution map.
+        4. Parse ``Deps:`` lines into ``{step_num: [dep_nums]}``.
+
+        Never raises — parsing errors produce empty defaults.
+        """
+        from lidco.cli.plan_editor import _parse_step_deps  # local: avoid circular import
+        parallel_steps = self._parse_parallel_steps(plan_content)
+        execution_map = self._parse_execution_map(plan_content)
+        parallel_steps = self._augment_parallel_steps(parallel_steps, execution_map, plan_content)
+        plan_step_deps = _parse_step_deps(plan_content)
+        return parallel_steps, execution_map, plan_step_deps
+
+    @staticmethod
+    def _build_dep_waves(
+        parallel_steps: list[str],
+        plan_step_deps: dict,
+        all_steps: list[str],
+    ) -> list[list[str]]:
+        """Topological-sort *parallel_steps* into dependency waves.
+
+        Each wave is a list of step descriptions that can execute concurrently.
+        Wave N starts only after every step in waves 0…N-1 has completed.
+
+        A dep is "relevant" only when it is itself in *parallel_steps* — deps on
+        sequential steps (outside the parallel set) are already satisfied before
+        ``_execute_parallel_node`` is called.
+
+        Falls back to a single wave when *plan_step_deps* is empty, *all_steps*
+        is empty, or a dependency cycle is detected.  Never raises.
+        """
+        if not parallel_steps:
+            return []
+        if not plan_step_deps or not all_steps:
+            return [list(parallel_steps)]
+
+        def _normalize(s: str) -> str:
+            return re.sub(r"\s*\[PARALLEL\]\s*", "", s, flags=re.IGNORECASE).strip()
+
+        # Build normalized description → 1-based step number map
+        norm_to_num: dict[str, int] = {_normalize(d): i + 1 for i, d in enumerate(all_steps)}
+        parallel_set_norm = {_normalize(s) for s in parallel_steps}
+
+        # For each parallel step, collect the deps that are also parallel steps
+        dep_map: dict[str, list[str]] = {}
+        for step in parallel_steps:
+            norm = _normalize(step)
+            step_num = norm_to_num.get(norm)
+            if step_num is None:
+                dep_map[norm] = []
+                continue
+            relevant: list[str] = []
+            for dep_num in plan_step_deps.get(step_num, []):
+                dep_idx = dep_num - 1
+                if 0 <= dep_idx < len(all_steps):
+                    dep_norm = _normalize(all_steps[dep_idx])
+                    if dep_norm in parallel_set_norm:
+                        relevant.append(dep_norm)
+            dep_map[norm] = relevant
+
+        # Kahn's algorithm — group into waves
+        completed: set[str] = set()
+        remaining = list(parallel_steps)
+        waves: list[list[str]] = []
+
+        while remaining:
+            wave = [
+                s for s in remaining
+                if all(d in completed for d in dep_map.get(_normalize(s), []))
+            ]
+            if not wave:
+                # Cycle or unresolvable — run all remaining together as fallback
+                logger.warning(
+                    "Dependency cycle in plan steps — running remaining %d steps in one wave",
+                    len(remaining),
+                )
+                wave = remaining[:]
+            waves.append(wave)
+            completed.update(_normalize(s) for s in wave)
+            remaining = [s for s in remaining if s not in wave]
+
+        return waves
+
     async def _approve_plan_node(self, state: GraphState) -> GraphState:
         """Ask the user to approve, reject, or edit the plan.
 
@@ -1468,10 +2033,30 @@ class GraphOrchestrator(BaseOrchestrator):
         After approval the plan content is scanned for ``[PARALLEL]`` step
         markers; if any are found they are stored in ``parallel_steps`` so the
         routing can dispatch to ``execute_parallel`` instead of ``execute_agent``.
+        The ``**Execution Map:**`` section is also parsed and stored in
+        ``execution_map`` — its parallel groups supplement any ``[PARALLEL]``
+        markers found in individual step lines.
         """
         plan_response = state.get("plan_response")
         if not plan_response:
-            return {**state, "plan_approved": True, "parallel_steps": []}
+            return {
+                **state,
+                "plan_approved": True,
+                "parallel_steps": [],
+                "execution_map": None,
+                "plan_step_deps": None,
+                "plan_health_score": 0,
+            }
+
+        # Compute and emit plan quality score before showing plan to user.
+        health = self._compute_plan_health(
+            plan_response.content or "",
+            state.get("plan_bad_assumptions") or [],
+            state.get("plan_critique"),
+            state.get("plan_section_issues") or [],
+        )
+        quality_label = "excellent" if health >= 90 else "good" if health >= 75 else "fair" if health >= 50 else "poor"
+        self._report_status(f"Plan quality: {health}/100 ({quality_label})")
 
         # ── Interactive plan editor path ──────────────────────────────────────
         if self._plan_editor:
@@ -1483,8 +2068,9 @@ class GraphOrchestrator(BaseOrchestrator):
                 )
             except Exception as e:
                 logger.error("Plan editor failed: %s", e)
-                parallel_steps = self._parse_parallel_steps(plan_response.content)
-                return {**state, "plan_approved": True, "parallel_steps": parallel_steps}
+                self._report_status("Plan editor error — auto-approving plan")
+                parallel_steps, execution_map, plan_step_deps = self._parse_parallel_info(plan_response.content)
+                return {**state, "plan_approved": True, "parallel_steps": parallel_steps, "execution_map": execution_map, "plan_step_deps": plan_step_deps, "plan_health_score": health}
 
             if filtered_plan is None:
                 return {
@@ -1492,6 +2078,9 @@ class GraphOrchestrator(BaseOrchestrator):
                     "plan_approved": False,
                     "agent_response": plan_response,
                     "parallel_steps": [],
+                    "execution_map": None,
+                    "plan_step_deps": None,
+                    "plan_health_score": health,
                 }
 
             plan_context = f"## Implementation Plan (approved)\n{filtered_plan}"
@@ -1499,15 +2088,15 @@ class GraphOrchestrator(BaseOrchestrator):
             merged = (
                 f"{plan_context}\n\n{existing_context}" if existing_context else plan_context
             )
-            parallel_steps = self._parse_parallel_steps(filtered_plan)
+            parallel_steps, execution_map, plan_step_deps = self._parse_parallel_info(filtered_plan)
             await asyncio.get_running_loop().run_in_executor(None, self._save_approved_plan, state["user_message"], filtered_plan)
-            return {**state, "plan_approved": True, "context": merged, "parallel_steps": parallel_steps}
+            return {**state, "plan_approved": True, "context": merged, "parallel_steps": parallel_steps, "execution_map": execution_map, "plan_step_deps": plan_step_deps, "plan_health_score": health}
 
         # ── Fallback: standard clarification-handler flow ────────────────────
         if not self._clarification_handler:
-            parallel_steps = self._parse_parallel_steps(plan_response.content)
+            parallel_steps, execution_map, plan_step_deps = self._parse_parallel_info(plan_response.content)
             await asyncio.get_running_loop().run_in_executor(None, self._save_approved_plan, state["user_message"], plan_response.content)
-            return {**state, "plan_approved": True, "parallel_steps": parallel_steps}
+            return {**state, "plan_approved": True, "parallel_steps": parallel_steps, "execution_map": execution_map, "plan_step_deps": plan_step_deps, "plan_health_score": health}
 
         try:
             answer = await asyncio.get_running_loop().run_in_executor(
@@ -1519,9 +2108,10 @@ class GraphOrchestrator(BaseOrchestrator):
             )
         except Exception as e:
             logger.error("Plan approval failed: %s", e)
-            parallel_steps = self._parse_parallel_steps(plan_response.content)
+            self._report_status("Plan approval error — auto-approving plan")
+            parallel_steps, execution_map, plan_step_deps = self._parse_parallel_info(plan_response.content)
             await asyncio.get_running_loop().run_in_executor(None, self._save_approved_plan, state["user_message"], plan_response.content)
-            return {**state, "plan_approved": True, "parallel_steps": parallel_steps}
+            return {**state, "plan_approved": True, "parallel_steps": parallel_steps, "execution_map": execution_map, "plan_step_deps": plan_step_deps, "plan_health_score": health}
 
         answer_lower = (answer or "").strip().lower()
 
@@ -1531,9 +2121,9 @@ class GraphOrchestrator(BaseOrchestrator):
             merged = (
                 f"{plan_context}\n\n{existing_context}" if existing_context else plan_context
             )
-            parallel_steps = self._parse_parallel_steps(plan_response.content)
+            parallel_steps, execution_map, plan_step_deps = self._parse_parallel_info(plan_response.content)
             await asyncio.get_running_loop().run_in_executor(None, self._save_approved_plan, state["user_message"], plan_response.content)
-            return {**state, "plan_approved": True, "context": merged, "parallel_steps": parallel_steps}
+            return {**state, "plan_approved": True, "context": merged, "parallel_steps": parallel_steps, "execution_map": execution_map, "plan_step_deps": plan_step_deps, "plan_health_score": health}
 
         if answer_lower in ("reject", "n", "no"):
             return {
@@ -1541,6 +2131,9 @@ class GraphOrchestrator(BaseOrchestrator):
                 "plan_approved": False,
                 "agent_response": plan_response,
                 "parallel_steps": [],
+                "execution_map": None,
+                "plan_step_deps": None,
+                "plan_health_score": health,
             }
 
         # "Edit" or custom text — treat as user edits to the plan
@@ -1553,10 +2146,10 @@ class GraphOrchestrator(BaseOrchestrator):
         merged = (
             f"{plan_context}\n\n{existing_context}" if existing_context else plan_context
         )
-        # Parse parallel steps from the approved plan only (not user edit notes)
-        parallel_steps = self._parse_parallel_steps(plan_response.content)
+        # Parse parallel info from the approved plan only (not user edit notes)
+        parallel_steps, execution_map, plan_step_deps = self._parse_parallel_info(plan_response.content)
         await asyncio.get_running_loop().run_in_executor(None, self._save_approved_plan, state["user_message"], plan_response.content)
-        return {**state, "plan_approved": True, "context": merged, "parallel_steps": parallel_steps}
+        return {**state, "plan_approved": True, "context": merged, "parallel_steps": parallel_steps, "execution_map": execution_map, "plan_step_deps": plan_step_deps, "plan_health_score": health}
 
     def _plan_approved(self, state: GraphState) -> Literal["parallel", "sequential", "rejected"]:
         """Route based on plan approval status and parallel step detection."""

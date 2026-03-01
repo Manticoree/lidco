@@ -230,3 +230,60 @@ class TestSetPlanCritique:
         orch.set_plan_critique(False)
         orch.set_plan_critique(True)
         assert orch._plan_critique_enabled is True
+
+
+# ── critique includes user_message + new prompt categories ───────────────────
+
+
+class TestCritiquePlanUserMessage:
+    def test_critique_call_includes_user_message(self):
+        """Critique LLM call must contain original user request in user content."""
+        orch = _make_orch("Risk found.")
+        state = _base_state("## Plan\n1. Step")
+        state["user_message"] = "implement retry logic"
+        asyncio.run(orch._critique_plan_node(state))
+
+        call_args = orch._llm.complete.call_args
+        messages = call_args[0][0]
+        user_msg = next((m for m in messages if m.role == "user"), None)
+        assert user_msg is not None
+        assert "implement retry logic" in user_msg.content
+
+    def test_critique_system_prompt_has_plan_coverage(self):
+        from lidco.agents.graph import _CRITIQUE_SYSTEM_PROMPT
+        assert "Plan coverage" in _CRITIQUE_SYSTEM_PROMPT
+
+    def test_critique_system_prompt_has_step_decomposition(self):
+        from lidco.agents.graph import _CRITIQUE_SYSTEM_PROMPT
+        assert "Step decomposition" in _CRITIQUE_SYSTEM_PROMPT
+
+
+# ── clean-pass detection ──────────────────────────────────────────────────────
+
+
+class TestCritiquePlanCleanPass:
+    def test_clean_pass_sets_plan_critique_to_none(self):
+        """When LLM returns 'No critical gaps identified.', plan_critique must be None."""
+        orch = _make_orch("No critical gaps identified.")
+        state = _base_state("## Plan\n1. Step")
+        result = asyncio.run(orch._critique_plan_node(state))
+
+        assert result.get("plan_critique") is None
+
+    def test_clean_pass_still_appends_to_plan_display(self):
+        """Clean-pass message must still be visible in plan_response.content."""
+        orch = _make_orch("No critical gaps identified.")
+        state = _base_state("## Plan\n1. Step")
+        result = asyncio.run(orch._critique_plan_node(state))
+
+        assert "No critical gaps identified." in result["plan_response"].content
+        assert "## Plan Review (auto-generated)" in result["plan_response"].content
+
+    def test_real_issues_still_set_plan_critique(self):
+        """When critique contains real issues, plan_critique must be set."""
+        orch = _make_orch("**[Edge Cases]** `foo.py:bar()` — missing error handling.")
+        state = _base_state("## Plan\n1. Step")
+        result = asyncio.run(orch._critique_plan_node(state))
+
+        assert result.get("plan_critique") is not None
+        assert "Edge Cases" in result["plan_critique"]

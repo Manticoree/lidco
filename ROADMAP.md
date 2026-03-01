@@ -914,3 +914,34 @@ Uses SHA-256 hashes. `skip_dedup=True` for display-only calls. Reset on `/clear`
 **Files:** `src/lidco/agents/graph.py` → `_execute_planner_node`, `_extract_mentioned_symbols()`, `_build_symbol_context()`, `_grep_symbol()`
 **Goal:** Parse user request for backtick-quoted symbols and pre-grep their definitions, injecting results as `## Referenced Symbols` context.
 **Status:** ✅ Done — `_extract_mentioned_symbols(text)` regex-extracts backtick-quoted symbols (no spaces, ≤60 chars, capped at 10). `_grep_symbol(sym)` synchronously greps `*.py` files (3s timeout, first 10 lines). `_build_symbol_context(symbols)` runs greps concurrently via `run_in_executor` with 3s per-symbol timeout, returns `## Referenced Symbols` section. Injected before snapshot in `_execute_planner_node()`. Entirely failure-safe (skip on timeout/error). 12 tests in `test_preplan_snapshot.py`.
+
+---
+
+## Q17 — Plan Quality Scoring and Adaptive Tuning
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 78 | Adaptive critique budget | ✅ Done | 0.5d | −60% critique tokens for trivial plans |
+| 79 | Plan section completeness check | ✅ Done | 0.5d | Surface incomplete plans before approval |
+| 80 | Plan health score | ✅ Done | 0.5d | 0–100 quality signal shown before user approval |
+
+---
+
+### 78. Adaptive critique budget
+**Files:** `src/lidco/agents/graph.py`
+**Goal:** Scale `max_tokens` for the critique LLM call by actual plan step count instead of using a fixed 800-token ceiling for all plans.
+**Status:** ✅ Done — `_compute_critique_budget(plan_content) -> int` static method: parses step count via `parse_plan_steps()`; returns 300 (0–2 steps), 500 (3–5 steps), 800 (6+ steps). Fully failure-safe (returns 500 on parse error). `_critique_plan_node` now calls `self._compute_critique_budget(plan_content)` instead of hardcoded 800. `_re_critique_plan_node` uses `max(150, budget // 2)` (floor 150, scales down for simple plans). 12 tests in `test_plan_quality.py`.
+
+---
+
+### 79. Plan section completeness check
+**Files:** `src/lidco/agents/graph.py`
+**Goal:** After assumption verification, detect missing required plan sections and surface them as metadata (without modifying plan content).
+**Status:** ✅ Done — `_REQUIRED_PLAN_SECTIONS` module-level constant: 5 required markers (`**Goal:**`, `**Assumptions:**`, `**Steps:**`, `**Risk Assessment:**`, `**Test Impact:**`). `_check_plan_sections(plan_content) -> list[str]` static method: returns names of missing sections (case-insensitive match). `GraphState.plan_section_issues: list[str]` field added. `_verify_assumptions_node` populates `plan_section_issues` in all return paths (early exits and main path). Analysis-only — does NOT modify plan content (preserves existing test invariants). 12 tests in `test_plan_quality.py`.
+
+---
+
+### 80. Plan health score
+**Files:** `src/lidco/agents/graph.py`
+**Goal:** Compute a 0–100 composite quality score before the user approves, giving immediate visibility into plan completeness.
+**Status:** ✅ Done — `_compute_plan_health(plan_content, bad_assumptions, plan_critique, section_issues) -> int` static method: 4 components × 25 pts each: (1) no missing sections, (2) no bad assumptions, (3) no outstanding critique, (4) ≥50% of steps have a `verify:` line. `GraphState.plan_health_score: int` field added. `_approve_plan_node` computes health score at entry, emits `"Plan quality: {score}/100 ({label})"` status via `_report_status()` (labels: excellent ≥90, good ≥75, fair ≥50, poor <50), and stores `plan_health_score` in all 8 return paths. When `plan_response` is None returns `plan_health_score: 0`. 25 tests in `test_plan_quality.py`.

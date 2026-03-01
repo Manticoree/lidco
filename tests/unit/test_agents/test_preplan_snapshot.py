@@ -72,6 +72,26 @@ class TestExtractMentionedSymbols:
         assert "src/lidco/agents/graph.py" in result
 
 
+# ── _run_git_status ───────────────────────────────────────────────────────────
+
+
+class TestRunGitStatus:
+    def test_returns_stdout_on_success(self):
+        orch = _make_orch()
+        mock_result = MagicMock()
+        mock_result.stdout = " M src/foo.py\n?? new_file.py\n"
+        with patch("subprocess.run", return_value=mock_result):
+            result = orch._run_git_status()
+        assert "src/foo.py" in result
+        assert "new_file.py" in result
+
+    def test_returns_empty_string_on_exception(self):
+        orch = _make_orch()
+        with patch("subprocess.run", side_effect=Exception("git not found")):
+            result = orch._run_git_status()
+        assert result == ""
+
+
 # ── _build_preplan_snapshot ───────────────────────────────────────────────────
 
 
@@ -92,8 +112,9 @@ class TestBuildPreplanSnapshot:
     def test_returns_empty_when_both_sources_empty(self):
         orch = _make_orch()
         with patch.object(orch, "_run_git_log", return_value=""):
-            with patch("lidco.core.coverage_reader.build_coverage_context", side_effect=Exception):
-                result = asyncio.run(orch._build_preplan_snapshot("add feature"))
+            with patch.object(orch, "_run_git_status", return_value=""):
+                with patch("lidco.core.coverage_reader.build_coverage_context", side_effect=Exception):
+                    result = asyncio.run(orch._build_preplan_snapshot("add feature"))
         assert result == ""
 
     def test_failure_safe_on_git_log_exception(self):
@@ -111,6 +132,25 @@ class TestBuildPreplanSnapshot:
                        return_value="## Coverage\n80%"):
                 result = asyncio.run(orch._build_preplan_snapshot("add feature"))
         assert "80%" in result
+
+    def test_includes_uncommitted_changes_when_nonempty(self):
+        orch = _make_orch()
+        with patch.object(orch, "_run_git_log", return_value="abc123 fix"):
+            with patch.object(orch, "_run_git_status", return_value="M src/foo.py"):
+                with patch("lidco.core.coverage_reader.build_coverage_context",
+                           side_effect=Exception):
+                    result = asyncio.run(orch._build_preplan_snapshot("add feature"))
+        assert "Uncommitted Changes" in result
+        assert "M src/foo.py" in result
+
+    def test_skips_uncommitted_changes_section_when_empty(self):
+        orch = _make_orch()
+        with patch.object(orch, "_run_git_log", return_value="abc123 fix"):
+            with patch.object(orch, "_run_git_status", return_value=""):
+                with patch("lidco.core.coverage_reader.build_coverage_context",
+                           side_effect=Exception):
+                    result = asyncio.run(orch._build_preplan_snapshot("add feature"))
+        assert "Uncommitted Changes" not in result
 
 
 # ── _build_symbol_context ─────────────────────────────────────────────────────

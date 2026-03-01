@@ -99,6 +99,33 @@ class TestPlannerSystemPromptContent:
     def test_phase_5_risks_ranked_by_severity(self):
         assert "severity" in PLANNER_SYSTEM_PROMPT.lower()
 
+    def test_has_complexity_gate_phase(self):
+        assert "Phase 0" in PLANNER_SYSTEM_PROMPT
+
+    def test_has_trivial_label(self):
+        assert "TRIVIAL" in PLANNER_SYSTEM_PROMPT
+
+    def test_has_complex_label(self):
+        assert "COMPLEX" in PLANNER_SYSTEM_PROMPT
+
+    def test_step_format_has_files_label(self):
+        assert "Files:" in PLANNER_SYSTEM_PROMPT
+
+    def test_step_format_has_verify_label(self):
+        assert "Verify:" in PLANNER_SYSTEM_PROMPT
+
+    def test_step_format_has_deps_label(self):
+        assert "Deps:" in PLANNER_SYSTEM_PROMPT
+
+    def test_has_execution_map_section(self):
+        assert "Execution Map" in PLANNER_SYSTEM_PROMPT
+
+    def test_has_integration_point_keyword(self):
+        assert "integration" in PLANNER_SYSTEM_PROMPT.lower()
+
+    def test_phase_5_has_nine_or_more_points(self):
+        assert "9." in PLANNER_SYSTEM_PROMPT
+
 
 # ── AgentsConfig.plan_critique ────────────────────────────────────────────────
 

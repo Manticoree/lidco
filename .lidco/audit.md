@@ -16,7 +16,7 @@
 | P3       | 8     | Low: dead code, cosmetic, minor inconsistencies |
 | **Total**| **31**|  |
 
-> **Status:** P0 and P1 fixed in commit after session. P1-05 was false positive (timeout=3 already present). |
+> **Status:** ALL FIXED. P0+P1 fixed in `27e73ff`. P2+P3 fixed in `e594a60`. P1-05 was false positive (timeout=3 already present). |
 
 ---
 
