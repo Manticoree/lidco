@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from lidco.agents.builtin import (
     create_architect_agent,
@@ -134,6 +134,14 @@ class Session:
         # Error history — captures tool failures for debugger context
         self._error_history = ErrorHistory(max_size=50)
 
+        # Cross-session error ledger (SQLite, persistent)
+        from lidco.core.error_ledger import ErrorLedger
+        self._error_ledger = ErrorLedger(self.project_dir / ".lidco" / "error_ledger.db")
+
+        # Fix memory — learns from successful bug fixes
+        from lidco.core.fix_memory import FixMemory
+        self._fix_memory = FixMemory(self.memory)
+
         # Register error_report tool with access to the live error history.
         # Must be done after _error_history is created, before agents start.
         from lidco.tools.error_report import ErrorReportTool
@@ -234,7 +242,7 @@ class Session:
                 project_dir=self.project_dir,
             )
             orch.set_clarification_manager(self.clarification_mgr)
-            orch.set_error_callback(self._error_history.append)
+            orch.set_error_callback(self._on_error_record)
             orch.set_error_context_builder(lambda: self._error_history.get_file_snippets(n=5))
             orch.set_error_count_reader(lambda: len(self._error_history))
             orch.set_error_summary_builder(
@@ -245,7 +253,15 @@ class Session:
             orch.set_plan_max_revisions(self.config.agents.plan_max_revisions)
             orch.set_plan_memory(self.config.agents.plan_memory)
             orch.set_preplan_snapshot(self.config.agents.preplan_snapshot)
+            orch.set_preplan_ambiguity(self.config.agents.preplan_ambiguity)
             orch.set_debug_mode(self.config.agents.debug_mode)
+            orch.set_debug_hypothesis(self.config.agents.debug_hypothesis)
+            orch.set_debug_fast_path(self.config.agents.debug_fast_path)
+            orch.set_auto_debug(self.config.agents.auto_debug)
+            orch.set_debug_preset(self.config.agents.debug_preset)
+            orch.set_sbfl_inject(self.config.agents.sbfl_inject)
+            orch.set_fix_memory(self._fix_memory)
+            orch.set_error_ledger(self._error_ledger)
             if self.config.memory.auto_save:
                 orch.set_memory_store(self.memory)
             if self.context_retriever:
@@ -294,6 +310,21 @@ class Session:
                     "YAML agent '%s' overrides built-in agent", agent.name
                 )
             self.agent_registry.register(agent)
+
+    def _on_error_record(self, record: Any) -> None:
+        """Handle a new error record — append to history and persist to ledger."""
+        self._error_history.append(record)
+        # Also record in cross-session ledger
+        try:
+            self._error_ledger.record(
+                error_type=record.error_type,
+                file_hint=record.file_hint,
+                function_hint=None,
+                message=record.message,
+                session_id="session",
+            )
+        except Exception as _e:
+            logger.debug("ErrorLedger.record failed: %s", _e)
 
     def clear_context_cache(self) -> None:
         """Reset deduplication cache so the next turn re-sends all static context."""
@@ -384,6 +415,10 @@ class Session:
             self._index_watcher.stop()
         if self._config_reloader is not None:
             self._config_reloader.stop()
+        try:
+            self._error_ledger.close()
+        except Exception:
+            pass
 
     def index_project(self) -> int:
         """Index the project for RAG. Returns number of chunks indexed."""

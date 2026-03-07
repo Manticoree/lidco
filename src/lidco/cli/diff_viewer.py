@@ -26,6 +26,8 @@ def get_git_diff(project_dir: Path | None = None) -> str:
             cwd=str(cwd),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
         return result.stdout

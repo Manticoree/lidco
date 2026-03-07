@@ -397,5 +397,5 @@ class TestParallelNodeWaveExecution:
             {1: [], 2: [], 3: [2]},
         )
         asyncio.run(orch._execute_parallel_node(state))
-        wave_calls = [s for s in status_calls if "Wave" in s or "wave" in s]
+        wave_calls = [s for s in status_calls if "Волна" in s or "волна" in s]
         assert len(wave_calls) >= 2

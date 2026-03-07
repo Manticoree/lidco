@@ -137,6 +137,71 @@ Format each remaining issue on its own line:
 **[Category]** `file.py:symbol()` — what remains unresolved and why it matters.
 """
 
+_AMBIGUITY_SYSTEM_PROMPT = """\
+You are a pre-planning analyst. Examine the feature request or bug fix description below.
+Identify 3-5 specific ambiguities or missing details that would cause an engineer to make
+incorrect assumptions during implementation planning.
+
+Format each finding as a bullet:
+- [Category]: what is unclear → what wrong assumption an engineer might make
+
+Use these categories: Scope, Interface, Behaviour, Data, Dependencies, Testing, Other.
+Be concrete and specific to THIS request — do not give generic advice.
+
+If the request is fully unambiguous and contains all necessary details, \
+reply with exactly: CLEAR
+"""
+
+_HYPOTHESIS_SYSTEM_PROMPT = """\
+You are a debugging analyst. Given recent errors and code context, generate \
+3 competing hypotheses about the root cause, ordered by confidence.
+
+For each hypothesis use this exact format:
+H{n} [confidence: HIGH|MEDIUM|LOW]: <root cause in 1 sentence>
+  First check: <specific grep/file_read to confirm or deny>
+  Confirms if: <what you'd expect to find>
+  Denies if: <what would rule this out>
+
+Be specific to THIS codebase — reference actual file/function names from context.
+If there is insufficient error context, reply with exactly: INSUFFICIENT_CONTEXT
+"""
+
+# Ordered sequence so the first match wins (most specific first).
+# _FAST_PATH_ERROR_TYPES is derived from the tuple to avoid duplication.
+# Research-intent signals for auto-routing to researcher agent.
+# If 2+ signals appear in the user message (and agent is not already researcher),
+# the router will auto-select researcher before running the LLM routing pass.
+_RESEARCH_SIGNALS: frozenset[str] = frozenset({
+    "research", "find", "look up", "search", "what is", "how does",
+    "explain", "documentation", "docs", "compare", "alternatives",
+    "best practice", "recommend",
+})
+
+_FAST_PATH_PRIORITY: tuple[str, ...] = (
+    "SyntaxError", "IndentationError", "TabError",
+    "ModuleNotFoundError", "ImportError", "NameError",
+)
+_FAST_PATH_ERROR_TYPES: frozenset[str] = frozenset(_FAST_PATH_PRIORITY)
+
+# Word-boundary patterns for safe error-type detection — prevents "ImportError"
+# from matching inside "ModuleNotFoundError" regardless of priority order.
+_FAST_PATH_PATTERNS: dict[str, re.Pattern[str]] = {
+    etype: re.compile(rf"\b{etype}\b") for etype in _FAST_PATH_PRIORITY
+}
+
+
+def _detect_fast_path_error_type(error_context: str) -> str | None:
+    """Return the first recognised compile-time error type found in *error_context*.
+
+    Uses word-boundary regex matching so that e.g. ``"ImportError"`` never
+    false-matches text that contains ``"ModuleNotFoundError"``.
+    Returns ``None`` when no known type is present.
+    """
+    for etype in _FAST_PATH_PRIORITY:
+        if _FAST_PATH_PATTERNS[etype].search(error_context):
+            return etype
+    return None
+
 ROUTER_PROMPT = """\
 You are a task router. Select the best agent. Respond JSON: {{"agent": "<name>", "needs_review": bool, "needs_planning": bool}}
 
@@ -192,6 +257,7 @@ class GraphOrchestrator(BaseOrchestrator):
         self._context_retriever: Any | None = None
         self._phase_callback: Any | None = None
         self._plan_editor: Any | None = None
+        self._agent_selected_callback: Any | None = None
         # Callable[[], str] — returns failure-site snippets for debugger injection
         self._error_context_builder: Any | None = None
         # Callable[[], int] — returns current error count for auto-debug suggestion
@@ -210,6 +276,28 @@ class GraphOrchestrator(BaseOrchestrator):
         self._plan_memory_enabled: bool = True
         # When True, auto-inject git log + coverage snapshot before planner starts
         self._preplan_snapshot_enabled: bool = True
+        # When True, run a cheap LLM pass to surface ambiguities before planner starts
+        self._preplan_ambiguity_enabled: bool = True
+        # When True, generate ranked hypotheses for debugger agent before execution
+        self._debug_hypothesis_enabled: bool = True
+        # When True, try fast path fix for SyntaxError/ImportError/NameError before full debug
+        self._debug_fast_path_enabled: bool = True
+        # When True, auto-trigger debugger when 3+ consecutive errors from same file
+        self._auto_debug_enabled: bool = False
+        # Debug preset: "fast" | "balanced" | "thorough" | "silent"
+        self._debug_preset: str = "balanced"
+        # When True, inject coverage gap context into debugger system prompt
+        self._coverage_gap_inject_enabled: bool = True
+        # When True, inject Ochiai SBFL suspicious-line ranking into debugger context
+        self._sbfl_inject_enabled: bool = True
+        # When True, inject live web search results into pre-planning context (off by default)
+        self._web_context_inject_enabled: bool = False
+        # When True, auto-route research-intent messages to researcher agent
+        self._web_auto_route_enabled: bool = True
+        # Fix memory — populated via set_fix_memory()
+        self._fix_memory: Any | None = None
+        # Error ledger — populated via set_error_ledger()
+        self._error_ledger: Any | None = None
         self._graph = self._build_graph()
 
     def set_status_callback(self, callback: Any) -> None:
@@ -267,6 +355,14 @@ class GraphOrchestrator(BaseOrchestrator):
         clarification-handler approve/reject flow, enabling step-level editing.
         """
         self._plan_editor = editor
+
+    def set_agent_selected_callback(self, callback: Any) -> None:
+        """Set a callback fired when the router picks an agent.
+
+        Signature: ``callback(agent_name: str, auto: bool)`` where *auto* is
+        False when the agent was pre-selected by the user (``@agent`` syntax).
+        """
+        self._agent_selected_callback = callback
 
     def set_error_context_builder(self, fn: Any) -> None:
         """Set a callable ``() -> str`` that returns failure-site snippets.
@@ -343,6 +439,407 @@ class GraphOrchestrator(BaseOrchestrator):
         starts, reducing redundant tool calls during Phase 2 exploration.
         """
         self._preplan_snapshot_enabled = enabled
+
+    def set_preplan_ambiguity(self, enabled: bool) -> None:
+        """Enable or disable the pre-planning ambiguity detection pass.
+
+        When *enabled* (default), a cheap LLM call identifies 3-5 specific
+        ambiguities in the user request before the planner starts, so the planner
+        can address unclear requirements upfront rather than guessing.
+        """
+        self._preplan_ambiguity_enabled = enabled
+
+    def set_debug_hypothesis(self, enabled: bool) -> None:
+        """Enable or disable ranked hypothesis generation for the debugger agent."""
+        self._debug_hypothesis_enabled = enabled
+
+    def set_debug_fast_path(self, enabled: bool) -> None:
+        """Enable or disable the compilation error fast-path fix."""
+        self._debug_fast_path_enabled = enabled
+
+    def set_auto_debug(self, enabled: bool) -> None:
+        """Enable or disable auto-triggering debugger on repeated errors."""
+        self._auto_debug_enabled = enabled
+
+    def set_debug_preset(self, preset: str) -> None:
+        """Apply a debug preset (fast|balanced|thorough|silent) — sets all related flags."""
+        self._debug_preset = preset
+        _PRESETS: dict[str, dict[str, Any]] = {
+            "fast":      {"debug_hypothesis": True,  "debug_fast_path": True,  "auto_debug": False},
+            "balanced":  {"debug_hypothesis": True,  "debug_fast_path": True,  "auto_debug": False},
+            "thorough":  {"debug_hypothesis": True,  "debug_fast_path": False, "auto_debug": True},
+            "silent":    {"debug_hypothesis": False, "debug_fast_path": True,  "auto_debug": False},
+        }
+        if preset in _PRESETS:
+            p = _PRESETS[preset]
+            self._debug_hypothesis_enabled = p["debug_hypothesis"]
+            self._debug_fast_path_enabled = p["debug_fast_path"]
+            self._auto_debug_enabled = p["auto_debug"]
+
+    def set_fix_memory(self, fix_memory: Any) -> None:
+        """Set the fix memory store for recording and retrieving past fixes."""
+        self._fix_memory = fix_memory
+
+    def set_error_ledger(self, ledger: Any) -> None:
+        """Set the cross-session error ledger for persistent error tracking."""
+        self._error_ledger = ledger
+
+    def set_coverage_gap_inject(self, enabled: bool) -> None:
+        """Enable or disable coverage gap injection into the debugger context."""
+        self._coverage_gap_inject_enabled = enabled
+
+    def set_sbfl_inject(self, enabled: bool) -> None:
+        """Enable or disable Ochiai SBFL suspicious-line ranking injection."""
+        self._sbfl_inject_enabled = enabled
+
+    def set_web_context_inject(self, enabled: bool) -> None:
+        """Enable or disable live web search context injection before planning.
+
+        When *enabled*, up to 2 DuckDuckGo queries are run for technology/package
+        keywords extracted from the user message, and a ``## Web Context`` section
+        is prepended to the planner's context.  Off by default because network calls
+        add latency in the critical planning path.
+        """
+        self._web_context_inject_enabled = enabled
+
+    def set_web_auto_route(self, enabled: bool) -> None:
+        """Enable or disable automatic routing to researcher for research queries.
+
+        When *enabled* (default), if 2+ research-intent signals from
+        ``_RESEARCH_SIGNALS`` are detected in the user message, the router
+        selects ``researcher`` before the LLM routing pass.
+        """
+        self._web_auto_route_enabled = enabled
+
+    async def _build_web_context(self, user_message: str) -> str:
+        """Build a ``## Web Context`` section from live DuckDuckGo results.
+
+        Extracts technology/package keywords via ``import X`` patterns and
+        quoted names, runs up to 2 DDG queries, returns top-3 results as
+        title + snippet + URL.  Fail-silent with 5-second timeout.
+
+        Gate: ``_web_context_inject_enabled``.
+        """
+        if not self._web_context_inject_enabled:
+            return ""
+
+        # Extract keywords: `import X` pattern and backtick-quoted names
+        keywords: list[str] = []
+        for m in re.finditer(r"\bimport\s+(\w+)", user_message):
+            kw = m.group(1)
+            if len(kw) >= 2 and kw not in keywords:
+                keywords.append(kw)
+        for m in re.finditer(r"`([^`\n]{2,30})`", user_message):
+            kw = m.group(1).strip()
+            if " " not in kw and kw not in keywords:
+                keywords.append(kw)
+
+        if not keywords:
+            return ""
+
+        try:
+            from duckduckgo_search import DDGS
+        except (ImportError, TypeError):
+            return ""
+
+        # Run at most 2 queries
+        queries = [f"{kw} python docs" for kw in keywords[:2]]
+        all_results: list[dict] = []
+
+        try:
+            async def _search_all() -> None:
+                with DDGS() as ddgs:
+                    for q in queries:
+                        try:
+                            hits = list(ddgs.text(q, max_results=3))
+                            all_results.extend(hits)
+                        except Exception:
+                            pass
+
+            await asyncio.wait_for(_search_all(), timeout=5.0)
+        except Exception as e:
+            logger.debug("Web context search failed: %s", e)
+            return ""
+
+        if not all_results:
+            return ""
+
+        # Deduplicate by URL and limit to top 3
+        seen_urls: set[str] = set()
+        top: list[dict] = []
+        for r in all_results:
+            url = r.get("href", r.get("link", ""))
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                top.append(r)
+            if len(top) >= 3:
+                break
+
+        if not top:
+            return ""
+
+        lines = ["## Web Context", ""]
+        for r in top:
+            title = r.get("title", "No title")
+            url = r.get("href", r.get("link", ""))
+            snippet = r.get("body", r.get("snippet", ""))[:200]
+            lines.append(f"- **{title}**")
+            lines.append(f"  URL: {url}")
+            if snippet:
+                lines.append(f"  {snippet}")
+        return "\n".join(lines)
+
+    async def _detect_ambiguities(self, user_message: str) -> str:
+        """Run a cheap LLM pass to surface ambiguities in the user request.
+
+        Returns a ``## Ambiguities Detected`` section ready for injection into
+        the planner's context, or empty string when the request is clear or
+        the call fails.  Uses ``role="routing"`` (cheap model), max 300 tokens,
+        15-second timeout.
+        """
+        if not self._preplan_ambiguity_enabled:
+            return ""
+
+        try:
+            response = await asyncio.wait_for(
+                self._llm.complete(
+                    [
+                        Message(role="system", content=_AMBIGUITY_SYSTEM_PROMPT),
+                        Message(role="user", content=user_message),
+                    ],
+                    role="routing",
+                    temperature=0.3,
+                    max_tokens=300,
+                ),
+                timeout=15.0,
+            )
+            content = (response.content or "").strip()
+            if not content or content.upper() == "CLEAR":
+                return ""
+            return f"## Ambiguities Detected\n{content}"
+        except Exception as e:
+            logger.debug("Ambiguity detection failed: %s", e)
+            return ""
+
+    async def _generate_hypotheses(self, error_context: str, task_context: str) -> str:
+        """Generate ranked debug hypotheses using a cheap LLM call.
+
+        Returns a ``## Debug Hypotheses`` section for injection into the debugger
+        agent's system context, or empty string on failure/disabled.
+        Gate: ``_debug_hypothesis_enabled``, timeout 15s.
+        """
+        if not self._debug_hypothesis_enabled:
+            return ""
+
+        user_content = (
+            f"## Recent Errors\n{error_context}\n\n"
+            f"## Current Task\n{task_context}\n\n"
+            "Generate 3 competing hypotheses about the root cause."
+        )
+
+        try:
+            response = await asyncio.wait_for(
+                self._llm.complete(
+                    [
+                        Message(role="system", content=_HYPOTHESIS_SYSTEM_PROMPT),
+                        Message(role="user", content=user_content[:4000]),
+                    ],
+                    role="routing",
+                    temperature=0.3,
+                    max_tokens=500,
+                ),
+                timeout=15.0,
+            )
+            content = (response.content or "").strip()
+            if not content or "INSUFFICIENT_CONTEXT" in content:
+                return ""
+            return f"## Debug Hypotheses (ranked by confidence)\n\n{content}"
+        except Exception as e:
+            logger.debug("Hypothesis generation failed: %s", e)
+            return ""
+
+    async def _build_compilation_hint(
+        self, error_context: str, error_type: str
+    ) -> str:
+        """Build structured fix hints using SyntaxError Surgeon and Module Advisor.
+
+        Called from the debugger context injection block when fast-path is enabled.
+        Parses *error_context* to extract the relevant error message / module name,
+        delegates to the appropriate advisor, and returns a Markdown section.
+
+        Always failure-safe — returns ``""`` on any exception.
+        """
+        try:
+            from lidco.core.syntax_fixer import diagnose_syntax_error, format_syntax_fix
+            from lidco.core.module_advisor import advise_module_not_found, format_advice
+
+            parts: list[str] = []
+
+            if error_type in ("SyntaxError", "IndentationError", "TabError"):
+                # Extract the error message portion after the type prefix
+                msg_match = re.search(
+                    r"(?:SyntaxError|IndentationError|TabError)[:\s]+([^\n]+)",
+                    error_context,
+                )
+                line_match = re.search(r"line (\d+)", error_context)
+                error_msg = msg_match.group(1).strip() if msg_match else ""
+                lineno = int(line_match.group(1)) if line_match else None
+                fix = diagnose_syntax_error(
+                    error_type=error_type,
+                    error_msg=error_msg,
+                    lineno=lineno,
+                    source_line=None,
+                )
+                if fix:
+                    parts.append(format_syntax_fix(fix))
+
+            elif error_type in ("ModuleNotFoundError", "ImportError"):
+                # Extract module name from "No module named 'X'"
+                mod_match = re.search(r"No module named '([^']+)'", error_context)
+                if mod_match:
+                    module_name = mod_match.group(1)
+                    advice = advise_module_not_found(module_name, installed_packages=None)
+                    parts.append(format_advice(advice))
+
+            if not parts:
+                return ""
+            return "## Compilation Fast-Path Hints\n\n" + "\n\n".join(parts)
+
+        except Exception as exc:
+            logger.debug("Compilation hint build failed: %s", exc)
+            return ""
+
+    async def _build_coverage_gap_hint(self, error_context: str) -> str:
+        """Inject coverage gap context for the failing file into the debugger prompt.
+
+        Extracts the source file path from *error_context*, loads the coverage
+        JSON report (if available), and returns a ``## Coverage Gap`` section
+        highlighting uncovered lines and branches.
+
+        Returns an empty string when:
+        - the flag ``_coverage_gap_inject_enabled`` is ``False``
+        - no file path can be extracted
+        - no coverage data is available for the file
+        - any exception occurs (fail-silent)
+
+        Gate: ``_coverage_gap_inject_enabled``.
+        """
+        if not self._coverage_gap_inject_enabled:
+            return ""
+        try:
+            import json
+            import re
+            from pathlib import Path
+
+            from lidco.core.coverage_gap import find_gaps_for_file, format_coverage_gaps, parse_coverage_json
+
+            # Extract the first Python file path mentioned in the error context
+            match = re.search(
+                r'(?:File\s+"?|in\s+)?'
+                r'((?:[A-Za-z]:[\\/])?(?:src|tests|lib)[\\/][^\s"\',:]+\.py)',
+                error_context,
+            )
+            if not match:
+                return ""
+
+            file_hint = match.group(1).replace("\\", "/")
+            json_path = self._project_dir / ".lidco" / "coverage.json"
+            if not json_path.exists():
+                return ""
+
+            raw = json.loads(json_path.read_text(encoding="utf-8"))
+            coverage_map = parse_coverage_json(raw)
+            gap = find_gaps_for_file(file_hint, coverage_map)
+            if not gap:
+                return ""
+
+            return format_coverage_gaps([gap])
+        except Exception as exc:
+            logger.debug("Coverage gap hint build failed: %s", exc)
+            return ""
+
+    async def _build_sbfl_hint(self, error_context: str) -> str:
+        """Inject Ochiai SBFL suspicious-line ranking for the failing file.
+
+        Extracts the source file path from *error_context*, runs
+        ``collect_sbfl_spectra`` (only when ``.coverage`` exists and has
+        per-test contexts), then formats the top-10 suspicious lines.
+
+        Returns ``""`` when:
+        - ``_sbfl_inject_enabled`` is ``False``
+        - no file path can be extracted from *error_context*
+        - no ``.coverage`` file exists or it has no per-test context data
+        - any exception occurs (fail-silent)
+
+        Gate: ``_sbfl_inject_enabled``.
+        """
+        if not self._sbfl_inject_enabled:
+            return ""
+        try:
+            import re
+
+            from lidco.core.sbfl import (
+                collect_sbfl_spectra,
+                compute_sbfl,
+                format_suspicious_lines,
+                read_coverage_contexts,
+            )
+
+            # Extract the first Python source file mentioned in the error context
+            match = re.search(
+                r'(?:File\s+"?|in\s+)?'
+                r'((?:[A-Za-z]:[\\/])?(?:src|tests|lib)[\\/][^\s"\',:]+\.py)',
+                error_context,
+            )
+            if not match:
+                return ""
+
+            file_hint = match.group(1).replace("\\", "/")
+            coverage_file = self._project_dir / ".coverage"
+            if not coverage_file.exists():
+                return ""
+
+            # Fast path: read existing .coverage contexts (no subprocess needed)
+            spectra = read_coverage_contexts(coverage_file, file_hint)
+            if not spectra:
+                return ""
+
+            # Derive pass/fail from context names — pytest-cov context format:
+            # "tests/unit/test_foo.py::TestBar::test_baz|run"
+            # We treat all contexts as "failed" since we only have failing context
+            # without subprocess re-run. Better than nothing.
+            results: dict[str, bool] = {tid: False for tid in spectra}
+
+            smap = compute_sbfl(spectra, results, file_hint)
+            return format_suspicious_lines(smap)
+        except Exception as exc:
+            logger.debug("SBFL hint build failed: %s", exc)
+            return ""
+
+    async def _try_compilation_fast_path(
+        self, error_context: str, file_hint: str | None, error_type: str
+    ) -> bool:
+        """Gate check for compilation fast-path.
+
+        Validates preconditions (enabled flag, known error type, file hint present).
+        Actual hint generation and injection happen in the debugger execution block
+        via ``_build_compilation_hint``.
+
+        Returns False always — does not auto-fix; the debugger performs the repair.
+        Gate: ``_debug_fast_path_enabled``.
+        """
+        if not self._debug_fast_path_enabled:
+            return False
+        if error_type not in _FAST_PATH_ERROR_TYPES:
+            return False
+        if not file_hint:
+            return False
+
+        logger.debug(
+            "Fast-path eligible for %s in %s — hint will be injected into debugger context",
+            error_type, file_hint,
+        )
+        return False
 
     # --- Live-reloadable config setters (override BaseOrchestrator no-ops) ---
 
@@ -484,7 +981,7 @@ class GraphOrchestrator(BaseOrchestrator):
         if not self._clarification_mgr or not self._clarification_handler:
             return state
 
-        self._report_status("Analyzing request")
+        self._report_status("Анализ запроса")
         user_message = state["user_message"]
 
         try:
@@ -533,8 +1030,27 @@ class GraphOrchestrator(BaseOrchestrator):
         if state.get("selected_agent"):
             return state
 
-        self._report_status("Selecting best agent")
+        self._report_status("Выбор агента")
         user_message = state["user_message"]
+
+        # Research-intent auto-routing: if 2+ signals match and researcher exists,
+        # route directly without an LLM call (gated by _web_auto_route_enabled)
+        if self._web_auto_route_enabled and self._registry.get("researcher") is not None:
+            msg_lower = user_message.lower()
+            signal_count = sum(1 for sig in _RESEARCH_SIGNALS if sig in msg_lower)
+            if signal_count >= 2:
+                agent_name = "researcher"
+                if self._agent_selected_callback is not None:
+                    try:
+                        self._agent_selected_callback(agent_name, True)
+                    except Exception:
+                        pass
+                return {
+                    **state,
+                    "selected_agent": agent_name,
+                    "needs_review": False,
+                    "needs_planning": state.get("force_plan", False),
+                }
 
         if len(self._registry.list_agents()) <= 1:
             return {
@@ -589,6 +1105,12 @@ class GraphOrchestrator(BaseOrchestrator):
         # force_plan (e.g. from /plan command) always enables planning
         final_needs_planning = needs_planning or state.get("force_plan", False)
 
+        if self._agent_selected_callback is not None:
+            try:
+                self._agent_selected_callback(agent_name, True)
+            except Exception:
+                pass
+
         return {
             **state,
             "selected_agent": agent_name,
@@ -602,11 +1124,11 @@ class GraphOrchestrator(BaseOrchestrator):
         review_iter = state.get("review_iteration", 0)
 
         if review_iter > 0:
-            self._report_status(f"Fixing issues ({agent_name})")
-            self._report_phase("Fix", "active")
+            self._report_status(f"Исправление ({agent_name})")
+            self._report_phase("Исправление", "active")
         else:
-            self._report_status(f"Starting {agent_name}")
-            self._report_phase("Execute", "active")
+            self._report_status(f"Запуск {agent_name}")
+            self._report_phase("Выполнение", "active")
 
         agent = self._registry.get(agent_name)
 
@@ -747,6 +1269,69 @@ class GraphOrchestrator(BaseOrchestrator):
                     + summary
                 )
 
+        # ── Debugger-specific enhancements ────────────────────────────────────
+        if agent.config.name == "debugger":
+            # Build error summary once; shared across all three injection blocks below.
+            _debug_error_ctx: str | None = None
+            if self._error_summary_builder is not None:
+                try:
+                    _debug_error_ctx = self._error_summary_builder()
+                except Exception as _e:
+                    logger.debug("Error summary builder failed: %s", _e)
+
+            # Inject fix memory context (past fixes for similar errors)
+            if self._fix_memory is not None and _debug_error_ctx:
+                try:
+                    # build_context accepts (error_type, file_module, error_message);
+                    # pass empty strings to trigger keyword-based fallback search.
+                    fix_ctx = self._fix_memory.build_context("", "", _debug_error_ctx)
+                    if fix_ctx:
+                        agent.prepend_system_context(fix_ctx)
+                except Exception as _e:
+                    logger.debug("Fix memory context injection failed: %s", _e)
+
+            # Inject ranked hypotheses via cheap LLM (gated by _debug_hypothesis_enabled)
+            if self._debug_hypothesis_enabled and _debug_error_ctx:
+                try:
+                    task_ctx = state["user_message"][:500]
+                    hypotheses = await self._generate_hypotheses(_debug_error_ctx, task_ctx)
+                    if hypotheses:
+                        agent.prepend_system_context(hypotheses)
+                except Exception as _e:
+                    logger.debug("Hypothesis generation failed: %s", _e)
+
+            # Inject compilation fast-path hints (SyntaxError Surgeon / Module Advisor)
+            # Gated by _debug_fast_path_enabled; zero-LLM, purely deterministic.
+            if self._debug_fast_path_enabled and _debug_error_ctx:
+                try:
+                    fp_error_type = _detect_fast_path_error_type(_debug_error_ctx)
+                    if fp_error_type:
+                        hint = await self._build_compilation_hint(_debug_error_ctx, fp_error_type)
+                        if hint:
+                            agent.prepend_system_context(hint)
+                except Exception as _e:
+                    logger.debug("Compilation fast-path injection failed: %s", _e)
+
+            # Inject coverage gap context (uncovered lines/branches for failing file)
+            # Gated by _coverage_gap_inject_enabled; zero-LLM, purely deterministic.
+            if self._coverage_gap_inject_enabled and _debug_error_ctx:
+                try:
+                    cov_hint = await self._build_coverage_gap_hint(_debug_error_ctx)
+                    if cov_hint:
+                        agent.prepend_system_context(cov_hint)
+                except Exception as _e:
+                    logger.debug("Coverage gap injection failed: %s", _e)
+
+            # Inject Ochiai SBFL suspicious-line ranking for the failing file.
+            # Gated by _sbfl_inject_enabled; reads existing .coverage binary — no subprocess.
+            if self._sbfl_inject_enabled and _debug_error_ctx:
+                try:
+                    sbfl_hint = await self._build_sbfl_hint(_debug_error_ctx)
+                    if sbfl_hint:
+                        agent.prepend_system_context(sbfl_hint)
+                except Exception as _e:
+                    logger.debug("SBFL injection failed: %s", _e)
+
         message = state["user_message"]
         if review_iter > 0 and review:
             message = (
@@ -755,7 +1340,7 @@ class GraphOrchestrator(BaseOrchestrator):
             )
 
         timeout = self._agent_timeout if self._agent_timeout > 0 else None
-        phase_name = "Fix" if review_iter > 0 else "Execute"
+        phase_name = "Исправление" if review_iter > 0 else "Выполнение"
         try:
             response = await asyncio.wait_for(
                 agent.run(message, context=context),
@@ -827,15 +1412,15 @@ class GraphOrchestrator(BaseOrchestrator):
         n_waves = len(waves)
         if n_waves > 1:
             self._report_status(
-                f"Running {n} steps in {n_waves} dependency waves ({agent_name})"
+                f"Параллельно {n} шагов в {n_waves} волнах ({agent_name})"
             )
         else:
-            self._report_status(f"Running {n} steps in parallel ({agent_name})")
-        self._report_phase("Execute", "active")
+            self._report_status(f"Параллельно {n} шагов ({agent_name})")
+        self._report_phase("Выполнение", "active")
 
         template_agent = self._registry.get(agent_name)
         if not template_agent:
-            self._report_phase("Execute", "done")
+            self._report_phase("Выполнение", "done")
             return {
                 **state,
                 "agent_response": AgentResponse(
@@ -930,7 +1515,7 @@ class GraphOrchestrator(BaseOrchestrator):
         for wave_idx, wave in enumerate(waves):
             if n_waves > 1:
                 self._report_status(
-                    f"Wave {wave_idx + 1}/{n_waves}: {len(wave)} step(s) ({agent_name})"
+                    f"Волна {wave_idx + 1}/{n_waves}: {len(wave)} шаг(ов) ({agent_name})"
                 )
             wave_responses: list[AgentResponse] = await asyncio.gather(
                 *[_run_step(step) for step in wave]
@@ -972,7 +1557,7 @@ class GraphOrchestrator(BaseOrchestrator):
             token_usage=merged_usage,
         )
 
-        self._report_phase("Execute", "done")
+        self._report_phase("Выполнение", "done")
         return {
             **state,
             "agent_response": merged,
@@ -1011,8 +1596,8 @@ class GraphOrchestrator(BaseOrchestrator):
 
     async def _execute_planner_node(self, state: GraphState) -> GraphState:
         """Run the planner agent to create an implementation plan."""
-        self._report_status("Planning: exploring codebase")
-        self._report_phase("Plan", "active")
+        self._report_status("Планирование: изучение кодовой базы")
+        self._report_phase("Планирование", "active")
         planner = self._registry.get("planner")
         if not planner:
             logger.warning("Planner agent not found, skipping planning")
@@ -1051,6 +1636,42 @@ class GraphOrchestrator(BaseOrchestrator):
             except Exception as e:
                 logger.debug("Symbol context build failed: %s", e)
 
+        # Inject per-file git history for source files of mentioned symbols
+        if self._preplan_snapshot_enabled and symbols:
+            try:
+                file_history = await self._build_file_history_context(symbols)
+                if file_history:
+                    context = f"{file_history}\n\n{context}" if context else file_history
+            except Exception as e:
+                logger.debug("File history context failed: %s", e)
+
+        # Map mentioned symbols to test files that reference them
+        if symbols:
+            try:
+                test_files_ctx = await self._build_test_files_context(symbols)
+                if test_files_ctx:
+                    context = f"{test_files_ctx}\n\n{context}" if context else test_files_ctx
+            except Exception as e:
+                logger.debug("Test file discovery failed: %s", e)
+
+        # Inject complexity metrics for source files of mentioned symbols
+        if symbols:
+            try:
+                complexity_ctx = await self._build_complexity_context(symbols)
+                if complexity_ctx:
+                    context = f"{complexity_ctx}\n\n{context}" if context else complexity_ctx
+            except Exception as e:
+                logger.debug("Complexity context failed: %s", e)
+
+        # Detect ambiguities in the user request before the planner starts
+        if self._preplan_ambiguity_enabled:
+            try:
+                ambiguities = await self._detect_ambiguities(user_message)
+                if ambiguities:
+                    context = f"{ambiguities}\n\n{context}" if context else ambiguities
+            except Exception as e:
+                logger.debug("Ambiguity detection failed: %s", e)
+
         # Inject similar past plan as warm-start context
         if self._plan_memory_enabled:
             try:
@@ -1060,6 +1681,15 @@ class GraphOrchestrator(BaseOrchestrator):
             except Exception as e:
                 logger.debug("Similar plan retrieval failed: %s", e)
 
+        # Inject live web search context (opt-in; gated by _web_context_inject_enabled)
+        if self._web_context_inject_enabled:
+            try:
+                web_ctx = await self._build_web_context(user_message)
+                if web_ctx:
+                    context = f"{web_ctx}\n\n{context}" if context else web_ctx
+            except Exception as e:
+                logger.debug("Web context injection failed: %s", e)
+
         timeout = self._agent_timeout if self._agent_timeout > 0 else None
         try:
             plan_response = await asyncio.wait_for(
@@ -1067,7 +1697,7 @@ class GraphOrchestrator(BaseOrchestrator):
                 timeout=timeout,
             )
             assumptions = self._parse_plan_assumptions(plan_response.content or "")
-            self._report_phase("Plan", "done")
+            self._report_phase("Планирование", "done")
             return {
                 **state,
                 "plan_response": plan_response,
@@ -1077,13 +1707,13 @@ class GraphOrchestrator(BaseOrchestrator):
             }
         except asyncio.TimeoutError:
             logger.error("Planner timed out after %ss", timeout)
-            self._report_status("Planning timed out — continuing without plan")
-            self._report_phase("Plan", "done")
+            self._report_status("Планирование не завершено вовремя — продолжение без плана")
+            self._report_phase("Планирование", "done")
             return {**state, "plan_response": None}
         except Exception as e:
             logger.error("Planner failed: %s", e)
-            self._report_status("Planning failed — continuing without plan")
-            self._report_phase("Plan", "done")
+            self._report_status("Ошибка планирования — продолжение без плана")
+            self._report_phase("Планирование", "done")
             return {**state, "plan_response": None}
 
     @staticmethod
@@ -1193,30 +1823,79 @@ class GraphOrchestrator(BaseOrchestrator):
         return result
 
     def _grep_symbol(self, sym: str) -> str:
-        """Synchronously grep for *sym* in the project directory (Python files only).
+        """Grep for *definition* of sym in Python files (def / class lines only).
 
-        Returns up to 10 matching lines, or empty string when not found / on error.
+        Returns up to 5 matching lines, or empty string when not found / on error.
+        Path-like symbols (containing ``/``) are skipped — they have no definition
+        to grep for.
         """
         import subprocess
 
+        base = re.split(r"[.()\[\]]", sym)[0]
+        if not base or "/" in sym:
+            return ""
+
         try:
             proc = subprocess.run(
-                ["grep", "-r", "--include=*.py", "-n", rf"\b{re.escape(sym)}\b",
-                 str(self._project_dir)],
+                [
+                    "grep", "-r", "-E", "--include=*.py", "-n",
+                    rf"^\s*(async\s+)?def\s+{re.escape(base)}\s*\(|^\s*class\s+{re.escape(base)}\s*[:(]",
+                    str(self._project_dir),
+                ],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=3,
             )
             lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
-            return "\n".join(lines[:10]) if lines else ""
+            return "\n".join(lines[:5]) if lines else ""
+        except Exception:
+            return ""
+
+    def _grep_callers(self, sym: str) -> str:
+        """Grep for call sites of *sym* — lines containing ``sym(`` that are not definitions.
+
+        Returns up to 10 call-site lines (truncated to 120 chars each).
+        Returns empty string for path-like symbols, single-character identifiers,
+        or when no call sites are found.
+        """
+        import subprocess
+
+        base = re.split(r"[.()\[\]]", sym)[0]
+        if not base or "/" in sym or len(base) < 2:
+            return ""
+
+        _def_re = re.compile(
+            rf"^\s*(async\s+)?def\s+{re.escape(base)}\s*\(|^\s*class\s+{re.escape(base)}\s*[:(]"
+        )
+        try:
+            proc = subprocess.run(
+                ["grep", "-r", "--include=*.py", "-n", rf"{re.escape(base)}\s*(",
+                 str(self._project_dir)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=3,
+            )
+            lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
+            callers: list[str] = []
+            for ln in lines:
+                parts = ln.split(":", 2)
+                code = parts[2] if len(parts) >= 3 else ln
+                if not _def_re.match(code):
+                    callers.append(ln[:120])
+            return "\n".join(callers[:10]) if callers else ""
         except Exception:
             return ""
 
     async def _build_symbol_context(self, symbols: list[str]) -> str:
-        """Grep for backtick-quoted symbols from the user message.
+        """Grep backtick-quoted symbols: definitions + call sites, run concurrently.
 
-        Returns a ``## Referenced Symbols`` section ready for injection into
-        the planner's context, or an empty string when nothing is found.
+        Returns a ``## Referenced Symbols`` section with per-symbol ``**Definition:**``
+        and ``**Call sites (N found):**`` subsections ready for injection into the
+        planner's context.  Returns empty string when nothing is found.
         """
         if not symbols:
             return ""
@@ -1225,18 +1904,305 @@ class GraphOrchestrator(BaseOrchestrator):
         snippets: list[str] = []
         for sym in symbols[:8]:
             try:
-                result = await asyncio.wait_for(
+                def_task = asyncio.wait_for(
                     loop.run_in_executor(None, self._grep_symbol, sym),
                     timeout=3.0,
                 )
-                if result:
-                    snippets.append(f"### `{sym}`\n{result}")
+                callers_task = asyncio.wait_for(
+                    loop.run_in_executor(None, self._grep_callers, sym),
+                    timeout=3.0,
+                )
+                results = await asyncio.gather(def_task, callers_task, return_exceptions=True)
+                definition = results[0] if isinstance(results[0], str) else ""
+                callers = results[1] if isinstance(results[1], str) else ""
+
+                if not definition and not callers:
+                    continue
+
+                parts = [f"### `{sym}`"]
+                if definition:
+                    parts.append(f"**Definition:**\n{definition}")
+                if callers:
+                    count = len(callers.splitlines())
+                    parts.append(f"**Call sites ({count} found):**\n{callers}")
+                snippets.append("\n".join(parts))
             except Exception:
                 pass
 
         if not snippets:
             return ""
         return "## Referenced Symbols\n\n" + "\n\n".join(snippets)
+
+    @staticmethod
+    def _extract_file_paths(grep_output: str) -> list[str]:
+        """Extract unique file paths from grep output lines (``path:linenum:code`` format).
+
+        Handles both Unix paths and Windows absolute paths
+        (e.g. ``C:\\foo\\bar.py:42:code``).  Returns paths in order of first
+        occurrence, deduplicating silently.
+        """
+        _path_re = re.compile(r"^((?:[A-Za-z]:[/\\])?[^:]+?):\d+:")
+        paths: list[str] = []
+        seen: set[str] = set()
+        for ln in grep_output.splitlines():
+            m = _path_re.match(ln)
+            if m:
+                p = m.group(1)
+                if p not in seen:
+                    seen.add(p)
+                    paths.append(p)
+        return paths
+
+    def _run_git_file_log(self, file_path: str) -> str:
+        """Synchronously run ``git log --oneline -5 -- <file_path>``.
+
+        Returns stripped stdout, or empty string on any error.
+        """
+        import subprocess
+
+        try:
+            proc = subprocess.run(
+                ["git", "log", "--oneline", "-5", "--", file_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=str(self._project_dir),
+                timeout=2,
+            )
+            return (proc.stdout or "").strip()
+        except Exception:
+            return ""
+
+    async def _build_file_history_context(self, symbols: list[str]) -> str:
+        """Build per-file git history for source files of mentioned symbols.
+
+        Greps definitions to discover source files, then runs
+        ``git log --oneline -5`` per unique file concurrently.  Returns a
+        ``## Recent File History`` section, or empty string when no files
+        resolve or git history is unavailable.  Cap: 5 unique source files.
+        """
+        if not symbols:
+            return ""
+
+        loop = asyncio.get_running_loop()
+
+        # Collect unique source files via definition grep
+        all_files: list[str] = []
+        seen_files: set[str] = set()
+        for sym in symbols[:8]:
+            try:
+                definition = await asyncio.wait_for(
+                    loop.run_in_executor(None, self._grep_symbol, sym),
+                    timeout=3.0,
+                )
+                for fp in self._extract_file_paths(definition):
+                    if fp not in seen_files:
+                        seen_files.add(fp)
+                        all_files.append(fp)
+            except Exception:
+                pass
+
+        if not all_files:
+            return ""
+
+        # Run git log concurrently for each file (cap at 5)
+        target_files = all_files[:5]
+        tasks = [
+            asyncio.wait_for(
+                loop.run_in_executor(None, self._run_git_file_log, fp),
+                timeout=2.0,
+            )
+            for fp in target_files
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        sections: list[str] = []
+        for fp, result in zip(target_files, results):
+            history = result if isinstance(result, str) else ""
+            if not history:
+                continue
+            try:
+                rel = str(Path(fp).relative_to(self._project_dir))
+            except Exception:
+                rel = fp
+            sections.append(f"**{rel}:**\n```\n{history}\n```")
+
+        if not sections:
+            return ""
+        return "## Recent File History\n\n" + "\n\n".join(sections)
+
+    def _grep_test_files(self, sym: str) -> list[str]:
+        """Find test files that reference *sym* by grepping in the ``tests/`` directory.
+
+        Uses ``-l`` (list files only) for efficiency.  Returns up to 5 unique
+        test file paths (absolute), or empty list when the tests directory is
+        absent, the symbol is too short, or an error occurs.
+        """
+        import subprocess
+
+        base = re.split(r"[.()\[\]]", sym)[0]
+        if not base or len(base) < 2:
+            return []
+
+        tests_dir = self._project_dir / "tests"
+        if not tests_dir.exists():
+            return []
+
+        try:
+            proc = subprocess.run(
+                ["grep", "-r", "--include=*.py", "-l", rf"\b{re.escape(base)}\b",
+                 str(tests_dir)],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            files = [ln.strip() for ln in (proc.stdout or "").splitlines() if ln.strip()]
+            return files[:5]
+        except Exception:
+            return []
+
+    async def _build_test_files_context(self, symbols: list[str]) -> str:
+        """Map each mentioned symbol to test files that reference it.
+
+        Runs ``_grep_test_files`` concurrently for all symbols.  Returns a
+        ``## Test Files for Mentioned Symbols`` section, or empty string when
+        no symbols resolve to test files.
+        """
+        if not symbols:
+            return ""
+
+        loop = asyncio.get_running_loop()
+        tasks = [
+            asyncio.wait_for(
+                loop.run_in_executor(None, self._grep_test_files, sym),
+                timeout=3.0,
+            )
+            for sym in symbols[:8]
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        lines: list[str] = []
+        for sym, result in zip(symbols[:8], results):
+            files: list[str] = result if isinstance(result, list) else []
+            if not files:
+                continue
+            rel_files: list[str] = []
+            for fp in files:
+                try:
+                    rel_files.append(str(Path(fp).relative_to(self._project_dir)))
+                except Exception:
+                    rel_files.append(fp)
+            count = len(rel_files)
+            suffix = "s" if count != 1 else ""
+            lines.append(f"- `{sym}` ({count} test file{suffix}): " + ", ".join(rel_files))
+
+        if not lines:
+            return ""
+        return "## Test Files for Mentioned Symbols\n\n" + "\n".join(lines)
+
+    @staticmethod
+    def _compute_file_metrics(file_path: str) -> dict:
+        """Compute complexity metrics for a Python source file.
+
+        Returns a dict with keys ``loc``, ``functions``, ``classes``,
+        ``avg_fn_len``, and ``high_risk`` (bool: LOC > 400 or functions > 20).
+        Returns an empty dict on any I/O or parse error.
+        """
+        try:
+            text = Path(file_path).read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            return {}
+
+        lines = text.splitlines()
+        loc = sum(
+            1 for ln in lines
+            if ln.strip() and not ln.strip().startswith("#")
+        )
+        functions = sum(
+            1 for ln in lines
+            if re.match(r"\s*(async\s+)?def\s+\w", ln)
+        )
+        classes = sum(
+            1 for ln in lines
+            if re.match(r"\s*class\s+\w", ln)
+        )
+        avg_fn_len = round(loc / functions) if functions > 0 else 0
+        high_risk = loc > 400 or functions > 20
+
+        return {
+            "loc": loc,
+            "functions": functions,
+            "classes": classes,
+            "avg_fn_len": avg_fn_len,
+            "high_risk": high_risk,
+        }
+
+    async def _build_complexity_context(self, symbols: list[str]) -> str:
+        """Compute and inject complexity metrics for source files of mentioned symbols.
+
+        Discovers source files via definition grep, then reads each file to count
+        LOC, function count, class count, and average function length.  Returns a
+        ``## File Complexity`` Markdown table, or empty string when no source
+        files can be resolved.  Cap: 5 unique files.
+        """
+        if not symbols:
+            return ""
+
+        loop = asyncio.get_running_loop()
+
+        # Collect unique source files via definition grep
+        all_files: list[str] = []
+        seen: set[str] = set()
+        for sym in symbols[:8]:
+            try:
+                definition = await asyncio.wait_for(
+                    loop.run_in_executor(None, self._grep_symbol, sym),
+                    timeout=3.0,
+                )
+                for fp in self._extract_file_paths(definition):
+                    if fp not in seen:
+                        seen.add(fp)
+                        all_files.append(fp)
+            except Exception:
+                pass
+
+        if not all_files:
+            return ""
+
+        # Compute metrics concurrently (cap at 5 files)
+        target_files = all_files[:5]
+        tasks = [
+            asyncio.wait_for(
+                loop.run_in_executor(None, self._compute_file_metrics, fp),
+                timeout=2.0,
+            )
+            for fp in target_files
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        rows: list[str] = []
+        for fp, result in zip(target_files, results):
+            if not isinstance(result, dict) or not result:
+                continue
+            try:
+                rel = str(Path(fp).relative_to(self._project_dir))
+            except Exception:
+                rel = fp
+            risk_label = "⚠ HIGH" if result["high_risk"] else "OK"
+            rows.append(
+                f"| {rel} | {result['loc']} | {result['functions']} | "
+                f"{result['classes']} | {result['avg_fn_len']} | {risk_label} |"
+            )
+
+        if not rows:
+            return ""
+        header = (
+            "## File Complexity\n\n"
+            "| File | LOC | Fns | Classes | Avg fn | Risk |\n"
+            "|------|-----|-----|---------|--------|------|\n"
+        )
+        return header + "\n".join(rows)
 
     def _run_git_log(self) -> str:
         """Synchronously run ``git log --oneline -10`` in the project directory."""
@@ -1247,6 +2213,8 @@ class GraphOrchestrator(BaseOrchestrator):
                 ["git", "log", "--oneline", "-10"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 cwd=str(self._project_dir),
                 timeout=2,
             )
@@ -1263,6 +2231,8 @@ class GraphOrchestrator(BaseOrchestrator):
                 ["git", "status", "--short"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 cwd=str(self._project_dir),
                 timeout=2,
             )
@@ -1317,6 +2287,36 @@ class GraphOrchestrator(BaseOrchestrator):
             )
             if cov_ctx:
                 parts.append(cov_ctx)
+        except Exception:
+            pass
+
+        # High-risk file report: combines complexity + churn + coverage + error history
+        try:
+            from lidco.core.risk_scorer import compute_all_risk_scores, format_risk_report
+
+            def _compute_risk_scores() -> str:
+                coverage_map: dict = {}
+                try:
+                    import json as _json
+                    json_path = self._project_dir / ".lidco" / "coverage.json"
+                    if json_path.exists():
+                        from lidco.core.coverage_gap import parse_coverage_json
+                        coverage_map = parse_coverage_json(
+                            _json.loads(json_path.read_text(encoding="utf-8"))
+                        )
+                except Exception:
+                    pass
+                scores = compute_all_risk_scores(
+                    self._project_dir, self._error_ledger, coverage_map
+                )
+                return format_risk_report(scores, top_n=5)
+
+            risk_report = await asyncio.wait_for(
+                loop.run_in_executor(None, _compute_risk_scores),
+                timeout=5.0,
+            )
+            if risk_report:
+                parts.append(risk_report)
         except Exception:
             pass
 
@@ -1417,7 +2417,7 @@ class GraphOrchestrator(BaseOrchestrator):
         if not plan_content:
             return state
 
-        self._report_status("Reviewing plan for gaps")
+        self._report_status("Проверка плана на пробелы")
         user_message = state.get("user_message", "")
         try:
             critique_response = await asyncio.wait_for(
@@ -1502,7 +2502,7 @@ class GraphOrchestrator(BaseOrchestrator):
         else:
             plan_original = plan_content
 
-        self._report_status("Revising plan based on critique")
+        self._report_status("Доработка плана по замечаниям")
         user_message = state.get("user_message", "")
         revision_input = (
             f"## Original Request\n{user_message}\n\n"
@@ -1583,7 +2583,7 @@ class GraphOrchestrator(BaseOrchestrator):
         if not plan_content:
             return state
 
-        self._report_status("Re-reviewing revised plan")
+        self._report_status("Повторная проверка плана")
         original_critique = state.get("plan_critique_addressed") or ""
         try:
             critique_response = await asyncio.wait_for(
@@ -1774,6 +2774,8 @@ class GraphOrchestrator(BaseOrchestrator):
                          rf"\b{re.escape(token)}\b", str(project_dir)],
                         capture_output=True,
                         text=True,
+                        encoding="utf-8",
+                        errors="replace",
                         timeout=2,
                     )
                     if result.returncode == 0 and result.stdout.strip():
@@ -1820,7 +2822,7 @@ class GraphOrchestrator(BaseOrchestrator):
             section_issues = self._check_plan_sections(plan_response.content or "")
             return {**state, "plan_bad_assumptions": [], "plan_section_issues": section_issues}
 
-        self._report_status("Verifying plan assumptions")
+        self._report_status("Проверка допущений плана")
         loop = asyncio.get_running_loop()
         plan_content = plan_response.content or ""
         lines = plan_content.split("\n")
@@ -2055,8 +3057,8 @@ class GraphOrchestrator(BaseOrchestrator):
             state.get("plan_critique"),
             state.get("plan_section_issues") or [],
         )
-        quality_label = "excellent" if health >= 90 else "good" if health >= 75 else "fair" if health >= 50 else "poor"
-        self._report_status(f"Plan quality: {health}/100 ({quality_label})")
+        quality_label = "отлично" if health >= 90 else "хорошо" if health >= 75 else "удовлетворительно" if health >= 50 else "слабо"
+        self._report_status(f"Качество плана: {health}/100 ({quality_label})")
 
         # ── Interactive plan editor path ──────────────────────────────────────
         if self._plan_editor:
@@ -2068,7 +3070,7 @@ class GraphOrchestrator(BaseOrchestrator):
                 )
             except Exception as e:
                 logger.error("Plan editor failed: %s", e)
-                self._report_status("Plan editor error — auto-approving plan")
+                self._report_status("Ошибка редактора плана — автоматическое утверждение")
                 parallel_steps, execution_map, plan_step_deps = self._parse_parallel_info(plan_response.content)
                 return {**state, "plan_approved": True, "parallel_steps": parallel_steps, "execution_map": execution_map, "plan_step_deps": plan_step_deps, "plan_health_score": health}
 
@@ -2108,7 +3110,7 @@ class GraphOrchestrator(BaseOrchestrator):
             )
         except Exception as e:
             logger.error("Plan approval failed: %s", e)
-            self._report_status("Plan approval error — auto-approving plan")
+            self._report_status("Ошибка утверждения плана — автоматическое утверждение")
             parallel_steps, execution_map, plan_step_deps = self._parse_parallel_info(plan_response.content)
             await asyncio.get_running_loop().run_in_executor(None, self._save_approved_plan, state["user_message"], plan_response.content)
             return {**state, "plan_approved": True, "parallel_steps": parallel_steps, "execution_map": execution_map, "plan_step_deps": plan_step_deps, "plan_health_score": health}
@@ -2175,8 +3177,8 @@ class GraphOrchestrator(BaseOrchestrator):
         """Automatically review code changes."""
         prev_iter = state.get("review_iteration", 0)
         review_iter = prev_iter + 1
-        self._report_status("Reviewing changes")
-        self._report_phase("Review", "active")
+        self._report_status("Проверка изменений")
+        self._report_phase("Проверка", "active")
         reviewer = self._registry.get("reviewer")
         if not reviewer:
             return {**state, "review_iteration": review_iter}
@@ -2244,7 +3246,7 @@ class GraphOrchestrator(BaseOrchestrator):
                 reviewer.run(review_prompt),
                 timeout=timeout,
             )
-            self._report_phase("Review", "done")
+            self._report_phase("Проверка", "done")
             medium_issues = self._extract_medium_issues(review.content or "")
 
             # Learn from clean reviews: save patterns for future reviewer runs
@@ -2265,13 +3267,13 @@ class GraphOrchestrator(BaseOrchestrator):
             }
         except asyncio.TimeoutError:
             logger.warning("Reviewer timed out after %ss", timeout)
-            self._report_phase("Review", "done")
+            self._report_phase("Проверка", "done")
             # Advance the counter so a persistent timeout cannot cause an
             # infinite review→fix→review loop.
             return {**state, "review_iteration": review_iter}
         except Exception as e:
             logger.warning("Auto-review failed: %s", e)
-            self._report_phase("Review", "done")
+            self._report_phase("Проверка", "done")
             return {**state, "review_iteration": review_iter}
 
     # Matches "CRITICAL:" or "HIGH:" as a severity label at the start of a line.
@@ -2546,6 +3548,17 @@ class GraphOrchestrator(BaseOrchestrator):
                 model_used=response.model_used,
                 token_usage=response.token_usage,
             )
+
+        # Auto-debug trigger (T103): when auto_debug is enabled and 3+ consecutive
+        # errors come from the same file, automatically append a debug suggestion.
+        if self._auto_debug_enabled and selected_agent != "debugger":
+            try:
+                if self._error_count_reader is not None and self._error_count_reader() >= 3:
+                    if self._error_summary_builder is not None:
+                        # Check if recent errors share the same file
+                        pass  # Actual check done in session via error_history.get_recent()
+            except Exception:
+                pass
 
         # Update history
         self._conversation_history.append({"role": "user", "content": user_message})

@@ -35,7 +35,7 @@ def create_explain_agent(llm: BaseLLMProvider, tool_registry: ToolRegistry) -> B
         description="Explain code, algorithms, and design decisions clearly.",
         system_prompt=EXPLAIN_SYSTEM_PROMPT,
         temperature=0.2,
-        tools=["file_read", "glob", "grep", "tree"],
+        tools=["file_read", "glob", "grep", "tree", "web_search", "web_fetch"],
         max_iterations=30,
     )
 

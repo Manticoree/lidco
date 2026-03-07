@@ -28,7 +28,23 @@ class TestToolRegistry:
         assert "find_test_gaps" in names
         assert "arch_diagram" in names
         assert "gh_pr" in names
-        assert len(names) == 18
+        # New debug tools added in Q19-Q22
+        assert "run_debug_cycle" in names
+        assert "run_static_analysis" in names
+        assert "check_ast_bugs" in names
+        assert "capture_failure_locals" in names
+        assert "check_regressions" in names
+        assert "generate_minimal_repro" in names
+        # Q23 import analysis + dependency checking
+        assert "analyze_imports" in names
+        assert "check_dependencies" in names
+        # Q24 flaky test intelligence
+        assert "flake_guard" in names
+        # Q25 coverage-guided debug intelligence
+        assert "coverage_guard" in names
+        # Q26 execution trace recorder
+        assert "capture_execution_trace" in names
+        assert len(names) == 29
 
     def test_get_tool(self):
         registry = ToolRegistry.create_default_registry()
@@ -43,7 +59,7 @@ class TestToolRegistry:
     def test_openai_schemas(self):
         registry = ToolRegistry.create_default_registry()
         schemas = registry.get_openai_schemas()
-        assert len(schemas) == 18
+        assert len(schemas) == 29
         for schema in schemas:
             assert schema["type"] == "function"
             assert "name" in schema["function"]

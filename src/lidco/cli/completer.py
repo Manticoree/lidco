@@ -39,6 +39,27 @@ class LidcoCompleter(Completer):
 
         # Slash commands
         if text.startswith("/"):
+            # Task 168: context-aware completions after command name
+            _agent_arg_cmds = {"as", "whois", "lock", "help"}
+            for cmd in _agent_arg_cmds:
+                prefix = f"/{cmd} "
+                if text.startswith(prefix):
+                    agent_prefix = text[len(prefix):]
+                    candidates = (
+                        self._agents if cmd != "help"
+                        else list(self._command_meta.keys())
+                    )
+                    for name in sorted(candidates):
+                        if name.startswith(agent_prefix):
+                            meta = "agent" if cmd != "help" else "command"
+                            yield Completion(
+                                name + ("" if cmd == "help" else " "),
+                                start_position=-len(agent_prefix),
+                                display=name,
+                                display_meta=meta,
+                            )
+                    return
+
             cmd_prefix = text[1:]
             for name, desc in sorted(self._command_meta.items()):
                 if name.startswith(cmd_prefix):

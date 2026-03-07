@@ -20,7 +20,7 @@ class ThinkingTimer(ConsoleRenderable, RichCast):
     SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
     FALLBACK_FRAMES = ("|", "/", "-", "\\")
 
-    def __init__(self, label: str = "Thinking") -> None:
+    def __init__(self, label: str = "Обработка") -> None:
         self._label = label
         self._start = time.monotonic()
         self._frame_idx = 0

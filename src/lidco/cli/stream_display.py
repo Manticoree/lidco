@@ -30,12 +30,15 @@ class _StatusBar:
     FALLBACK = ("|", "/", "-", "\\")
 
     def __init__(self) -> None:
-        self._label = "Thinking"
+        self._label = "Обработка"
         self._start = time.monotonic()
         self._frame = 0
         self._total_tokens = 0
         self._total_cost_usd = 0.0
         self._phase_steps: list[tuple[str, str]] = []  # (name, "active"|"done"|"pending")
+        self._phase_elapsed: dict[str, float] = {}  # name → elapsed seconds when done
+        self._current_step: int = 0
+        self._max_step: int = 0
 
     @property
     def label(self) -> str:
@@ -61,6 +64,11 @@ class _StatusBar:
     def total_cost_usd(self, value: float) -> None:
         self._total_cost_usd = value
 
+    def set_step(self, current: int, maximum: int) -> None:
+        """Update the iteration counter shown in the status bar."""
+        self._current_step = current
+        self._max_step = maximum
+
     def set_phase(self, name: str, status: str) -> None:
         """Update or append a named phase step.
 
@@ -82,6 +90,9 @@ class _StatusBar:
         if not updated:
             new_steps.append((name, status))
         self._phase_steps = new_steps
+        if status == "done":
+            elapsed = time.monotonic() - self._start
+            self._phase_elapsed[name] = elapsed
 
     def __rich__(self) -> Text:
         self._frame = (self._frame + 1) % len(self.FRAMES)
@@ -101,6 +112,8 @@ class _StatusBar:
         text = Text()
         text.append(f"  {char} ", style="bold magenta")
         text.append(self._label, style="bold")
+        if self._current_step > 0 and self._max_step > 0:
+            text.append(f" [{self._current_step}/{self._max_step}]", style="cyan")
         text.append(f" · {elapsed_str}", style="dim")
         if self._total_tokens > 0:
             text.append(f" · {tokens_str} tokens", style="dim")
@@ -112,7 +125,12 @@ class _StatusBar:
                 if j > 0:
                     text.append(" \u2192 ", style="dim")
                 if pstatus == "done":
-                    text.append(f"{pname} \u2713", style="dim green")
+                    ph_elapsed = self._phase_elapsed.get(pname)
+                    if ph_elapsed is not None:
+                        text.append(f"{pname} \u2713", style="dim green")
+                        text.append(f" {ph_elapsed:.0f}s", style="dim")
+                    else:
+                        text.append(f"{pname} \u2713", style="dim green")
                 elif pstatus == "active":
                     text.append(pname, style="bold cyan")
                 else:
@@ -136,11 +154,45 @@ class StreamDisplay:
       finish()                             → bar removed, cleanup
     """
 
+    # Tool categories: (icon, color, label)
+    # Fallback for unknown tools: ⚡ yellow
+    _TOOL_STYLES: dict[str, tuple[str, str, str]] = {
+        # File operations
+        "file_write":              ("✎ ", "bold yellow",   "Запись файла"),
+        "file_edit":               ("✎ ", "bold yellow",   "Редактирование"),
+        # Git
+        "git":                     ("\u00b1 ", "bold blue",    "Git"),
+        # Debug / analysis
+        "run_debug_cycle":         ("\u25cf ", "bold magenta", "Цикл отладки"),
+        "run_static_analysis":     ("\u25cf ", "bold magenta", "Статический анализ"),
+        "check_ast_bugs":          ("\u25cf ", "bold magenta", "Проверка AST"),
+        "capture_failure_locals":  ("\u25cf ", "bold magenta", "Захват переменных"),
+        "capture_execution_trace": ("\u25cf ", "bold magenta", "Трассировка"),
+        "analyze_imports":         ("\u25c8 ", "bold magenta", "Анализ импортов"),
+        "check_dependencies":      ("\u25c8 ", "bold magenta", "Зависимости"),
+        "generate_minimal_repro":  ("\u25c8 ", "bold magenta", "Воспроизведение"),
+        # Test tools
+        "flake_guard":             ("\u2756 ", "bold green",   "Нестабильные тесты"),
+        "coverage_guard":          ("\u2756 ", "bold green",   "Покрытие"),
+        "check_regressions":       ("\u2756 ", "bold green",   "Регрессия"),
+        "test_autopilot":          ("\u2756 ", "bold green",   "Автопилот тестов"),
+        # Error reporting
+        "error_report":            ("! ",      "bold red",     "Отчёт об ошибках"),
+    }
+
     def __init__(self, console: Console) -> None:
         self._console = console
         self._has_content = False
         self._needs_newline = False
         self._debug_mode: bool = False
+        # Per-tool elapsed timing: tool_name → start timestamp
+        self._tool_start_times: dict[str, float] = {}
+        # Read-only tool aggregation buffer: counts per category
+        self._ro_buffer: dict[str, int] = {}
+        # Task 130: label saved before switching to tool name
+        self._pre_tool_label: str | None = None
+        # Task 133: adaptive fps
+        self._tool_active: bool = False
 
         self._status_bar = _StatusBar()
         self._live = Live(
@@ -168,9 +220,9 @@ class StreamDisplay:
     _READ_ONLY_TOOLS = frozenset(("file_read", "glob", "grep"))
 
     _READ_ONLY_LABELS: dict[str, str] = {
-        "file_read": "Reading",
-        "glob": "Finding",
-        "grep": "Searching",
+        "file_read": "Чтение",
+        "glob": "Поиск файлов",
+        "grep": "Поиск",
     }
 
     def on_tool_event(
@@ -182,33 +234,73 @@ class StreamDisplay:
     ) -> None:
         """Display a tool call event above the status bar.
 
-        Read-only tools (file_read, glob, grep) show a dim inline marker on
-        start and are silent on end — no result output.
+        Read-only tools (file_read, glob, grep) are buffered and displayed as
+        a single aggregated line when a non-read-only tool fires.
         """
         if tool_name in self._READ_ONLY_TOOLS:
             if event == "start":
-                self._on_read_only_start(tool_name, args)
+                self._buffer_ro_tool(tool_name)
             return
 
         if event == "start":
+            self._flush_ro_buffer()
             self._on_tool_start(tool_name, args)
         elif event == "end":
             self._on_tool_end(tool_name, args, result)
 
-    def _on_read_only_start(self, tool_name: str, args: dict) -> None:
-        """Print a dim one-line marker for a read-only tool."""
+    def _buffer_ro_tool(self, tool_name: str) -> None:
+        """Increment the read-only tool counter for later aggregated display."""
+        self._ro_buffer[tool_name] = self._ro_buffer.get(tool_name, 0) + 1
+
+    def _flush_ro_buffer(self) -> None:
+        """Print a single aggregated line for all buffered read-only tool calls."""
+        if not self._ro_buffer:
+            return
         self._ensure_newline()
-        label = self._READ_ONLY_LABELS.get(tool_name, tool_name)
-        key_arg = _extract_key_arg(tool_name, args)
-        line = Text()
-        line.append("  ")
-        line.append("\u21b3 ", style="dim")
-        line.append(f"{label} {key_arg}" if key_arg else label, style="dim")
-        self._console.print(line)
-        self._needs_newline = False
+        reads = self._ro_buffer.get("file_read", 0)
+        finds = self._ro_buffer.get("glob", 0)
+        searches = self._ro_buffer.get("grep", 0)
+        parts: list[str] = []
+        if reads:
+            parts.append(f"Прочитано {reads} {'файл' if reads == 1 else 'файлов'}")
+        if finds:
+            parts.append(f"Найдено {finds} {'шаблон' if finds == 1 else 'шаблонов'}")
+        if searches:
+            parts.append(f"Поисков: {searches}")
+        if parts:
+            line = Text()
+            line.append("  ")
+            line.append("\u21b3 ", style="dim")
+            line.append(" \u00b7 ".join(parts), style="dim")
+            self._console.print(line)
+            self._needs_newline = False
+        self._ro_buffer.clear()
+
+    def _set_live_fps(self, fps: int) -> None:
+        """Adjust Rich Live refresh rate dynamically (best-effort)."""
+        live = self._live
+        if live is None:
+            return
+        try:
+            live._refresh_per_second = fps  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
     def _on_tool_start(self, tool_name: str, args: dict) -> None:
         self._ensure_newline()
+        self._tool_start_times[tool_name] = time.monotonic()
+        # Task 130: show tool name in spinner
+        self._pre_tool_label = self._status_bar.label
+        style_info = self._TOOL_STYLES.get(tool_name)
+        if tool_name == "bash":
+            self._status_bar.label = "bash"
+        elif style_info:
+            self._status_bar.label = style_info[2]  # human-readable label
+        else:
+            self._status_bar.label = tool_name
+        # Task 133: speed up refresh when tool is active
+        self._tool_active = True
+        self._set_live_fps(10)
         if tool_name == "bash":
             cmd = str(args.get("command", ""))
             line = Text()
@@ -217,22 +309,47 @@ class StreamDisplay:
             line.append(cmd[:120] + "..." if len(cmd) > 120 else cmd, style="dim")
             self._console.print(line)
         else:
+            style_info = self._TOOL_STYLES.get(tool_name)
             key_arg = _extract_key_arg(tool_name, args)
             line = Text()
             line.append("  ")
-            line.append("\u26a1 ", style="bold yellow")
-            line.append(tool_name, style="bold")
+            if style_info:
+                icon, color, label = style_info
+                line.append(icon, style=color)
+                line.append(label, style="bold")
+            else:
+                line.append("\u26a1 ", style="bold yellow")
+                line.append(tool_name, style="bold")
             if key_arg:
                 line.append(f" {key_arg}", style="dim")
             self._console.print(line)
         self._needs_newline = False
 
+    def _elapsed_str(self, tool_name: str) -> str:
+        """Return '[0.3s]' string for the tool, empty if no start time recorded."""
+        start = self._tool_start_times.pop(tool_name, None)
+        if start is None:
+            return ""
+        elapsed = time.monotonic() - start
+        if elapsed < 0.05:
+            return ""
+        if elapsed < 60:
+            return f" [{elapsed:.1f}s]"
+        return f" [{int(elapsed) // 60}m {int(elapsed) % 60}s]"
+
     def _on_tool_end(
         self, tool_name: str, args: dict, result: object | None
     ) -> None:
+        # Task 130: restore label; Task 133: slow down fps
+        if self._pre_tool_label is not None:
+            self._status_bar.label = self._pre_tool_label
+            self._pre_tool_label = None
+        self._tool_active = False
+        self._set_live_fps(4)
+        elapsed = self._elapsed_str(tool_name)
         if result is not None and hasattr(result, "success"):
             if result.success:
-                self._print_success(tool_name, args, result)
+                self._print_success(tool_name, args, result, elapsed)
             else:
                 error_msg = getattr(result, "error", "failed") or "failed"
                 tb = getattr(result, "traceback_str", None)
@@ -245,28 +362,32 @@ class StreamDisplay:
                     line.append("  ")
                     line.append("\u2717 ", style="bold red")
                     line.append(error_msg, style="dim red")
+                    if elapsed:
+                        line.append(elapsed, style="dim")
                     self._console.print(line)
         self._needs_newline = False
         self._console.print()
 
     def _print_success(
-        self, tool_name: str, args: dict, result: object
+        self, tool_name: str, args: dict, result: object, elapsed: str = ""
     ) -> None:
         if tool_name == "file_edit":
-            self._print_edit_diff(args, result)
+            self._print_edit_diff(args, result, elapsed)
         elif tool_name == "file_write":
-            self._print_file_write(args, result)
+            self._print_file_write(args, result, elapsed)
         elif tool_name == "bash":
-            self._print_bash_output(result)
+            self._print_bash_output(result, elapsed)
         else:
             brief = _brief_result(tool_name, result)
             line = Text()
             line.append("  ")
             line.append("\u2713 ", style="bold green")
             line.append(brief, style="dim")
+            if elapsed:
+                line.append(elapsed, style="dim")
             self._console.print(line)
 
-    def _print_edit_diff(self, args: dict, result: object) -> None:
+    def _print_edit_diff(self, args: dict, result: object, elapsed: str = "") -> None:
         path = str(args.get("path", ""))
         old = str(args.get("old_string", ""))
         new = str(args.get("new_string", ""))
@@ -275,6 +396,8 @@ class StreamDisplay:
         header.append("  ")
         header.append("\u270f ", style="bold yellow")
         header.append(path, style="bold")
+        if elapsed:
+            header.append(elapsed, style="dim")
         self._console.print(header)
 
         max_lines = 10
@@ -295,10 +418,10 @@ class StreamDisplay:
         brief = Text()
         brief.append("  ")
         brief.append("\u2713 ", style="bold green")
-        brief.append(output.strip()[:80] if output.strip() else "Applied edit", style="dim")
+        brief.append(output.strip()[:80] if output.strip() else "Изменение применено", style="dim")
         self._console.print(brief)
 
-    def _print_file_write(self, args: dict, result: object) -> None:
+    def _print_file_write(self, args: dict, result: object, elapsed: str = "") -> None:
         path = str(args.get("path", ""))
         content = str(args.get("content", ""))
         line_count = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
@@ -306,24 +429,41 @@ class StreamDisplay:
         line = Text()
         line.append("  ")
         line.append("\u270f ", style="bold yellow")
-        line.append(f"Created {path}", style="bold")
-        line.append(f" ({line_count} lines)", style="dim")
+        line.append(f"Создан {path}", style="bold")
+        line.append(f" ({line_count} строк)", style="dim")
+        if elapsed:
+            line.append(elapsed, style="dim")
         self._console.print(line)
 
-    def _print_bash_output(self, result: object) -> None:
+    def _print_bash_output(self, result: object, elapsed: str = "") -> None:
         output = getattr(result, "output", "") or ""
         lines = output.strip().splitlines()
-        max_lines = 15
-        shown = lines[:max_lines]
+        max_tail = 5
+        total = len(lines)
 
-        for ln in shown:
+        if total == 0:
+            return
+
+        if total > max_tail:
+            skipped = total - max_tail
+            trunc = Text()
+            trunc.append(f"    \u25b2 {skipped} more lines", style="dim")
+            if elapsed:
+                trunc.append(elapsed, style="dim")
+            self._console.print(trunc)
+            shown = lines[-max_tail:]
+        else:
+            shown = lines
+            if elapsed and shown:
+                # append elapsed to last shown line via separate print
+                pass
+
+        for i, ln in enumerate(shown):
             row = Text()
             row.append(f"    {ln}", style="dim")
+            if elapsed and i == len(shown) - 1 and total <= max_tail:
+                row.append(elapsed, style="dim")
             self._console.print(row)
-        if len(lines) > max_lines:
-            trunc = Text()
-            trunc.append(f"    ... ({len(lines) - max_lines} more lines)", style="dim")
-            self._console.print(trunc)
 
     def set_debug_mode(self, enabled: bool) -> None:
         """Enable or disable inline traceback rendering on tool failures."""
@@ -350,9 +490,18 @@ class StreamDisplay:
             )
         )
 
+    _STEP_RE = __import__("re").compile(r"\(step (\d+)/(\d+)\)")
+
     def on_status(self, status: str) -> None:
-        """Update the status bar label (e.g. 'Thinking (step 2)', 'Tool: file_read')."""
-        self._status_bar.label = status
+        """Update the status bar label. Parses '(step N/M)' for iteration tracking."""
+        m = self._STEP_RE.search(status)
+        if m:
+            self._status_bar.set_step(int(m.group(1)), int(m.group(2)))
+            # Strip the step tag from the label — shown separately in the bar
+            clean = self._STEP_RE.sub("", status).strip(" ·")
+            self._status_bar.label = clean
+        else:
+            self._status_bar.label = status
 
     def set_phase(self, name: str, status: str) -> None:
         """Update the phase breadcrumb shown at the right of the status bar.
@@ -370,6 +519,7 @@ class StreamDisplay:
 
     def finish(self) -> None:
         """Stop the status bar and finalize output."""
+        self._flush_ro_buffer()
         if self._live is not None:
             live, self._live = self._live, None
             try:
@@ -426,18 +576,18 @@ def _brief_result(tool_name: str, result: object) -> str:
 
     if tool_name == "file_read":
         line_count = output.count("\n")
-        return f"{line_count} lines"
+        return f"{line_count} строк"
     if tool_name in ("file_write", "file_edit"):
-        return "Applied edit"
+        return "Изменение применено"
     if tool_name == "bash":
         lines = output.strip().split("\n")
         if len(lines) <= 1:
-            text = lines[0] if lines else "done"
+            text = lines[0] if lines else "готово"
             return text[:80] if len(text) > 80 else text
-        return f"{len(lines)} lines of output"
+        return f"{len(lines)} строк вывода"
     if tool_name in ("grep", "glob"):
         lines = [ln for ln in output.strip().split("\n") if ln]
-        return f"{len(lines)} matches"
+        return f"{len(lines)} совпадений"
     if tool_name == "git":
-        return output.strip()[:60] if output.strip() else "done"
-    return output[:60] if output else "done"
+        return output.strip()[:60] if output.strip() else "готово"
+    return output[:60] if output else "готово"

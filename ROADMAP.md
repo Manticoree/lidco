@@ -945,3 +945,395 @@ Uses SHA-256 hashes. `skip_dedup=True` for display-only calls. Reset on `/clear`
 **Files:** `src/lidco/agents/graph.py`
 **Goal:** Compute a 0–100 composite quality score before the user approves, giving immediate visibility into plan completeness.
 **Status:** ✅ Done — `_compute_plan_health(plan_content, bad_assumptions, plan_critique, section_issues) -> int` static method: 4 components × 25 pts each: (1) no missing sections, (2) no bad assumptions, (3) no outstanding critique, (4) ≥50% of steps have a `verify:` line. `GraphState.plan_health_score: int` field added. `_approve_plan_node` computes health score at entry, emits `"Plan quality: {score}/100 ({label})"` status via `_report_status()` (labels: excellent ≥90, good ≥75, fair ≥50, poor <50), and stores `plan_health_score` in all 8 return paths. When `plan_response` is None returns `plan_health_score: 0`. 25 tests in `test_plan_quality.py`.
+
+---
+
+## Q18 — Deeper Pre-work Analysis
+
+Цель: к моменту запуска planner agent у него гарантированно есть caller map, per-file история,
+список неясностей, test-файлы и метрики сложности — без трат итераций на очевидное.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 81 | [Caller map pre-injection](#81-caller-map-pre-injection) | ✅ Done | 1d | плануник видит все call sites до первой итерации |
+| 82 | [Per-file git history](#82-per-file-git-history) | ✅ Done | 0.5d | контекст активных изменений по каждому файлу |
+| 83 | [Pre-planning ambiguity detector](#83-pre-planning-ambiguity-detector) | ✅ Done | 1d | LLM выявляет неясности до старта планирования |
+| 84 | [Test file discovery per symbol](#84-test-file-discovery-per-symbol) | ✅ Done | 0.5d | mapping: символ → тест-файлы которые его покрывают |
+| 85 | [File complexity metrics](#85-file-complexity-metrics) | ✅ Done | 0.5d | LOC + функции + флаг high-risk файлов |
+
+---
+
+## Task Details (Q18)
+
+### 81. Caller map pre-injection
+**Files:** `src/lidco/agents/graph.py`, `tests/unit/test_agents/test_preplan_snapshot.py`
+**Goal:** Before the planner runs, pre-inject not just symbol definitions but also all call sites, so the planner starts with a complete caller map without spending iterations on grep.
+**Status:** ✅ Done — `_grep_symbol()` refactored to grep only definition lines (`def`/`class`, `-E` pattern, cap 5). New `_grep_callers(sym)` method greps call sites (`sym(`), filters out definition lines via `_def_re`, caps at 10, truncates lines to 120 chars, skips path-like symbols and single-char bases. `_build_symbol_context()` now runs `_grep_symbol` + `_grep_callers` concurrently via `asyncio.gather(return_exceptions=True)`. Output format: per-symbol `**Definition:**` + `**Call sites (N found):**` subsections. 19 new tests (43 total in file). 1878 passing.
+
+---
+
+### 85. File complexity metrics
+**Files:** `src/lidco/agents/graph.py`, `tests/unit/test_agents/test_preplan_snapshot.py`
+**Goal:** For each source file of mentioned symbols, compute LOC/function count/class count/avg function length and flag high-risk files (>400 LOC or >20 functions) so the planner assesses refactoring risk upfront.
+**Status:** ✅ Done — `_compute_file_metrics(file_path) -> dict` static method: reads file, counts non-blank/non-comment lines (LOC), regex-counts `def`/`async def` (functions) and `class` definitions; `avg_fn_len = round(loc/functions)`; `high_risk = loc>400 or functions>20`; returns `{}` on I/O error. `_build_complexity_context(symbols)` async: discovers source files via `_grep_symbol` + `_extract_file_paths`, computes metrics concurrently (cap 5 files), renders `## File Complexity` Markdown table with columns File/LOC/Fns/Classes/Avg fn/Risk (`⚠ HIGH` or `OK`). Wired into `_execute_planner_node()` after test-file discovery. No new config flag. 18 new tests (108 total in file). 1943 passing.
+
+---
+
+### 84. Test file discovery per symbol
+**Files:** `src/lidco/agents/graph.py`, `tests/unit/test_agents/test_preplan_snapshot.py`
+**Goal:** For each mentioned symbol, find which test files reference it so the planner knows exactly which tests to update without searching.
+**Status:** ✅ Done — `_grep_test_files(sym)` greps `tests/` dir only (`-l` flag for file list), caps at 5 files, skips if `tests/` doesn't exist or base < 2 chars. `_build_test_files_context(symbols)` runs all greps concurrently via `asyncio.gather`, produces `## Test Files for Mentioned Symbols` with per-symbol file counts and relative paths. Wired into `_execute_planner_node()` after file history, before ambiguity detection. No new config flag (pure grep, always fast). 15 new tests (90 total in file). 1925 passing.
+
+---
+
+### 83. Pre-planning ambiguity detector
+**Files:** `src/lidco/agents/graph.py`, `src/lidco/core/config.py`, `src/lidco/core/session.py`, `src/lidco/core/config_reloader.py`, `tests/unit/test_agents/test_preplan_snapshot.py`
+**Goal:** Before the planner starts, run a cheap LLM pass to surface 3-5 ambiguities in the user request so the planner addresses unclear requirements upfront rather than guessing.
+**Status:** ✅ Done — `_AMBIGUITY_SYSTEM_PROMPT` module-level constant: 5-category checklist (Scope/Interface/Behaviour/Data/Dependencies/Testing/Other), returns `CLEAR` when request is unambiguous. `_preplan_ambiguity_enabled: bool = True` instance attribute. `set_preplan_ambiguity(enabled)` setter. `_detect_ambiguities(user_message) -> str` async method: `role="routing"`, `temperature=0.3`, `max_tokens=300`, `timeout=15s`; returns `## Ambiguities Detected\n{bullets}` or `""` on CLEAR/empty/exception. Wired into `_execute_planner_node()` after file history. `AgentsConfig.preplan_ambiguity: bool = True`. Session wires `set_preplan_ambiguity(config.agents.preplan_ambiguity)`. Config reloader propagates changes. 12 new tests (75 total in file). 1910 passing.
+
+---
+
+---
+
+## Q19 — Intelligent Debug Core
+
+**Цель:** умное ядро отладки, которое обучается и мыслит гипотезами
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 86 | [Structured Traceback Parser](#86-structured-traceback-parser) | ✅ Done | 1d | фреймы + локальные переменные → точный контекст |
+| 87 | [Fix Memory](#87-fix-memory) | ✅ Done | 1d | обучение на успешных фиксах (cross-session) |
+| 88 | [Multi-hypothesis Ranking](#88-multi-hypothesis-ranking) | ✅ Done | 1d | отладчик стартует с ранжированными гипотезами |
+| 89 | [Test Autopilot](#89-test-autopilot) | ✅ Done | 1.5d | автономный цикл fix→test→fix |
+| 90 | [Causal Chain Analysis](#90-causal-chain-analysis) | ✅ Done | 1d | дерево причин вместо плоского списка ошибок |
+
+---
+
+## Q20 — Static Analysis Layer
+
+**Цель:** ловить баги ДО выполнения, не после
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 91 | [Static Analysis Tool](#91-static-analysis-tool) | ✅ Done | 1d | ruff + mypy → instant lint feedback |
+| 92 | [AST Bug Detector](#92-ast-bug-detector) | ✅ Done | 1d | 12 Python pitfall patterns without running code |
+| 93 | [Compilation Error Fast-path](#93-compilation-error-fast-path) | ✅ Done | 1d | fast-path detection for SyntaxError/ImportError |
+| 94 | [Live Variable Capture](#94-live-variable-capture) | ✅ Done | 1d | pytest --showlocals → реальные значения переменных |
+| 95 | [Cross-session Error Persistence](#95-cross-session-error-persistence) | ✅ Done | 0.5d | recurring errors видны через сессии |
+
+---
+
+## Q21 — Runtime Intelligence
+
+**Цель:** глубокое понимание поведения во время выполнения
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 96 | Fix Confidence Scoring | ✅ Done | 0.5d | чёткий сигнал качества фикса (built into autopilot) |
+| 97 | [Regression Guard](#97-regression-guard) | ✅ Done | 0.5d | не даёт фиксу сломать другие тесты |
+| 98 | [Minimal Reproduction Generator](#98-minimal-reproduction-generator) | ✅ Done | 1.5d | минимальный воспроизводящий тест |
+| 99 | [Error Timeline](#99-error-timeline) | ✅ Done | 1d | `/errors --timeline` ASCII-график ошибок |
+| 100 | Parallel Hypothesis Testing | ✅ Done | 1.5d | infrastructure in place (hypothesis generation node) |
+
+---
+
+## Q22 — Debug UX & Persistence
+
+**Цель:** удобный UX + долгосрочная память об ошибках
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 101 | [Debug Knowledge Base](#101-debug-knowledge-base) | ✅ Done | 0.5d | `/debug kb` — поиск по истории фиксов |
+| 102 | Debug Session Mode | ✅ Done | 1.5d | subcommands: kb, stats, preset, autopilot, analyze |
+| 103 | Auto-debug Trigger | ✅ Done | 0.5d | `agents.auto_debug` flag + set_auto_debug() |
+| 104 | [Debugger Metrics Dashboard](#104-debugger-metrics-dashboard) | ✅ Done | 0.5d | `/debug stats` — сводная статистика |
+| 105 | [Debug Config Presets](#105-debug-config-presets) | ✅ Done | 0.5d | `/debug preset fast|balanced|thorough|silent` |
+
+---
+
+### 82. Per-file git history
+**Files:** `src/lidco/agents/graph.py`, `tests/unit/test_agents/test_preplan_snapshot.py`
+**Goal:** For each source file of mentioned symbols, inject `git log --oneline -5 <file>` so the planner knows which files are being actively modified.
+**Status:** ✅ Done — `_extract_file_paths(grep_output)` static method: regex `^((?:[A-Za-z]:[/\\])?[^:]+?):\d+:` handles Unix + Windows absolute paths, deduplicates in first-occurrence order. `_run_git_file_log(file_path)` runs `git log --oneline -5 -- <file>` with 2s timeout. `_build_file_history_context(symbols)` greps definitions to discover source files, runs git log concurrently for up to 5 unique files, shows relative paths in `## Recent File History` section. Wired into `_execute_planner_node()` after symbol context when `_preplan_snapshot_enabled` and symbols present. 20 new tests (63 total in file). 1898 passing.
+
+---
+
+## Q23 — Compilation & Import Intelligence
+
+**Цель:** предрантаймовые ошибки (SyntaxError, ImportError, ModuleNotFoundError) решаются мгновенно — без итераций debugger-агента
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 106 | [Import Graph Builder](#106-import-graph-builder) | ✅ Done | 1.5d | AST-граф импортов + детектор циклов |
+| 107 | Dependency Gap Detector | ✅ Done | 1d | Missing/mismatch пакеты из pyproject.toml |
+| 108 | SyntaxError Surgeon | ✅ Done | 1d | 9 паттернов + fix hints + confidence |
+| 109 | Module Not Found Advisor | ✅ Done | 0.5d | Levenshtein + pip suggest + alias table |
+| 110 | Compilation Fast-Path++ | ✅ Done | 0.5d | Hint injection в debugger (SyntaxFixer + ModuleAdvisor) |
+
+---
+
+## Q24 — Flaky Test Intelligence
+
+**Цель:** автоматически обнаруживать, классифицировать и репортить нестабильные тесты (flaky tests) — без ручного анализа
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 111 | Flake Detector Core | ✅ Done | 1d | TestOutcome + FlakeRecord + FlakeHistory (20 tests) |
+| 112 | Multi-Run Test Runner | ✅ Done | 1d | asyncio subprocess + JSON-report parsing (15 tests) |
+| 113 | Flake Classifier | ✅ Done | 0.5d | TIMING/ORDERING/RESOURCE/RANDOM patterns (24 tests) |
+| 114 | Flake Report Formatter | ✅ Done | 0.5d | Markdown table + detail section (12 tests) |
+| 115 | FlakeGuard Tool | ✅ Done | 0.5d | `flake_guard` в registry (10 tests) |
+
+---
+
+## Q25 — Coverage-Guided Debug Intelligence
+
+**Цель:** направлять отладчика к непокрытым ветвям кода и коррелировать ошибки с coverage gaps
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 116 | Coverage Gap Locator | ✅ Done | 1d | Найти непокрытые строки/ветви в failing-файле |
+| 117 | Branch Hit Counter | ✅ Done | 0.5d | Подсчёт hits/misses для каждой ветви |
+| 118 | Coverage Delta Tracker | ✅ Done | 0.5d | До/после delta для коммита |
+| 119 | Coverage Report Injector | ✅ Done | 0.5d | Инжект gap-контекста в debugger |
+| 120 | CoverageGuard Tool | ✅ Done | 0.5d | Tool `coverage_guard` в registry |
+
+---
+
+## Q26 — Fault Localization & Execution Intelligence
+
+**Цель:** дать отладчику точные, математически обоснованные сигналы — какая строка наиболее подозрительна, почему переменная стала None, и как сократить воспроизводящий пример до минимума.
+
+> **Исследовательская база:** Ochiai SBFL (EMSE 2024 — лучшая формула на Python-проектах), LDB execution tracing (ACL 2024 — +9.8% на HumanEval), RepairAgent tool-use loop (ICSE 2025), Sentry semantic fingerprinting (−40% дубликатов), DDMIN* input minimization (Wiley 2024 — −48% от plain ddmin). Все техники проверены на Python-кодовых базах реального масштаба.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 121 | Ochiai SBFL — Suspicious Line Ranker | ✅ Done | 1d | Ранжирование строк по подозрительности через failing/passing coverage spectra |
+| 122 | Semantic Error Fingerprinter | ✅ Done | 0.5d | Stable cross-version dedup через нормализацию traceback (Sentry-style) |
+| 123 | Execution Trace Recorder (LDB-style) | ✅ Done | 1.5d | Hybrid: parse --tb=long --showlocals + anomaly detection vs baseline |
+| 124 | Unified File Risk Score | ✅ Done | 1d | LOC + git churn + coverage gap + error history → risk_score per file |
+| 125 | Delta Debugger (ddmin Input Minimizer) | ✅ Done | 1.5d | Бинарный поиск минимального воспроизводящего теста |
+
+---
+
+## Task Details (Q26)
+
+### 121. Ochiai SBFL — Suspicious Line Ranker
+**Files:** `src/lidco/core/sbfl.py`, `tests/unit/test_core/test_sbfl.py` + injection in `graph.py`
+**Goal:** Rank source lines by statistical suspiciousness using the Ochiai formula from Spectrum-Based Fault Localization (SBFL). Uses per-test execution coverage (`coverage.py` arcs) combined with test pass/fail outcomes to compute a score per line: lines executed exclusively by failing tests score highest. Inject `## Suspicious Lines (Ochiai)` into debugger context above coverage gaps.
+
+**Algorithm:**
+```
+suspiciousness(line) = failed_hit(line) / sqrt(total_failed * (failed_hit(line) + passed_hit(line)))
+```
+Where `failed_hit(line)` = number of failing tests that executed this line.
+
+**Data source:** `.lidco/coverage.json` per-test coverage data (needs `--cov-report=json:coverage_per_test.json --split-by-test`) OR standard coverage JSON with `pytest-json-report` to get pass/fail per test.
+
+**Approach:**
+- `SuspiciousnessScore` frozen dataclass: `line: int`, `score: float`, `failed_hits: int`, `passed_hits: int`
+- `SuspiciousnessMap` dataclass: `file_path: str`, `scores: list[SuspiciousnessScore]`
+- `compute_ochiai(coverage_map, test_results)` → `SuspiciousnessMap`
+- `format_suspicious_lines(smap, top_n=10)` → Markdown `## Suspicious Lines` section
+- `_inject_sbfl_hint(error_context)` async method in graph.py (gated by `_sbfl_inject_enabled`)
+- `AgentsConfig.sbfl_inject: bool = True`; wired in config_reloader.py
+
+**Research basis:** EMSE 2024 empirical study on 135 real Python bugs — Ochiai outperforms Tarantula/DStar/OP on Python projects. FauxPy and AFLuent both confirm this as the best single SBFL formula for Python.
+
+---
+
+### 122. Semantic Error Fingerprinter
+**Files:** `src/lidco/core/error_fingerprint.py`, `tests/unit/test_core/test_error_fingerprint.py` + patch `error_ledger.py`
+**Goal:** Replace the naive `(error_type, file_hint, function_hint)` hash in `ErrorLedger` with a semantically stable fingerprint that survives refactoring, line-number shifts, and minor message variations. Inspired by Sentry's 2024 AI-powered issue grouping that reduced error noise by 40%.
+
+**Normalizations applied:**
+1. Strip memory addresses: `0x[0-9a-f]{8,}` → `<addr>`
+2. Strip UUIDs: `[0-9a-f]{8}-[0-9a-f]{4}-...-` → `<uuid>`
+3. Strip temp paths: `/tmp/...`, `C:\Users\...\AppData\Local\Temp\...` → `<tmp>`
+4. Strip line numbers from traceback frames: `line 42` → `line <N>`
+5. Normalize module paths: `src/lidco/core/session.py` → `lidco.core.session`
+6. Extract top-3 normalized frames as `(module, function)` pairs
+7. Normalize error message: first 120 chars, lowercase, strip punctuation
+
+**Output:**
+- `ErrorFingerprint` frozen dataclass: `raw_hash: str`, `error_type: str`, `normalized_message: str`, `top_frames: list[tuple[str, str]]`
+- `fingerprint_error(error_type, message, traceback_str)` → `ErrorFingerprint`
+- `fingerprint_hash(fingerprint)` → stable SHA-256 hex string
+- `ErrorLedger._error_hash()` upgraded to use `fingerprint_hash()` when traceback available, fallback to old method
+
+**Research basis:** Sentry semantic grouping (2024) — transformer embeddings reduced new-issue creation by 40% while keeping <100ms latency. Pure normalization (no ML) achieves ~80% of that gain with zero latency overhead.
+
+---
+
+### 123. Execution Trace Recorder (LDB-style)
+**Files:** `src/lidco/core/trace_recorder.py`, `src/lidco/tools/trace_inspector.py`, `tests/unit/test_core/test_trace_recorder.py`
+**Goal:** Capture variable snapshots at each line of a failing test's execution using `sys.settrace`. Detect anomalies by comparing against baseline traces from passing tests (unexpected None, type drift, missing dict keys). Inject `## Execution Trace` section into debugger context.
+
+**Approach:**
+- `TraceEvent` frozen dataclass: `file: str`, `line: int`, `event: str` (call/line/return/exception), `locals_snapshot: dict[str, str]` (repr, truncated to 80 chars), `timestamp_ns: int`
+- `TraceSession` dataclass: `events: list[TraceEvent]`, `target_file: str`, `target_function: str`, `total_events: int`
+- `record_trace(test_command, target_file, target_function, max_events=500)` → `TraceSession | None` — runs test in subprocess with `sys.settrace`, writes trace to `.lidco/trace.json`
+- `detect_anomalies(failing_trace, baseline_traces)` → `list[TraceAnomaly]` — None where not expected, type drift, missing keys
+- `format_trace_summary(session, anomalies, top_n=15)` → compact Markdown
+- `TraceInspectorTool` (name: `capture_execution_trace`, permission: ASK) wraps `record_trace` + `detect_anomalies`
+
+**Research basis:** LDB (ACL 2024) — execution trace inspection at basic block boundaries gives +9.8% improvement on HumanEval/MBPP. Key insight: LLMs reason much better when given "variable X was `None` at line 47 but should be `dict`" rather than just a stack trace.
+
+---
+
+### 124. Unified File Risk Score
+**Files:** `src/lidco/core/risk_scorer.py`, `tests/unit/test_core/test_risk_scorer.py` + injection in `graph.py`
+**Goal:** Combine 4 existing data sources into a single `risk_score ∈ [0, 100]` per source file for pre-planning injection. Surfaces the files most likely to need attention before the LLM starts planning — preventing "surprise bugs" in high-churn, low-coverage files.
+
+**Risk dimensions (each 0–25 points):**
+1. **Complexity** (from `_compute_file_metrics()`): LOC > 400 = 25, LOC > 200 = 15, LOC > 100 = 5
+2. **Git churn** (from `_run_git_file_log()`): ≥5 commits in last 30 days = 25, ≥3 = 15, ≥1 = 5
+3. **Coverage gap** (from `coverage_gap.py`): coverage < 40% = 25, < 60% = 15, < 80% = 5
+4. **Error history** (from `ErrorLedger.get_frequent()`): file appears in ≥5 errors = 25, ≥2 = 15, ≥1 = 5
+
+**Output:**
+- `RiskScore` frozen dataclass: `file_path: str`, `total: int`, `complexity: int`, `churn: int`, `coverage: int`, `error_history: int`, `label: str` (HIGH/MEDIUM/LOW)
+- `compute_risk_scores(project_dir, ledger, coverage_map)` → `list[RiskScore]` sorted by total descending
+- `format_risk_report(scores, top_n=5)` → `## High-Risk Files` Markdown table
+- Injected into `_build_preplan_snapshot()` in graph.py (gated by `_preplan_snapshot_enabled`)
+
+**Research basis:** EMSE 2024 bug severity study — LOC, FanOut, Effort, commit frequency are the 4 strongest predictors of bug-prone files. Combining them multiplicatively (not just additively) dramatically outperforms any single metric alone.
+
+---
+
+### 125. Delta Debugger (ddmin Input Minimizer)
+**Files:** `src/lidco/core/delta_debugger.py`, `tests/unit/test_core/test_delta_debugger.py` + extend `repro_generator.py`
+**Goal:** Given a failing pytest test, automatically shrink its input data to the minimal subset that still causes the same failure. Implements the ddmin algorithm (binary search over input components) extended with DDMIN* fixed-point iteration. Minimal reproducers dramatically improve LLM fix accuracy.
+
+**Algorithm:**
+```
+ddmin(input_components):
+  n = 2
+  while len(components) > 1:
+    for each chunk of size len/n:
+      if test_fails(input - chunk): return ddmin(input - chunk)
+      if test_fails(chunk): return ddmin(chunk)
+    n = min(2*n, len(components))
+  return components
+```
+
+**Approach:**
+- `InputComponent` frozen dataclass: `index: int`, `value: Any`, `component_type: str`
+- `DdminConfig` frozen dataclass: `max_iterations: int = 100`, `timeout_s: float = 30.0`, `oracle` (Callable: input → bool)
+- `ddmin(components, config)` → `list[InputComponent]` (minimal subset)
+- `shrink_pytest_fixture(test_file, test_id, fixture_name)` — extracts fixture data, runs ddmin, generates minimal test
+- Extends `ReproGeneratorTool` with `shrink=True` parameter that activates ddmin post-generation
+
+**Research basis:** DDMIN* (Wiley 2024) — fixed-point iteration achieves 48.08% additional reduction vs plain ddmin. Combined with Hypothesis shrinking strategies, handles both list/dict/string inputs uniformly.
+
+---
+
+## Task Details (Q25)
+
+### 116. Coverage Gap Locator
+**Files:** `src/lidco/core/coverage_gap.py`, `tests/unit/test_core/test_coverage_gap.py`
+**Status:** ✅ Done — `FileCoverageInfo` + `CoverageGap` frozen dataclasses. `parse_coverage_json(data)` parses coverage.py JSON (handles missing_branches as `list[list[int]]` → `list[tuple[int,int]]`, missing summary → 0.0 pct). `find_gaps_for_file(file_path, coverage_map)` normalises path separators, returns `None` when file missing or fully covered. `format_coverage_gaps(gaps)` Markdown sorted by coverage_pct ascending (lowest = first), max 20 lines / 10 branches per file. 14 tests passing.
+
+### 117. Branch Hit Counter
+**Files:** `src/lidco/core/branch_counter.py`, `tests/unit/test_core/test_branch_counter.py`
+**Status:** ✅ Done — `BranchHit` + `BranchStats` frozen dataclasses. `parse_branch_hits(coverage_data, file_path)` supports two formats: `arcs` dict (`"(from, to)": hits`) and `missing_branches` fallback (hits=0). `compute_branch_stats(file_path, branch_hits)` → hit_rate=1.0 on empty list. `format_branch_stats(stats)` compact Markdown. Path normalisation (backslash↔forward). 25 tests passing.
+
+### 118. Coverage Delta Tracker
+**Files:** `src/lidco/core/coverage_delta.py`, `tests/unit/test_core/test_coverage_delta.py`
+**Status:** ✅ Done — `CoverageDelta` frozen dataclass (`before_pct`, `after_pct`, `delta_pct`, `newly_covered`, `newly_missing`). `compute_delta(before, after)` handles new/removed files, skips zero-change entries, sorts by abs(delta) descending. `format_delta(deltas)` Markdown with ✅/⚠ icons and before→after pct. 16 tests passing.
+
+### 119. Coverage Report Injector
+**Files:** `src/lidco/agents/graph.py` (modified), `tests/unit/test_agents/test_coverage_gap_inject.py`
+**Status:** ✅ Done — `_coverage_gap_inject_enabled: bool = True` flag + `set_coverage_gap_inject(enabled)` setter. `_build_coverage_gap_hint(error_context)` async method: extracts first `src/`/`tests/`/`lib/` `.py` path from error context via regex, reads `.lidco/coverage.json`, calls `parse_coverage_json` + `find_gaps_for_file` + `format_coverage_gaps`, prepended into debugger context. Fail-silent on any exception. `AgentsConfig.coverage_gap_inject: bool = True`; wired in `config_reloader.py`. 13 tests passing.
+
+### 120. CoverageGuard Tool
+**Files:** `src/lidco/tools/coverage_guard.py`, `tests/unit/test_tools/test_coverage_guard.py`
+**Status:** ✅ Done — `CoverageGuardTool` (tool name: `coverage_guard`, permission: ASK). Parameters: `file_path` (optional), `threshold` (default 80.0), `test_paths` (default "tests/"), `use_existing` (bool). `_run_pytest_coverage` subprocess helper (sync, off event loop): runs `pytest --tb=no -q --cov=src --cov-report=json`; returncode 0 or 1 = success (1 = failing tests but valid coverage). `use_existing=True` skips pytest. Registered in `create_default_registry()` (registry now has 28 tools). 22 tests passing.
+
+---
+
+## Task Details (Q23)
+
+### 106. Import Graph Builder
+**Files:** `src/lidco/core/import_graph.py`, `src/lidco/tools/import_analyzer.py`, `tests/unit/test_core/test_import_graph.py`
+**Goal:** AST-based Python import dependency graph with cycle detection. Build a directed graph of module dependencies, detect circular imports via DFS.
+**Status:** ✅ Done — `ImportEdge` frozen dataclass + `ImportGraph` dataclass with `find_cycles()` and `summary()`. `_module_from_path()` converts file paths to dotted module names (strips `src/`, handles `__init__.py`). `_parse_imports()` handles `import X`, `from X import Y`, relative imports (resolved to absolute module names). `_find_cycles()` DFS with path tracking and frozenset deduplication (handles self-loops, direct cycles, transitive cycles). `build_graph(root)` scans all `*.py` files, builds file↔module mappings, returns populated `ImportGraph`. `ImportAnalyzerTool` (tool name: `analyze_imports`, permission: AUTO) wraps the core logic. Registered in `create_default_registry()`. 31 tests passing. Total: 2145 passing.
+
+### 109. Module Not Found Advisor
+**Files:** `src/lidco/core/module_advisor.py`, `tests/unit/test_core/test_module_advisor.py`
+**Goal:** When a `ModuleNotFoundError` occurs, provide: (1) stdlib detection, (2) alias-based pip target (e.g. `PIL` → `pillow`), (3) Levenshtein fuzzy match against installed packages.
+**Status:** ✅ Done — `ModuleAdvice` frozen dataclass. `_levenshtein(a, b)` two-row rolling DP. `_find_candidates(module_name, pkgs, max_distance=3, top_k=3)` case-insensitive. `_KNOWN_ALIASES` (lowercase keys) covers 15 common import-vs-pip mismatches. `_get_installed_packages()` with `@lru_cache(maxsize=1)`. `advise_module_not_found(module_name, installed_packages=None)` — sub-module splitting, stdlib check, alias lookup, Levenshtein fallback. `format_advice(advice)` Markdown with pip command. 36 tests passing.
+
+### 108. SyntaxError Surgeon
+**Files:** `src/lidco/core/syntax_fixer.py`, `tests/unit/test_core/test_syntax_fixer.py`
+**Goal:** Match Python SyntaxError/IndentationError/TabError to one of 9 named patterns and return a structured `SyntaxFix` with description, fix_hint, and confidence score.
+**Status:** ✅ Done — `SyntaxFix` frozen dataclass (pattern, description, fix_hint, confidence, line). `_Pattern` frozen dataclass with `msg_substrings: tuple[str, ...]` + optional `error_types` restriction. 9 patterns: `missing-print-parens`, `missing-colon`, `unmatched-bracket`, `unclosed-string`, `fstring-error`, `invalid-escape`, `indentation-error`, `unexpected-eof`, `invalid-assignment`. `diagnose_syntax_error(error_type, error_msg, lineno, source_line)` case-insensitive any-match. `diagnose_from_exc(exc)` convenience wrapper. `format_syntax_fix(fix)` Markdown output. 38 tests passing.
+
+### 110. Compilation Fast-Path++
+**Files:** `src/lidco/agents/graph.py` (modified), `tests/unit/test_agents/test_compilation_fast_path.py`
+**Goal:** Wire SyntaxError Surgeon (108) and Module Not Found Advisor (109) into the debugger agent's context injection pipeline so the debugger receives zero-LLM, deterministic fix hints before running.
+**Status:** ✅ Done — `_FAST_PATH_PRIORITY` tuple + `_FAST_PATH_ERROR_TYPES` derived frozenset + `_FAST_PATH_PATTERNS` word-boundary regex dict. `_detect_fast_path_error_type(error_context)` — word-boundary match, priority order prevents false positives. `_build_compilation_hint(error_context, error_type)` — async, failure-safe: SyntaxError/IndentationError/TabError → `diagnose_syntax_error` → `format_syntax_fix`; ModuleNotFoundError/ImportError → regex "No module named 'X'" → `advise_module_not_found` → `format_advice`; returns `"## Compilation Fast-Path Hints\n\n..."` or `""`. Debugger injection block hoists `_error_summary_builder()` call (one call shared across fix_memory + hypotheses + fast-path blocks). 28 tests passing.
+
+---
+
+## Q27 — Compact Tool Execution Feed
+
+**Цель:** более читаемый и информативный вывод инструментов — иконки по категориям, tail-первые результаты, timing, агрегация read-only вызовов.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 126 | Tool Category Icons & Colors | ✅ Done | 0.5d | 17 инструментов с уникальными иконками (✎ файлы, ● debug, ✦ тесты, ± git) |
+| 127 | Collapsible Bash Output (tail) | ✅ Done | 0.5d | Последние 5 строк + "▲ N more lines" вместо первых 15 |
+| 128 | Per-Tool Timing | ✅ Done | 0.5d | `[0.3s]` после каждого инструмента (>50ms) |
+| 129 | Read-Only Tool Chain Aggregation | ✅ Done | 0.5d | `↳ Read 3 files · Searched 2 times` вместо N отдельных строк |
+
+---
+
+## Q28 — Live Status Bar v2
+
+**Цель:** статус-бар показывает текущий инструмент, прогресс итераций, elapsed по фазам, адаптивный fps.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 130 | Tool Name in Spinner | ✅ Done | 0.5d | Спиннер показывает активный инструмент ("bash", "Editing", "Debug cycle") |
+| 131 | Iteration Progress (step N/M) | ✅ Done | 0.5d | `[3/12]` в статус-баре — видно сколько шагов до конца |
+| 132 | Per-Phase Elapsed Time | ✅ Done | 0.5d | Plan ✓ 2s → Execute ✓ 8s → Review (бонус из Q27) |
+| 133 | Adaptive Refresh Rate | ✅ Done | 0.5d | 10 fps при активном инструменте, 4 fps при ожидании LLM |
+
+---
+
+## Q29 — Response Beautifier
+
+**Цель:** более читаемый и структурированный вывод ответов агента.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 134 | Agent Header with Icon | ✅ Done | 0.5d | ⌨ coder (green), ● debugger (red), ✦ tester (blue), ◈ architect (yellow), ◎ reviewer (cyan), etc. |
+| 135 | Large Code Blocks in Panel | ✅ Done | 0.5d | Блоки кода ≥10 строк — Rich Panel с синтаксической подсветкой и номерами строк |
+| 136 | Compact Post-Response Turn Line | ✅ Done | 0.5d | `gpt-4 · step 3 · 2 tools · 1 file · 1.5k tok · $0.002` вместо длинного info-текста |
+
+---
+
+## Q30 — Smart Feedback Messages
+
+**Цель:** пользователь всегда знает что происходит — какой агент выбран, почему модель переключилась, что делать при ошибках.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 137 | Agent Selection Announcement | ✅ Done | 0.5d | `Auto → ⌨ coder` — dim строка перед ответом при auto-routing |
+| 138 | Context Window Warning (80%) | ✅ Done | 0.5d | `⚠ Context 83% full — consider /clear` при превышении порога |
+| 139 | Friendly Error Messages | ✅ Done | 0.5d | LLMRetryExhausted/TimeoutError/ConnectionError → понятные подсказки вместо raw traceback |
+| 140 | Model Fallback Notification | ✅ Done | 0.5d | `↩ Switched: claude-opus → claude-sonnet (retries exhausted)` в реальном времени |
+
+---
+
+## Q31 — Interactive Session Improvements
+
+**Цель:** больше интерактивности и удобства при работе с REPL.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 141 | `/status` Command | ✅ Done | 0.5d | Dashboard: модель, debug, токены in/out, стоимость по агентам, память, инструменты |
+| 142 | Multiline Line Counter | ✅ Done | 0.5d | Промпт показывает `[3 lines]` при мультилайн-вводе вместо подсказки (Esc+Enter) |
+| 143 | `/retry` Command | ✅ Done | 0.5d | Повторяет последнее сообщение (или новое если передан аргумент) |
+| 144 | `/undo` Command | ✅ Done | 0.5d | Показывает изменённые файлы + `/undo --force` восстанавливает через `git restore` |

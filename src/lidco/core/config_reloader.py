@@ -148,6 +148,8 @@ class ConfigReloader:
             "agent_timeout", "default",
             "plan_critique", "plan_revise", "plan_max_revisions",
             "plan_memory", "preplan_snapshot", "debug_mode",
+            "debug_hypothesis", "debug_fast_path", "auto_debug", "debug_preset",
+            "coverage_gap_inject", "sbfl_inject", "web_context_inject", "web_auto_route",
         )
         for fname in agent_fields:
             if getattr(new.agents, fname) != getattr(old.agents, fname):
@@ -185,9 +187,27 @@ class ConfigReloader:
                 orch.set_plan_memory(new.agents.plan_memory)
             if new.agents.preplan_snapshot != old.agents.preplan_snapshot:
                 orch.set_preplan_snapshot(new.agents.preplan_snapshot)
+            if new.agents.preplan_ambiguity != old.agents.preplan_ambiguity:
+                orch.set_preplan_ambiguity(new.agents.preplan_ambiguity)
             if new.agents.debug_mode != old.agents.debug_mode:
                 orch.set_debug_mode(new.agents.debug_mode)
                 self._session.debug_mode = new.agents.debug_mode
+            if new.agents.debug_hypothesis != old.agents.debug_hypothesis:
+                orch.set_debug_hypothesis(new.agents.debug_hypothesis)
+            if new.agents.debug_fast_path != old.agents.debug_fast_path:
+                orch.set_debug_fast_path(new.agents.debug_fast_path)
+            if new.agents.auto_debug != old.agents.auto_debug:
+                orch.set_auto_debug(new.agents.auto_debug)
+            if new.agents.debug_preset != old.agents.debug_preset:
+                orch.set_debug_preset(new.agents.debug_preset)
+            if new.agents.coverage_gap_inject != old.agents.coverage_gap_inject:
+                orch.set_coverage_gap_inject(new.agents.coverage_gap_inject)
+            if new.agents.sbfl_inject != old.agents.sbfl_inject:
+                orch.set_sbfl_inject(new.agents.sbfl_inject)
+            if new.agents.web_context_inject != old.agents.web_context_inject:
+                orch.set_web_context_inject(new.agents.web_context_inject)
+            if new.agents.web_auto_route != old.agents.web_auto_route:
+                orch.set_web_auto_route(new.agents.web_auto_route)
         except Exception as exc:
             logger.debug("Could not propagate changes to orchestrator: %s", exc)
 

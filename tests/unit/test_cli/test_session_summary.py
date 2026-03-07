@@ -27,7 +27,7 @@ class TestShowSessionSummary:
         console, buf = console_and_buf
         _show_session_summary(console, turns=3, tokens=100, cost_usd=0.0, tool_calls=0, files_edited=set())
         assert "3" in buf.getvalue()
-        assert "Turn" in buf.getvalue()
+        assert "Ходов" in buf.getvalue()
 
     def test_shows_token_count(self, console_and_buf):
         console, buf = console_and_buf
@@ -64,12 +64,12 @@ class TestShowSessionSummary:
         _show_session_summary(console, turns=2, tokens=300, cost_usd=0.0, tool_calls=5, files_edited=set())
         output = buf.getvalue()
         assert "5" in output
-        assert "Tool" in output
+        assert "Вызовов" in output
 
     def test_hides_tool_calls_when_zero(self, console_and_buf):
         console, buf = console_and_buf
         _show_session_summary(console, turns=1, tokens=100, cost_usd=0.0, tool_calls=0, files_edited=set())
-        assert "Tool" not in buf.getvalue()
+        assert "Вызовов" not in buf.getvalue()
 
     def test_shows_files_edited_count(self, console_and_buf):
         console, buf = console_and_buf
@@ -77,7 +77,7 @@ class TestShowSessionSummary:
         _show_session_summary(console, turns=1, tokens=100, cost_usd=0.0, tool_calls=2, files_edited=files)
         output = buf.getvalue()
         assert "2" in output
-        assert "Files" in output
+        assert "Изменено" in output
 
     def test_lists_file_paths(self, console_and_buf):
         console, buf = console_and_buf
@@ -94,7 +94,7 @@ class TestShowSessionSummary:
         files = {f"src/f{i}.py" for i in range(10)}
         _show_session_summary(console, turns=1, tokens=100, cost_usd=0.0, tool_calls=10, files_edited=files)
         output = buf.getvalue()
-        assert "more" in output
+        assert "ещё" in output
 
     def test_exactly_5_files_no_more_text(self, console_and_buf):
         console, buf = console_and_buf
@@ -106,9 +106,9 @@ class TestShowSessionSummary:
         console, buf = console_and_buf
         files = {f"src/f{i}.py" for i in range(6)}
         _show_session_summary(console, turns=1, tokens=100, cost_usd=0.0, tool_calls=6, files_edited=files)
-        assert "1 more" in buf.getvalue()
+        assert "ещё 1" in buf.getvalue()
 
     def test_summary_panel_title(self, console_and_buf):
         console, buf = console_and_buf
         _show_session_summary(console, turns=1, tokens=100, cost_usd=0.0, tool_calls=0, files_edited=set())
-        assert "Session Summary" in buf.getvalue()
+        assert "Итоги сессии" in buf.getvalue()

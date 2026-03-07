@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from lidco.tools.base import BaseTool, ToolParameter, ToolPermission, ToolResult
 
+# 5-minute TTL for cached results
+_CACHE_TTL_SECONDS = 300.0
+
 
 class WebSearchTool(BaseTool):
-    """Search the web using DuckDuckGo."""
+    """Search the web using DuckDuckGo.
+
+    Results are cached in-memory for 5 minutes to avoid duplicate network calls
+    within the same session.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        # Cache: query -> (cached_at: float, output: str)
+        self._cache: dict[str, tuple[float, str]] = {}
 
     @property
     def name(self) -> str:
@@ -43,6 +56,17 @@ class WebSearchTool(BaseTool):
         query: str = kwargs["query"]
         max_results: int = kwargs.get("max_results", 5)
 
+        # Check cache first
+        cached = self._cache.get(query)
+        if cached is not None:
+            cached_at, cached_output = cached
+            if time.monotonic() - cached_at < _CACHE_TTL_SECONDS:
+                return ToolResult(
+                    output=cached_output,
+                    success=True,
+                    metadata={"query": query, "result_count": 0, "cached": True},
+                )
+
         try:
             from duckduckgo_search import DDGS
         except ImportError:
@@ -68,16 +92,27 @@ class WebSearchTool(BaseTool):
         if not results:
             return ToolResult(output="No results found.", success=True)
 
-        lines: list[str] = []
+        result_count = len(results)
+        lines: list[str] = [
+            f"## Summary",
+            f"Found {result_count} result{'s' if result_count != 1 else ''} for: {query}",
+            "",
+        ]
         for i, r in enumerate(results, 1):
             title = r.get("title", "No title")
             url = r.get("href", r.get("link", ""))
             snippet = r.get("body", r.get("snippet", ""))
             lines.append(f"{i}. **{title}**\n   URL: {url}\n   {snippet}")
+            if i < result_count:
+                lines.append("---")
 
-        output = f"Search results for: {query}\n\n" + "\n\n".join(lines)
+        output = "\n".join(lines)
+
+        # Store in cache on success
+        self._cache[query] = (time.monotonic(), output)
+
         return ToolResult(
             output=output,
             success=True,
-            metadata={"query": query, "result_count": len(results)},
+            metadata={"query": query, "result_count": result_count},
         )

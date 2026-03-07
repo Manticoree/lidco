@@ -65,6 +65,8 @@ class ErrorRecord:
     file_hint: str | None           # first "File path.py" found in traceback
     tool_args: dict[str, Any] | None = None   # compacted tool arguments
     occurrence_count: int = 1                  # consecutive duplicate counter
+    caused_by_id: str | None = None            # ID of the root-cause ErrorRecord
+    is_root_cause: bool = True                 # False if this is a symptom
 
 
 class ErrorHistory:
@@ -199,3 +201,92 @@ class ErrorHistory:
             return ""
 
         return "## Failure-Site Snippets\n\n" + "\n\n".join(snippets)
+
+    def infer_causality(self) -> None:
+        """Build causality graph — link symptom errors to their root cause.
+
+        Two errors are considered causally linked if:
+        1. They occurred within 10 seconds of each other
+        2. They share the same file_hint OR the later one is NoneType/AttributeError
+           suggesting it was caused by an earlier failure
+        3. The later error is a likely symptom: contains "NoneType", "AttributeError",
+           "has no attribute", or "object is not"
+
+        Updates records in-place (creates new frozen copies via dc_replace).
+        Marks non-root-cause records with is_root_cause=False and caused_by_id set.
+        """
+        records = list(self._records)
+        if len(records) < 2:
+            return
+
+        _SYMPTOM_PATTERNS = ("NoneType", "AttributeError", "has no attribute", "object is not")
+
+        # Find causal links: for each record, look back 10 seconds for a potential cause
+        new_records = list(records)  # mutable copy (of references)
+
+        for i in range(1, len(records)):
+            rec = records[i]
+            # Only consider symptom-like errors
+            is_symptom = any(p in rec.message for p in _SYMPTOM_PATTERNS)
+            if not is_symptom:
+                continue
+
+            rec_time = rec.timestamp
+            for j in range(i - 1, -1, -1):
+                candidate = records[j]
+                # Check time window: within 10 seconds
+                time_diff = abs((rec_time - candidate.timestamp).total_seconds())
+                if time_diff > 10.0:
+                    continue
+                # Check file overlap OR candidate is not already a symptom
+                same_file = (rec.file_hint and candidate.file_hint
+                             and rec.file_hint == candidate.file_hint)
+                candidate_is_root = new_records[j].is_root_cause
+                if same_file or candidate_is_root:
+                    # Mark rec as caused by candidate
+                    new_records[i] = dc_replace(
+                        new_records[i],
+                        caused_by_id=candidate.id,
+                        is_root_cause=False,
+                    )
+                    break
+
+        self._records = new_records
+
+    def get_root_causes(self) -> list[ErrorRecord]:
+        """Return only root-cause errors (not symptoms)."""
+        return [r for r in self._records if r.is_root_cause]
+
+    def to_causal_chain_str(self) -> str:
+        """Render a causal chain tree as Markdown.
+
+        Format:
+            ROOT: AttributeError in session.py:45 (×3)
+              └─ SYMPTOM: NoneType in graph.py:112
+        """
+        if not self._records:
+            return ""
+
+        # First run causality inference
+        self.infer_causality()
+
+        # Build tree: root_id -> [symptom records]
+        roots = [r for r in self._records if r.is_root_cause]
+        symptoms_by_cause: dict[str, list[ErrorRecord]] = {}
+        for r in self._records:
+            if not r.is_root_cause and r.caused_by_id:
+                symptoms_by_cause.setdefault(r.caused_by_id, []).append(r)
+
+        if not roots:
+            return ""
+
+        lines = ["## Causal Error Chain"]
+        for root in roots:
+            file_info = f" in {root.file_hint}" if root.file_hint else ""
+            repeat = f" (×{root.occurrence_count})" if root.occurrence_count > 1 else ""
+            lines.append(f"ROOT: {root.error_type}{file_info}{repeat}")
+            for symptom in symptoms_by_cause.get(root.id, []):
+                sym_file = f" in {symptom.file_hint}" if symptom.file_hint else ""
+                sym_rep = f" (×{symptom.occurrence_count})" if symptom.occurrence_count > 1 else ""
+                lines.append(f"  └─ SYMPTOM: {symptom.error_type}{sym_file}{sym_rep}")
+        return "\n".join(lines)

@@ -61,7 +61,13 @@ class ToolRegistry:
     def create_default_registry() -> ToolRegistry:
         """Create a registry with all built-in tools."""
         from lidco.tools.arch_diagram import ArchDiagramTool
+        from lidco.tools.coverage_guard import CoverageGuardTool
+        from lidco.tools.flake_guard import FlakeGuardTool
+        from lidco.tools.trace_inspector import TraceInspectorTool
         from lidco.tools.ask_user import AskUserTool
+        from lidco.tools.ast_checker import ASTBugCheckerTool
+        from lidco.tools.dep_checker import DependencyCheckerTool
+        from lidco.tools.import_analyzer import ImportAnalyzerTool
         from lidco.tools.bash import BashTool
         from lidco.tools.diff import DiffTool
         from lidco.tools.file_edit import FileEditTool
@@ -72,8 +78,13 @@ class ToolRegistry:
         from lidco.tools.glob import GlobTool
         from lidco.tools.grep import GrepTool
         from lidco.tools.profiler import ProfilerTool
+        from lidco.tools.regression_guard import RegressionGuardTool
         from lidco.tools.rename import RenameSymbolTool
+        from lidco.tools.repro_generator import ReproGeneratorTool
+        from lidco.tools.static_analyzer import StaticAnalyzerTool
+        from lidco.tools.test_autopilot import TestAutopilotTool
         from lidco.tools.test_gap import TestGapTool
+        from lidco.tools.test_inspector import TestInspectorTool
         from lidco.tools.test_runner import RunTestsTool
         from lidco.tools.tree import TreeTool
         from lidco.tools.web_fetch import WebFetchTool
@@ -99,6 +110,21 @@ class ToolRegistry:
             RenameSymbolTool(),
             TestGapTool(),
             ArchDiagramTool(),
+            # Q19-Q22 debug tools
+            ImportAnalyzerTool(),
+            DependencyCheckerTool(),
+            TestAutopilotTool(),
+            StaticAnalyzerTool(),
+            ASTBugCheckerTool(),
+            TestInspectorTool(),
+            RegressionGuardTool(),
+            ReproGeneratorTool(),
+            # Q24 flaky test intelligence
+            FlakeGuardTool(),
+            # Q25 coverage-guided debug intelligence
+            CoverageGuardTool(),
+            # Q26 execution trace recorder
+            TraceInspectorTool(),
         ]:
             registry.register(tool)
         return registry

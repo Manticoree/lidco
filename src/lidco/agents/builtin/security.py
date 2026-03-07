@@ -41,7 +41,7 @@ def create_security_agent(llm: BaseLLMProvider, tool_registry: ToolRegistry) -> 
         system_prompt=SECURITY_SYSTEM_PROMPT,
         temperature=0.1,
         max_iterations=50,
-        tools=["file_read", "glob", "grep"],
+        tools=["file_read", "glob", "grep", "web_search", "web_fetch"],
     )
 
     class SecurityAgent(BaseAgent):

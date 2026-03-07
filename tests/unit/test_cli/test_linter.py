@@ -118,7 +118,9 @@ class TestSecurityAgent:
         from lidco.agents.builtin.security import create_security_agent
 
         agent = create_security_agent(MagicMock(), MagicMock())
-        assert set(agent.config.tools) == {"file_read", "glob", "grep"}
+        assert {"file_read", "glob", "grep"}.issubset(set(agent.config.tools))
+        assert "web_search" in agent.config.tools
+        assert "web_fetch" in agent.config.tools
 
     def test_security_agent_cannot_write(self) -> None:
         from unittest.mock import MagicMock

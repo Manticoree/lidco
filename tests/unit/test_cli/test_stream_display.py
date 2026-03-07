@@ -57,12 +57,13 @@ class TestReadOnlyTools:
     @pytest.mark.parametrize(
         "tool,args,expected_text",
         [
-            ("file_read", {"path": "src/main.py"}, "Reading main.py"),
-            ("glob", {"pattern": "*.py"}, "Finding *.py"),
-            ("grep", {"pattern": "TODO"}, "Searching 'TODO'"),
+            ("file_read", {"path": "src/main.py"}, "Прочитано 1 файл"),
+            ("glob", {"pattern": "*.py"}, "Найдено 1 шаблон"),
+            ("grep", {"pattern": "TODO"}, "Поисков: 1"),
         ],
     )
     def test_start_shows_inline_marker(self, captured_console, tool, args, expected_text):
+        # Read-only tools are buffered and flushed as an aggregated line on finish()
         console, buf = captured_console
         sd = StreamDisplay(console)
         sd.on_tool_event("start", tool, args)
@@ -86,13 +87,13 @@ class TestReadOnlyTools:
         assert "\u2713" not in output
 
     def test_non_read_only_tool_still_shown(self, captured_console):
+        # git has a category style (± icon + "Git" label), not the generic ⚡
         console, buf = captured_console
         sd = StreamDisplay(console)
         sd.on_tool_event("start", "git", {"subcommand": "status"})
         sd.finish()
         output = buf.getvalue()
-        assert "\u26a1" in output
-        assert "git" in output
+        assert "Git" in output
 
 
 class TestFileEditDisplay:
@@ -138,14 +139,17 @@ class TestFileEditDisplay:
         assert "10 more lines" in output
 
     def test_edit_start_not_shown_as_lightning(self, captured_console):
-        """file_edit start should still show (it's not in _READ_ONLY_TOOLS)."""
+        """file_edit start should use the pencil icon with 'Editing' label."""
         console, buf = captured_console
         sd = StreamDisplay(console)
         sd.on_tool_event("start", "file_edit", {"path": "f.py"})
         sd.finish()
         output = buf.getvalue()
-        assert "\u26a1" in output
-        assert "file_edit" in output
+        # Category icon ✎ (U+270E) and label "Редактирование" should appear
+        assert "\u270e" in output
+        assert "Редактирование" in output
+        # Generic lightning bolt should NOT appear for categorised tools
+        assert "\u26a1" not in output
 
 
 class TestFileWriteDisplay:
@@ -163,8 +167,8 @@ class TestFileWriteDisplay:
         sd.finish()
         output = buf.getvalue()
         assert "\u270f" in output
-        assert "Created src/new_file.py" in output
-        assert "3 lines" in output
+        assert "Создан src/new_file.py" in output
+        assert "3 строк" in output
 
     def test_single_line_file(self, captured_console):
         console, buf = captured_console
@@ -176,7 +180,7 @@ class TestFileWriteDisplay:
         sd.on_tool_event("end", "file_write", args, result)
         sd.finish()
         output = buf.getvalue()
-        assert "1 lines" in output
+        assert "1 строк" in output
 
 
 class TestBashDisplay:
@@ -206,6 +210,7 @@ class TestBashDisplay:
         assert "Tests: 5 passed" in output
 
     def test_end_truncates_long_output(self, captured_console):
+        # 30 lines, max_tail=5 → "▲ 25 more lines" shown before the tail
         console, buf = captured_console
         sd = StreamDisplay(console)
         result = MagicMock()
@@ -214,7 +219,9 @@ class TestBashDisplay:
         sd.on_tool_event("end", "bash", {"command": "ls"}, result)
         sd.finish()
         output = buf.getvalue()
-        assert "15 more lines" in output
+        assert "25 more lines" in output
+        # Last few lines (tail) should still be visible
+        assert "line 29" in output
 
     def test_bash_error_shows_error(self, captured_console):
         console, buf = captured_console
@@ -455,12 +462,12 @@ class TestBriefResult:
     def test_file_read(self):
         result = MagicMock()
         result.output = "line1\nline2\nline3\n"
-        assert _brief_result("file_read", result) == "3 lines"
+        assert _brief_result("file_read", result) == "3 строк"
 
     def test_file_write(self):
         result = MagicMock()
         result.output = "created"
-        assert _brief_result("file_write", result) == "Applied edit"
+        assert _brief_result("file_write", result) == "Изменение применено"
 
     def test_bash_single_line(self):
         result = MagicMock()
@@ -470,9 +477,9 @@ class TestBriefResult:
     def test_bash_multi_line(self):
         result = MagicMock()
         result.output = "line1\nline2\nline3"
-        assert _brief_result("bash", result) == "3 lines of output"
+        assert _brief_result("bash", result) == "3 строк вывода"
 
     def test_grep_matches(self):
         result = MagicMock()
         result.output = "file1.py\nfile2.py\n"
-        assert _brief_result("grep", result) == "2 matches"
+        assert _brief_result("grep", result) == "2 совпадений"

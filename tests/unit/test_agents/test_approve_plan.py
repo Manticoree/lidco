@@ -80,7 +80,7 @@ class TestAprovePlanEditorPath:
 
         orch.set_plan_editor(failing_editor)
         asyncio.run(orch._approve_plan_node(_base_state()))
-        assert any("error" in s.lower() or "auto-approv" in s.lower() for s in status_calls)
+        assert any("ошибка" in s.lower() or "автоматическое" in s.lower() for s in status_calls)
 
     def test_editor_exception_parallel_steps_empty(self):
         """Auto-approve on editor failure still parses parallel steps."""
@@ -160,4 +160,4 @@ class TestApprovePlanClarificationHandler:
         orch._clarification_handler = failing_handler
         with patch.object(orch, "_save_approved_plan"):
             asyncio.run(orch._approve_plan_node(_base_state()))
-        assert any("error" in s.lower() or "auto-approv" in s.lower() for s in status_calls)
+        assert any("ошибка" in s.lower() or "автоматическое" in s.lower() for s in status_calls)

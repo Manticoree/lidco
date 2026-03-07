@@ -237,6 +237,10 @@ class TestStreamDisplayDebugMode:
         display._debug_mode = False
         display._status_bar = MagicMock()
         display._live = MagicMock()
+        display._tool_start_times = {}
+        display._ro_buffer = {}
+        display._pre_tool_label = None
+        display._tool_active = False
         return display, buf
 
     def test_set_debug_mode_true(self):

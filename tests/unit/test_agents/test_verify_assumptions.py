@@ -287,7 +287,7 @@ class TestVerifyAssumptionsNode:
         state = _base_state(plan, [assumption])
         with patch.object(GraphOrchestrator, "_verify_one_assumption", return_value=("verified", "")):
             asyncio.run(orch._verify_assumptions_node(state))
-        assert any("verif" in s.lower() or "assumption" in s.lower() for s in calls)
+        assert any("проверка" in s.lower() or "допущени" in s.lower() for s in calls)
 
     def test_real_file_verified_end_to_end(self, tmp_path: Path):
         """Integration: actual file on disk → verified without mocking."""

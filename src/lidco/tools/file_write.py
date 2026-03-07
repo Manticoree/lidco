@@ -2,14 +2,33 @@
 
 from __future__ import annotations
 
+import difflib
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from lidco.tools.base import BaseTool, ToolParameter, ToolPermission, ToolResult
+
+# Maximum diff lines shown in the confirmation panel.
+_MAX_DIFF_LINES = 40
 
 
 class FileWriteTool(BaseTool):
     """Write content to a file (creates or overwrites)."""
+
+    # Injected by the CLI layer to ask the user before overwriting.
+    # Signature: async (path: str, old: str, new: str) -> bool
+    _confirm_callback: Callable[[str, str, str], Awaitable[bool]] | None = None
+
+    def set_confirm_callback(
+        self,
+        callback: Callable[[str, str, str], Awaitable[bool]] | None,
+    ) -> None:
+        """Set an async callback invoked when overwriting an existing file.
+
+        The callback receives (path, old_content, new_content) and must return
+        True to proceed with the write, False to cancel.
+        """
+        self._confirm_callback = callback
 
     @property
     def name(self) -> str:
@@ -38,9 +57,42 @@ class FileWriteTool(BaseTool):
     def permission(self) -> ToolPermission:
         return ToolPermission.ASK
 
+    @staticmethod
+    def build_diff(old: str, new: str, path: str) -> str:
+        """Return a unified diff string (at most _MAX_DIFF_LINES lines)."""
+        old_lines = old.splitlines()
+        new_lines = new.splitlines()
+        diff_lines = list(difflib.unified_diff(
+            old_lines, new_lines,
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
+            lineterm="",
+        ))
+        if not diff_lines:
+            return ""
+        if len(diff_lines) > _MAX_DIFF_LINES:
+            orig_count = len(diff_lines)
+            diff_lines = diff_lines[:_MAX_DIFF_LINES]
+            diff_lines.append(f"... (показано {_MAX_DIFF_LINES} из {orig_count} строк)")
+        return "\n".join(diff_lines)
+
     async def _run(self, **kwargs: Any) -> ToolResult:
         path = Path(kwargs["path"]).resolve()
         content: str = kwargs["content"]
+
+        # Confirm before overwriting an existing file
+        if path.exists() and self._confirm_callback is not None:
+            try:
+                old_content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                old_content = ""
+            proceed = await self._confirm_callback(str(path), old_content, content)
+            if not proceed:
+                return ToolResult(
+                    output=f"Запись отменена пользователем: {path}",
+                    success=True,
+                    metadata={"path": str(path), "cancelled": True},
+                )
 
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")

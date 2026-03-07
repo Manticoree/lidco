@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import time
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -35,6 +36,66 @@ BANNER = """[bold magenta] LIDCO [/bold magenta][dim]- LLM-Integrated Developmen
 """
 
 
+def _get_git_branch() -> str:
+    """Return the current git branch name, or '' if unavailable."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True, text=True, timeout=2,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Return edit distance between two strings."""
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        curr = [i]
+        for j, cb in enumerate(b, 1):
+            curr.append(min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = curr
+    return prev[-1]
+
+
+def _find_similar_command(typed: str, commands: list) -> str | None:
+    """Return the closest command name within edit distance 2, or None."""
+    best_name, best_dist = "", 3  # max distance threshold
+    for cmd in commands:
+        d = _levenshtein(typed, cmd.name)
+        if d < best_dist:
+            best_name, best_dist = cmd.name, d
+    return best_name or None
+
+
+def _run_shortcut(event: Any, command: str, require_empty: bool = True) -> None:
+    """Fill the prompt buffer with *command* and submit it.
+
+    Used by keyboard shortcut handlers to trigger slash commands without
+    the user having to type them.
+
+    Args:
+        event: prompt_toolkit key event.
+        command: slash command to inject, e.g. ``"/clear"``.
+        require_empty: when ``True`` the shortcut only fires if the buffer
+            is currently empty, so editing keys (Ctrl+E = end-of-line,
+            Ctrl+P = previous history line) still work while the user types.
+            ``False`` fires unconditionally (e.g. Ctrl+L always clears).
+    """
+    buf = event.current_buffer
+    if require_empty and buf.text.strip():
+        return  # buffer has content — let default key handling proceed
+    buf.reset()
+    buf.insert_text(command)
+    buf.validate_and_handle()
+
+
 def _show_session_summary(
     console: Console,
     turns: int,
@@ -55,55 +116,77 @@ def _show_session_summary(
         return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
 
     lines: list[str] = []
-    lines.append(f"Turns:       {turns}")
+    lines.append(f"Ходов:              {turns}")
     if tool_calls:
-        lines.append(f"Tool calls:  {tool_calls}")
+        lines.append(f"Вызовов инструм.:   {tool_calls}")
     if files_edited:
-        lines.append(f"Files changed: {len(files_edited)}")
+        lines.append(f"Изменено файлов:    {len(files_edited)}")
         for path in sorted(files_edited)[:5]:
             lines.append(f"  · {path}")
         if len(files_edited) > 5:
-            lines.append(f"  · ... ({len(files_edited) - 5} more)")
+            lines.append(f"  · ... (ещё {len(files_edited) - 5})")
 
     if prompt_tokens or completion_tokens:
         lines.append(
-            f"Tokens:      {_fmt_k(tokens)} ({_fmt_k(prompt_tokens)} in / {_fmt_k(completion_tokens)} out)"
+            f"Токенов:            {_fmt_k(tokens)} ({_fmt_k(prompt_tokens)} вх. / {_fmt_k(completion_tokens)} исх.)"
         )
     else:
-        lines.append(f"Tokens:      {_fmt_k(tokens)}")
+        lines.append(f"Токенов:            {_fmt_k(tokens)}")
 
     if cost_usd > 0:
         # Use more decimal places for very small costs so we don't show $0.0000
         cost_fmt = f"{cost_usd:.6f}".rstrip("0").rstrip(".")
-        lines.append(f"Cost:        ~${cost_fmt}")
+        lines.append(f"Стоимость:          ~${cost_fmt}")
 
-    console.print(Panel("\n".join(lines), title="Session Summary", border_style="dim"))
+    console.print(Panel("\n".join(lines), title="Итоги сессии", border_style="dim"))
 
 
 async def process_slash_command(
     user_input: str, commands: CommandRegistry, renderer: Renderer
-) -> bool:
-    """Process a slash command. Returns True if should continue REPL, False to exit."""
+) -> tuple[bool, str | None]:
+    """Process a slash command.
+
+    Returns ``(should_continue, retry_message)`` where *retry_message* is a
+    non-None string when the command requests a REPL retry (``/retry``).
+    """
     parts = user_input.strip().split(maxsplit=1)
     cmd_name = parts[0][1:]  # remove /
     arg = parts[1] if len(parts) > 1 else ""
 
+    # Task 169: expand alias before lookup
+    if cmd_name in commands._aliases:
+        alias_target = commands._aliases[cmd_name]
+        expanded = alias_target if not arg else f"{alias_target} {arg}"
+        return await process_slash_command(expanded, commands, renderer)
+
     cmd = commands.get(cmd_name)
     if not cmd:
-        renderer.error(f"Unknown command: /{cmd_name}. Type /help for available commands.")
-        return True
+        # Task 163: "did you mean?" fuzzy suggestion
+        _suggestion = _find_similar_command(cmd_name, commands.list_commands())
+        if _suggestion:
+            renderer.error(
+                f"Неизвестная команда: /{cmd_name}. "
+                f"Возможно, вы имели в виду: /{_suggestion}"
+            )
+        else:
+            renderer.error(f"Неизвестная команда: /{cmd_name}. Введите /help для списка команд.")
+        return True, None
 
     result = await cmd.handler(arg=arg)
 
     if result == "__EXIT__":
         renderer.info("Goodbye!")
-        return False
+        return False, None
     if result == "__CLEAR__":
         renderer.info("Conversation cleared.")
-        return True
+        return True, None
+    if isinstance(result, str) and result.startswith("__RETRY__:"):
+        retry_msg = result[len("__RETRY__:"):]
+        renderer.info(f"Retrying: {retry_msg[:80]}")
+        return True, retry_msg
 
     renderer.markdown(result)
-    return True
+    return True, None
 
 
 async def run_repl(flags: "CLIFlags | None" = None) -> None:
@@ -224,6 +307,54 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
 
     lidco_session.orchestrator.set_plan_editor(plan_editor)
 
+    # Task 137: agent selection announcement
+    def on_agent_selected(agent_name: str, auto: bool) -> None:
+        if auto:
+            renderer.agent_selected(agent_name)
+
+    lidco_session.orchestrator.set_agent_selected_callback(on_agent_selected)
+
+    # Task 140: model fallback notification
+    def on_model_fallback(failed: str, fallback: str, reason: str) -> None:
+        renderer.model_fallback(failed, fallback, reason)
+
+    lidco_session.llm.set_fallback_callback(on_model_fallback)
+
+    # Task 153: overwrite confirmation for file_write tool
+    from lidco.tools.file_write import FileWriteTool
+    _fw_tool = lidco_session.tool_registry.get("file_write")
+    if isinstance(_fw_tool, FileWriteTool):
+        async def _confirm_overwrite(path: str, old: str, new: str) -> bool:
+            live = active_live[0]
+            if live is not None:
+                try:
+                    live.stop()
+                except Exception:
+                    pass
+                active_live[0] = None
+            diff = FileWriteTool.build_diff(old, new, path)
+            console.print()
+            if diff:
+                from rich.syntax import Syntax
+                from rich.panel import Panel
+                console.print(Panel(
+                    Syntax(diff, "diff", theme="monokai"),
+                    title=f"Перезапись: {path}",
+                    border_style="yellow",
+                    expand=False,
+                ))
+            else:
+                console.print(f"  [yellow]Файл не изменился:[/yellow] {path}")
+            try:
+                answer = await asyncio.to_thread(
+                    input, "  Перезаписать? [д/N] "
+                )
+            except (EOFError, KeyboardInterrupt):
+                answer = ""
+            return answer.strip().lower() in ("y", "yes", "д", "да")
+
+        _fw_tool.set_confirm_callback(_confirm_overwrite)
+
     # Resolve default agent from flag (validated against registry)
     default_agent: str | None = None
     if flags is not None and flags.agent:
@@ -236,16 +367,28 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
         default_agent = flags.agent
 
     console.print(BANNER)
-    renderer.info(f"Model: {config.llm.default_model}")
-    renderer.info(f"Working directory: {Path.cwd()}")
+
+    # Task 162: startup project card
+    from rich.panel import Panel
+    from rich.text import Text as RichText
+    _cwd = Path.cwd()
+    _proj_name = _cwd.name
+    _branch_startup = _get_git_branch()
     agents = lidco_session.agent_registry.list_names()
-    renderer.info(f"Agents: {', '.join(agents)}")
+    _card_lines: list[str] = []
+    _card_lines.append(f"[bold cyan]Проект:[/bold cyan]  {_proj_name}  [dim]{_cwd}[/dim]")
+    if _branch_startup:
+        _card_lines.append(f"[bold blue]Ветка:[/bold blue]    {_branch_startup}")
+    _card_lines.append(f"[bold green]Модель:[/bold green]   {config.llm.default_model}")
+    _card_lines.append(f"[bold magenta]Агенты:[/bold magenta]   {', '.join(agents)}")
     if default_agent:
-        renderer.info(f"Default agent: {default_agent} (override with @agent)")
+        _card_lines.append(f"[bold yellow]По умолчанию:[/bold yellow] {default_agent}")
     if not config.agents.auto_review:
-        renderer.info("Auto-review: disabled")
+        _card_lines.append("[dim]Auto-review: выключен[/dim]")
     if not config.agents.auto_plan:
-        renderer.info("Auto-plan: disabled")
+        _card_lines.append("[dim]Auto-plan: выключен[/dim]")
+    _card_lines.append("[dim]/help — команды  ·  /shortcuts — горячие клавиши[/dim]")
+    console.print(Panel("\n".join(_card_lines), border_style="dim", expand=False))
     renderer.divider()
 
     # Check for LIDCO.md and offer to create it
@@ -284,6 +427,17 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
         agent_names=lidco_session.agent_registry.list_names(),
     )
 
+    # Task 151: shortcut registry — also used by /shortcuts command.
+    # Each entry: (display_key, command, description)
+    SHORTCUTS: list[tuple[str, str, str]] = [
+        ("Ctrl+L",       "/clear",  "Очистить историю сессии"),
+        ("Ctrl+R",       "/retry",  "Повторить последний запрос"),
+        ("Ctrl+E",       "/export", "Экспортировать сессию"),
+        ("Ctrl+P",       "/status", "Показать статус сессии"),
+        ("Enter",        "",        "Отправить сообщение"),
+        ("Esc+Enter",    "",        "Новая строка в сообщении"),
+    ]
+
     # Key bindings: Enter submits, Shift+Enter adds newline (like Telegram/Slack).
     kb = KeyBindings()
 
@@ -302,12 +456,35 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
         """Ctrl+J also submits (convenient alternative)."""
         event.current_buffer.validate_and_handle()
 
+    @kb.add("c-l")
+    def _shortcut_clear(event: Any) -> None:
+        """Ctrl+L → /clear (always, even with text in buffer)."""
+        _run_shortcut(event, "/clear", require_empty=False)
+
+    @kb.add("c-r")
+    def _shortcut_retry(event: Any) -> None:
+        """Ctrl+R → /retry (only when buffer is empty)."""
+        _run_shortcut(event, "/retry")
+
+    @kb.add("c-e")
+    def _shortcut_export(event: Any) -> None:
+        """Ctrl+E → /export (only when buffer is empty)."""
+        _run_shortcut(event, "/export")
+
+    @kb.add("c-p")
+    def _shortcut_status(event: Any) -> None:
+        """Ctrl+P → /status (only when buffer is empty)."""
+        _run_shortcut(event, "/status")
+
     prompt_session: PromptSession[str] = PromptSession(
         history=FileHistory(str(history_dir / "history")),
         completer=completer,
         key_bindings=kb,
         multiline=True,
     )
+
+    # Task 158: git branch shown in status bar
+    _git_branch: str = _get_git_branch()
 
     # Session-level cumulative statistics
     session_tokens: int = 0
@@ -319,36 +496,96 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
     session_files_edited: set[str] = set()
     current_agent: str = default_agent or "auto"
 
+    # Task 150: smart hint — shown only first _MAX_HINT_SHOWS times, then hidden
+    from lidco.core.prefs import PrefsStore
+    _prefs = PrefsStore()
+    # Mutable state shared between get_prompt() and the loop
+    _prompt_state: dict = {"show_hint": _prefs.should_show_newline_hint()}
+
+    # Task 142: multiline line counter in prompt
     def get_prompt() -> HTML:
-        return HTML("<ansigreen><b>[You]</b></ansigreen> <ansigray>(Esc+Enter for newline)</ansigray> <ansiwhite>›</ansiwhite> ")
+        try:
+            buf = prompt_session.app.current_buffer
+            raw = buf.text
+            line_count = (raw.count("\n") + 1) if isinstance(raw, str) and raw else 1
+        except Exception:
+            line_count = 1
+        if line_count > 1:
+            return HTML(
+                f"<ansigreen><b>[You]</b></ansigreen> "
+                f"<ansiyellow>[{line_count} строк]</ansiyellow> "
+                f"<ansiwhite>\u203a</ansiwhite> "
+            )
+        if _prompt_state["show_hint"]:
+            return HTML(
+                "<ansigreen><b>[You]</b></ansigreen> "
+                "<ansigray>(Esc+Enter для новой строки)</ansigray> "
+                "<ansiwhite>\u203a</ansiwhite> "
+            )
+        return HTML("<ansigreen><b>[You]</b></ansigreen> <ansiwhite>\u203a</ansiwhite> ")
 
     while True:
         try:
+            # Task 152: reflect /lock changes in the status bar each turn
+            current_agent = commands.locked_agent or default_agent or "auto"
             renderer.session_status(
                 model=config.llm.default_model,
                 agent=current_agent,
                 turns=session_turns,
                 tokens=session_tokens,
                 cost_usd=session_cost_usd,
+                branch=_git_branch,
             )
+
+            # Task 138: context window warning at 80%
+            try:
+                _budget_limit = int(lidco_session.token_budget.session_limit or 0)
+                _ctx_limit = _budget_limit if _budget_limit > 0 else int(config.agents.context_window)
+                if _ctx_limit > 0 and session_tokens > 0:
+                    _ctx_pct = int(session_tokens / _ctx_limit * 100)
+                    if _ctx_pct >= 80:
+                        renderer.context_warning(_ctx_pct)
+            except (TypeError, ValueError, AttributeError):
+                pass
+
             user_input = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: prompt_session.prompt(get_prompt()),
             )
+
+            # Task 150: record hint shown and update for next iteration
+            if _prompt_state["show_hint"]:
+                _prefs.record_newline_hint_shown()
+                _prompt_state["show_hint"] = _prefs.should_show_newline_hint()
 
             if not user_input.strip():
                 continue
 
             # Handle slash commands
             if user_input.strip().startswith("/"):
-                should_continue = await process_slash_command(user_input, commands, renderer)
+                should_continue, retry_msg = await process_slash_command(user_input, commands, renderer)
                 if not should_continue:
                     break
-                continue
+                if retry_msg:
+                    # /retry — feed the message back as if the user typed it
+                    user_input = retry_msg
+                else:
+                    continue
 
             # Check for @agent syntax: "@reviewer review this code"
             forced_agent: str | None = None
             message = user_input.strip()
+
+            # Task 174: /vars — substitute {{VAR}} in user message
+            if commands._vars and "{{" in message:
+                import re as _re
+                def _substitute_var(m: "_re.Match[str]") -> str:
+                    return commands._vars.get(m.group(1), m.group(0))
+                message = _re.sub(r"\{\{([A-Z0-9_]+)\}\}", _substitute_var, message)
+
+            # Track last message for /retry
+            if not message.startswith("/"):
+                commands.last_message = message
             if message.startswith("@"):
                 parts = message.split(maxsplit=1)
                 forced_agent = parts[0][1:]
@@ -356,6 +593,9 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                 if not message:
                     renderer.error(f"Usage: @{forced_agent} <message>")
                     continue
+            elif commands.locked_agent:
+                # Task 152: /lock <agent> pins agent for the whole session
+                forced_agent = commands.locked_agent
             elif default_agent:
                 forced_agent = default_agent
 
@@ -368,12 +608,31 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                 continue
 
             # Route to agent orchestrator
-            renderer.assistant_header(agent=forced_agent or "lidco")
+            renderer.assistant_header(agent=forced_agent or "lidco", turn=session_turns + 1)
             console.print()
 
             try:
                 context = lidco_session.get_full_context()
+                # Task 173: inject pinned notes if any
+                if commands._pins:
+                    _pins_block = "\n\n".join(
+                        f"[{i}] {pin}" for i, pin in enumerate(commands._pins, 1)
+                    )
+                    _pins_section = f"## Pinned Notes\n\n{_pins_block}"
+                    context = f"{_pins_section}\n\n{context}" if context else _pins_section
+                # Task 167: inject session note if set
+                if commands.session_note:
+                    context = f"## Session Note\n\n{commands.session_note}\n\n{context}" if context else f"## Session Note\n\n{commands.session_note}"
+                # Task 172: inject focus file content if set
+                if commands.focus_file:
+                    try:
+                        _focus_content = Path(commands.focus_file).read_text(encoding="utf-8", errors="replace")
+                        _focus_section = f"## Focus File: {commands.focus_file}\n\n```\n{_focus_content[:4000]}\n```"
+                        context = f"{_focus_section}\n\n{context}" if context else _focus_section
+                    except OSError:
+                        commands.focus_file = ""  # auto-clear if file gone
                 use_streaming = config.llm.streaming
+                _t0 = time.monotonic()
 
                 if use_streaming:
                     # Streaming mode: persistent status bar at the bottom,
@@ -423,7 +682,7 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
 
                 else:
                     # Non-streaming fallback: spinner with ThinkingTimer
-                    timer = ThinkingTimer("Thinking")
+                    timer = ThinkingTimer("Обработка")
 
                     def on_status(status: str) -> None:
                         timer.label = status
@@ -456,6 +715,8 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                     renderer.markdown(response.content)
 
                 # Accumulate session statistics
+                _elapsed = time.monotonic() - _t0
+                commands._turn_times.append(_elapsed)  # Task 175: /timing
                 turn_tokens = response.token_usage.total_tokens
                 turn_cost = getattr(response.token_usage, "total_cost_usd", 0.0) or 0.0
                 session_tokens += turn_tokens
@@ -469,7 +730,14 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                         path = tc.get("args", {}).get("path", "")
                         if path:
                             session_files_edited.add(path)
+                            commands._edited_files.append(path)  # Task 171: /recent
                 current_agent = forced_agent or getattr(response, "agent_used", None) or "auto"
+
+                # Task 182: /profile — accumulate per-agent stats
+                _astats = commands._agent_stats.setdefault(current_agent, {"calls": 0, "tokens": 0, "elapsed": 0.0})
+                _astats["calls"] += 1
+                _astats["tokens"] += turn_tokens
+                _astats["elapsed"] += _elapsed
 
                 # Record into token budget (enables budget limit enforcement)
                 lidco_session.token_budget.record(
@@ -499,14 +767,60 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                         from lidco.cli.linter import show_lint_results
                         show_lint_results(console, _edited_paths)
 
-                # Show summary and token info (both modes)
+                # Show summary and compact turn line (both modes)
                 if response.tool_calls_made:
                     renderer.summary(response.tool_calls_made)
 
-                tokens_str = f"{turn_tokens / 1000:.1f}k" if turn_tokens >= 1000 else str(turn_tokens)
-                renderer.info(
-                    f"[{response.model_used} | {response.iterations} iterations | {tokens_str} tokens]"
+                _files_changed = len({
+                    tc.get("args", {}).get("path", "")
+                    for tc in response.tool_calls_made
+                    if tc.get("tool") in ("file_write", "file_edit")
+                    and tc.get("args", {}).get("path")
+                })
+                renderer.turn_summary(
+                    model=response.model_used,
+                    iterations=response.iterations,
+                    tool_calls=len(response.tool_calls_made),
+                    files_changed=_files_changed,
+                    tokens=turn_tokens,
+                    cost_usd=turn_cost,
+                    elapsed=_elapsed,
                 )
+
+                # Task 186: /autosave — fire export every N turns
+                if commands._autosave_interval > 0:
+                    commands._autosave_turn_count += 1
+                    if commands._autosave_turn_count % commands._autosave_interval == 0:
+                        try:
+                            import json as _json
+                            _export_dir = Path.cwd() / ".lidco" / "autosave"
+                            _export_dir.mkdir(parents=True, exist_ok=True)
+                            _ts = int(time.monotonic() * 1000)
+                            _export_path = _export_dir / f"session_{_ts}.json"
+                            _history = getattr(lidco_session.orchestrator, "_conversation_history", [])
+                            _export_path.write_text(
+                                _json.dumps({"history": _history}, ensure_ascii=False, indent=2),
+                                encoding="utf-8",
+                            )
+                            renderer.info(f"Autosaved → {_export_path.name}")
+                        except Exception:
+                            pass
+
+                # Task 187: /remind — fire due reminders
+                _current_turn = len(commands._turn_times)
+                _fired: list[int] = []
+                for _ri, _rem in enumerate(commands._reminders):
+                    if _current_turn >= _rem["fire_at"]:
+                        renderer.info(f"⏰ Напоминание: {_rem['text']}")
+                        _fired.append(_ri)
+                for _ri in reversed(_fired):
+                    commands._reminders.pop(_ri)
+
+                # Task 155: contextual next-step suggestions
+                from lidco.core.suggestions import suggest
+                _hist_len = len(getattr(lidco_session.orchestrator, "_conversation_history", []))
+                _hints = suggest(response.tool_calls_made, response.content, history_len=_hist_len)
+                renderer.suggestions(_hints)
 
                 # Flush console so output appears before prompt_toolkit blocks
                 if hasattr(console.file, "flush"):
@@ -524,7 +838,7 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
 
             except Exception as e:
                 logger.exception("Agent error")
-                renderer.error(f"Agent error: {e}")
+                renderer.friendly_error(e)
 
         except KeyboardInterrupt:
             renderer.info("\nUse /exit to quit.")

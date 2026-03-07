@@ -31,43 +31,24 @@ class TestWebSearchTool:
 
     @pytest.mark.asyncio
     async def test_returns_results(self):
+        import sys
+        from types import ModuleType
+
         mock_results = [
             {"title": "Result 1", "href": "https://example.com/1", "body": "Snippet 1"},
             {"title": "Result 2", "href": "https://example.com/2", "body": "Snippet 2"},
         ]
-        mock_ddgs_instance = MagicMock()
-        mock_ddgs_instance.text.return_value = mock_results
-        mock_ddgs_instance.__enter__ = MagicMock(return_value=mock_ddgs_instance)
-        mock_ddgs_instance.__exit__ = MagicMock(return_value=False)
+        mock_cls = MagicMock()
+        mock_inst = MagicMock()
+        mock_inst.text.return_value = mock_results
+        mock_cls.return_value.__enter__.return_value = mock_inst
+        mock_cls.return_value.__exit__.return_value = None
 
-        with patch("lidco.tools.web_search.DDGS", return_value=mock_ddgs_instance, create=True):
-            # We need to patch the import inside _run
-            import lidco.tools.web_search as ws_module
+        mod = ModuleType("duckduckgo_search")
+        mod.DDGS = mock_cls  # type: ignore[attr-defined]
 
-            original_run = ws_module.WebSearchTool._run
-
-            async def patched_run(self_tool, **kwargs):
-                # Simulate the import succeeding with our mock
-                query = kwargs["query"]
-                max_results = kwargs.get("max_results", 5)
-                with mock_ddgs_instance as ddgs:
-                    results = list(ddgs.text(query, max_results=max_results))
-                lines = []
-                for i, r in enumerate(results, 1):
-                    title = r.get("title", "No title")
-                    url = r.get("href", r.get("link", ""))
-                    snippet = r.get("body", r.get("snippet", ""))
-                    lines.append(f"{i}. **{title}**\n   URL: {url}\n   {snippet}")
-                from lidco.tools.base import ToolResult
-                output = f"Search results for: {query}\n\n" + "\n\n".join(lines)
-                return ToolResult(
-                    output=output,
-                    success=True,
-                    metadata={"query": query, "result_count": len(results)},
-                )
-
-            with patch.object(ws_module.WebSearchTool, "_run", patched_run):
-                result = await self.tool.execute(query="python best practices")
+        with patch.dict(sys.modules, {"duckduckgo_search": mod}):
+            result = await self.tool.execute(query="python best practices")
 
         assert result.success is True
         assert "Result 1" in result.output

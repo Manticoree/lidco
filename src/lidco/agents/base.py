@@ -370,9 +370,9 @@ class BaseAgent(ABC):
                     )
 
             if iteration == 1:
-                self._report_status("Analyzing request")
+                self._report_status(f"Анализ (step 1/{max_iter})")
             else:
-                self._report_status("Processing results")
+                self._report_status(f"Обработка (step {iteration}/{max_iter})")
             llm_kwargs: dict[str, Any] = {
                 "model": self._config.model,
                 "temperature": self._config.temperature,

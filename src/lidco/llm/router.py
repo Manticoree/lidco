@@ -30,6 +30,22 @@ class ModelRouter(BaseLLMProvider):
         self._default_model = default_model
         self._fallback_models = fallback_models or []
         self._llm_providers = llm_providers or LLMProvidersConfig()
+        # Optional callback: (failed_model, fallback_model, reason) -> None
+        self._fallback_callback: Any | None = None
+
+    def set_fallback_callback(self, callback: Any) -> None:
+        """Set a callback fired when the router falls back to a different model.
+
+        Signature: ``callback(failed: str, fallback: str, reason: str) -> None``.
+        """
+        self._fallback_callback = callback
+
+    def _notify_fallback(self, failed: str, fallback: str, reason: str) -> None:
+        if self._fallback_callback is not None:
+            try:
+                self._fallback_callback(failed, fallback, reason)
+            except Exception:
+                pass
 
     def set_default_model(self, model: str) -> None:
         """Update the default model on both the router and its underlying provider."""
@@ -115,7 +131,7 @@ class ModelRouter(BaseLLMProvider):
         chain = self._get_model_chain(model, role=role)
         all_attempts: list[tuple[str, Exception]] = []
 
-        for candidate in chain:
+        for i, candidate in enumerate(chain):
             try:
                 return await self._provider.complete(
                     messages,
@@ -130,6 +146,8 @@ class ModelRouter(BaseLLMProvider):
                 logger.warning(
                     "Model %s exhausted retries: %s. Trying next.", candidate, e
                 )
+                if i + 1 < len(chain):
+                    self._notify_fallback(candidate, chain[i + 1], "retries exhausted")
 
         raise LLMRetryExhausted(
             f"All {len(chain)} model(s) in the fallback chain failed. "
@@ -159,7 +177,7 @@ class ModelRouter(BaseLLMProvider):
         chain = self._get_model_chain(model, role=role)
         all_attempts: list[tuple[str, Exception]] = []
 
-        for candidate in chain:
+        for i, candidate in enumerate(chain):
             try:
                 async for chunk in self._provider.stream(
                     messages,
@@ -177,12 +195,16 @@ class ModelRouter(BaseLLMProvider):
                     "Model %s exhausted retries (stream): %s. Trying next.",
                     candidate, e,
                 )
+                if i + 1 < len(chain):
+                    self._notify_fallback(candidate, chain[i + 1], "retries exhausted")
             except Exception as e:
                 all_attempts.append((candidate, e))
                 logger.warning(
                     "Model %s stream error: %s. Trying next.",
                     candidate, e,
                 )
+                if i + 1 < len(chain):
+                    self._notify_fallback(candidate, chain[i + 1], "stream error")
 
         raise LLMRetryExhausted(
             f"All {len(chain)} model(s) in the fallback chain failed (stream). "

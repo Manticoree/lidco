@@ -526,7 +526,7 @@ class TestApproveNodeHealthScore:
         with patch.object(orch, "_save_approved_plan"):
             asyncio.run(orch._approve_plan_node(state))
         quality_msg = next((s for s in status_calls if "/100" in s), "")
-        valid_labels = ("excellent", "good", "fair", "poor")
+        valid_labels = ("отлично", "хорошо", "удовлетворительно", "слабо")
         assert any(label in quality_msg for label in valid_labels), f"msg={quality_msg!r}"
 
     def test_health_score_stored_on_rejection(self):

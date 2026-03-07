@@ -33,6 +33,8 @@ def _run_ruff(paths: list[str]) -> str:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=15,
         )
         return result.stdout.strip()

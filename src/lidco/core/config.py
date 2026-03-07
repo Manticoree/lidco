@@ -130,7 +130,16 @@ class AgentsConfig(BaseModel):
     plan_max_revisions: int = 1  # extra re-critique/revise rounds after initial revision (0 = none)
     plan_memory: bool = True  # save approved plans and retrieve similar ones as warm-start context
     preplan_snapshot: bool = True  # auto-inject git log + coverage before planner starts
+    preplan_ambiguity: bool = True  # run cheap LLM pass to surface ambiguities before planner
     debug_mode: bool = False  # enable debug mode (full tracebacks, active error context injection)
+    debug_hypothesis: bool = True  # generate ranked hypotheses for debugger agent before execution
+    debug_fast_path: bool = True   # try fast fix for SyntaxError/ImportError/NameError before full debug
+    auto_debug: bool = False  # auto-trigger debugger when 3+ consecutive errors from same file
+    debug_preset: str = "balanced"  # fast | balanced | thorough | silent
+    coverage_gap_inject: bool = True  # inject coverage gap context into debugger system prompt
+    sbfl_inject: bool = True  # inject Ochiai SBFL suspicious-line ranking into debugger context
+    web_context_inject: bool = False  # inject live web search results into pre-planning context (opt-in: network calls)
+    web_auto_route: bool = True  # auto-route research-intent messages to researcher agent
 
 
 class MemoryConfig(BaseModel):

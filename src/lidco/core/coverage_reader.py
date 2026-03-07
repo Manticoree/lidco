@@ -40,6 +40,8 @@ def _run_coverage_json(project_dir: Path, output_path: Path) -> bool:
             cwd=project_dir,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
         return result.returncode == 0

@@ -189,3 +189,62 @@ class TestModelRouterStream:
         with pytest.raises(LLMRetryExhausted, match="All .* model"):
             async for _ in router.stream(messages):
                 pass
+
+
+class TestFallbackCallback:
+    """ModelRouter notifies callback when falling back to a different model."""
+
+    @pytest.mark.asyncio
+    async def test_complete_fires_fallback_callback(self):
+        from lidco.llm.exceptions import LLMRetryExhausted
+        notifications: list[tuple[str, str, str]] = []
+
+        provider = MockProvider(fail_models={"model-a"})
+        router = ModelRouter(provider, default_model="model-a", fallback_models=["model-b"])
+        router.set_fallback_callback(
+            lambda failed, fallback, reason: notifications.append((failed, fallback, reason))
+        )
+        messages = [Message(role="user", content="hi")]
+        await router.complete(messages)
+
+        assert len(notifications) == 1
+        failed, fallback, reason = notifications[0]
+        assert failed == "model-a"
+        assert fallback == "model-b"
+        assert "exhausted" in reason
+
+    @pytest.mark.asyncio
+    async def test_stream_fires_fallback_callback_on_raw_error(self):
+        notifications: list[tuple] = []
+
+        class RawErrorProvider:
+            async def complete(self, *a, **kw):
+                pass
+            async def stream(self, messages, *, model=None, **kw):
+                if model == "model-a":
+                    raise ConnectionError("network failure")
+                from lidco.llm.base import StreamChunk
+                yield StreamChunk(content="ok")
+            def list_models(self): return []
+            def set_default_model(self, m): pass
+
+        router = ModelRouter(RawErrorProvider(), default_model="model-a", fallback_models=["model-b"])
+        router.set_fallback_callback(
+            lambda f, fb, r: notifications.append((f, fb, r))
+        )
+        chunks = []
+        async for chunk in router.stream([Message(role="user", content="hi")]):
+            chunks.append(chunk)
+
+        assert len(notifications) == 1
+        assert notifications[0][0] == "model-a"
+        assert notifications[0][1] == "model-b"
+
+    @pytest.mark.asyncio
+    async def test_no_callback_no_crash(self):
+        """Router works fine when no fallback callback is set."""
+        provider = MockProvider(fail_models={"model-a"})
+        router = ModelRouter(provider, default_model="model-a", fallback_models=["model-b"])
+        messages = [Message(role="user", content="hi")]
+        result = await router.complete(messages)
+        assert result is not None
