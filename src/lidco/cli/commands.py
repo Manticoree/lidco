@@ -8353,8 +8353,8 @@ print(stats_text)
             return "\n".join(lines)
 
         self.register(SlashCommand(
-            "env",
-            "Переменные окружения: /env [VAR] [VAR=val] [unset VAR] [--filter pat] [--export]",
+            "envvars",
+            "Переменные окружения ОС: /envvars [VAR] [VAR=val] [unset VAR] [--filter pat] [--export]",
             env_handler,
         ))
 
@@ -8567,8 +8567,8 @@ def {name}() -> Generator[None, None, None]:
             )
 
         self.register(SlashCommand(
-            "template",
-            "Шаблоны кода: /template [имя] [файл] [Key=Value]",
+            "scaffold",
+            "Scaffolding шаблонов: /scaffold [имя] [файл] [Key=Value]",
             template_handler,
         ))
 
@@ -8601,18 +8601,27 @@ def {name}() -> Generator[None, None, None]:
         async def alias_handler(arg: str = "", **_) -> str:
             import re as _re
 
-            # Sync in-memory cache from disk on every call
-            self._aliases = _load_aliases()
             raw = arg.strip()
+
+            def _define(name: str, cmd: str) -> str:
+                if not name or not _re.match(r"^[A-Za-z0-9_-]+$", name):
+                    return f"❌ Некорректное имя псевдонима: `{name}`."
+                if not cmd:
+                    return "❌ Команда не может быть пустой."
+                # Auto-prefix with / if missing
+                if not cmd.startswith("/"):
+                    cmd = "/" + cmd
+                self._aliases[name] = cmd
+                _save_aliases(self._aliases)
+                return f"✓ Псевдоним `{name}` → `{cmd}` создан."
 
             # /alias — list
             if not raw or raw == "list":
                 if not self._aliases:
                     return (
-                        "*Нет сохранённых псевдонимов.*\n\n"
-                        "**Создать:** `/alias имя=/команда аргументы`\n"
-                        "**Удалить:** `/alias del имя`\n"
-                        "**Выполнить:** `/alias run имя`"
+                        "Псевдонимы не определены.\n\n"
+                        "**Создать:** `/alias <имя> <команда>` или `/alias <имя>=<команда>`\n"
+                        "**Удалить:** `/alias del <имя>`"
                     )
                 lines = [f"**Псевдонимы** ({len(self._aliases)}):\n"]
                 for name in sorted(self._aliases):
@@ -8641,7 +8650,7 @@ def {name}() -> Generator[None, None, None]:
                 cmd = self._aliases[name]
                 return f"**Псевдоним** `{name}` → `{cmd}`\n\n*Скопируйте команду в строку ввода для выполнения.*"
 
-            # /alias show name
+            # /alias show name  (single-word lookup — old behavior)
             if raw.startswith("show "):
                 name = raw[5:].strip()
                 if not name:
@@ -8656,25 +8665,29 @@ def {name}() -> Generator[None, None, None]:
                 _save_aliases(self._aliases)
                 return "✓ Все псевдонимы удалены."
 
-            # /alias name=/command ... — create/update
-            if "=" in raw:
+            # /alias name=/command ... — create/update (new = syntax)
+            if "=" in raw and " " not in raw.split("=")[0]:
                 name, _, cmd = raw.partition("=")
-                name = name.strip()
-                cmd = cmd.strip()
-                if not name or not _re.match(r"^[A-Za-z0-9_-]+$", name):
-                    return f"❌ Некорректное имя псевдонима: `{name}`. Используйте буквы, цифры, `-`, `_`."
-                if not cmd:
-                    return f"❌ Команда не может быть пустой."
-                self._aliases[name] = cmd
-                _save_aliases(self._aliases)
-                return f"✓ Псевдоним `{name}` = `{cmd}` сохранён."
+                return _define(name.strip(), cmd.strip())
 
-            # Unknown subcommand
+            # /alias name command ... — create/update (old space syntax)
+            parts = raw.split(None, 1)
+            if len(parts) == 2:
+                name, cmd = parts
+                return _define(name.strip(), cmd.strip())
+
+            # /alias name — show single alias (old behavior)
+            if len(parts) == 1:
+                name = parts[0]
+                if name in self._aliases:
+                    return f"`{name}` → `{self._aliases[name]}`"
+                return f"⚠️ Псевдоним `{name}` не найден."
+
             return (
-                f"❌ Неизвестная команда: `{raw}`\n\n"
                 "**Использование:**\n"
                 "- `/alias` — список псевдонимов\n"
-                "- `/alias <имя>=<команда>` — создать\n"
+                "- `/alias <имя> <команда>` — создать\n"
+                "- `/alias <имя>=<команда>` — создать (альтернативный синтаксис)\n"
                 "- `/alias run <имя>` — показать для выполнения\n"
                 "- `/alias del <имя>` — удалить\n"
                 "- `/alias clear` — удалить все"
