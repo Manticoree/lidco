@@ -6464,3 +6464,682 @@ class CommandRegistry:
             pypi_handler,
         ))
 
+        # ── Task 222: /head ───────────────────────────────────────────────────
+
+        async def head_handler(arg: str = "", **_) -> str:
+            from pathlib import Path as _Path
+
+            text = arg.strip()
+            if not text:
+                return "**Использование:** `/head <файл> [N=10]`\n\nПоказывает первые N строк файла."
+
+            tokens = text.rsplit(None, 1)
+            n = 10
+            if len(tokens) == 2 and tokens[1].isdigit():
+                n = min(int(tokens[1]), 500)
+                text = tokens[0].strip()
+
+            p = _Path(text)
+            if not p.exists():
+                return f"Файл не найден: `{text}`"
+            if not p.is_file():
+                return f"`{text}` — не файл."
+
+            try:
+                raw = p.read_bytes()
+                if b"\x00" in raw[:8192]:
+                    return f"`{p.name}` — бинарный файл."
+                lines = raw.decode("utf-8", errors="replace").splitlines()
+            except Exception as exc:
+                return f"Ошибка чтения: {exc}"
+
+            selected = lines[:n]
+            total = len(lines)
+
+            from pathlib import Path as _P
+            _LANG_MAP = {
+                ".py": "python", ".js": "javascript", ".ts": "typescript",
+                ".sh": "bash", ".json": "json", ".yaml": "yaml",
+                ".toml": "toml", ".md": "markdown", ".sql": "sql",
+            }
+            lang = _LANG_MAP.get(p.suffix.lower(), "")
+
+            header = f"**`{p.name}`** (первые {len(selected)} из {total} строк)"
+            body = "\n".join(selected)
+            result = f"{header}\n\n```{lang}\n{body}\n```"
+            if total > n:
+                result += f"\n*…ещё {total - n} строк. Используйте `/cat {p.name} {n+1}-{min(n*2, total)}`*"
+            return result
+
+        self.register(SlashCommand(
+            "head",
+            "Первые N строк файла: /head <файл> [N=10]",
+            head_handler,
+        ))
+
+        # ── Task 223: /tail ───────────────────────────────────────────────────
+
+        async def tail_handler(arg: str = "", **_) -> str:
+            from pathlib import Path as _Path
+
+            text = arg.strip()
+            if not text:
+                return "**Использование:** `/tail <файл> [N=10]`\n\nПоказывает последние N строк файла."
+
+            tokens = text.rsplit(None, 1)
+            n = 10
+            if len(tokens) == 2 and tokens[1].isdigit():
+                n = min(int(tokens[1]), 500)
+                text = tokens[0].strip()
+
+            p = _Path(text)
+            if not p.exists():
+                return f"Файл не найден: `{text}`"
+            if not p.is_file():
+                return f"`{text}` — не файл."
+
+            try:
+                raw = p.read_bytes()
+                if b"\x00" in raw[:8192]:
+                    return f"`{p.name}` — бинарный файл."
+                lines = raw.decode("utf-8", errors="replace").splitlines()
+            except Exception as exc:
+                return f"Ошибка чтения: {exc}"
+
+            total = len(lines)
+            selected = lines[-n:] if n <= total else lines
+            start_line = max(1, total - n + 1)
+
+            _LANG_MAP = {
+                ".py": "python", ".js": "javascript", ".ts": "typescript",
+                ".sh": "bash", ".json": "json", ".yaml": "yaml",
+                ".toml": "toml", ".md": "markdown", ".sql": "sql",
+            }
+            lang = _LANG_MAP.get(p.suffix.lower(), "")
+
+            header = f"**`{p.name}`** (строки {start_line}–{total} из {total})"
+            body = "\n".join(selected)
+            result = f"{header}\n\n```{lang}\n{body}\n```"
+            if total > n:
+                result += f"\n*Используйте `/cat {p.name}` для полного просмотра*"
+            return result
+
+        self.register(SlashCommand(
+            "tail",
+            "Последние N строк файла: /tail <файл> [N=10]",
+            tail_handler,
+        ))
+
+        # ── Task 224: /cd and /ls ─────────────────────────────────────────────
+
+        async def cd_handler(arg: str = "", **_) -> str:
+            import os as _os
+            from pathlib import Path as _Path
+
+            text = arg.strip()
+            if not text or text == "~":
+                target = _Path.home()
+            elif text == "-":
+                # Go to previous dir (store in registry attr)
+                prev = getattr(self, "_prev_dir", None)
+                if prev is None:
+                    return "Предыдущая директория неизвестна."
+                target = _Path(prev)
+            elif text == "..":
+                target = _Path.cwd().parent
+            else:
+                target = _Path(text).expanduser()
+
+            if not target.exists():
+                return f"Директория не найдена: `{text}`"
+            if not target.is_dir():
+                return f"`{text}` — не директория."
+
+            prev = str(_Path.cwd())
+            try:
+                _os.chdir(target)
+                self._prev_dir = prev
+                cwd = _Path.cwd()
+                # Count files/dirs for context
+                try:
+                    entries = list(cwd.iterdir())
+                    nfiles = sum(1 for e in entries if e.is_file())
+                    ndirs = sum(1 for e in entries if e.is_dir())
+                    hint = f"*{nfiles} файлов, {ndirs} директорий*"
+                except Exception:
+                    hint = ""
+                return f"✓ `{cwd}`\n{hint}"
+            except PermissionError:
+                return f"Нет прав для перехода в `{target}`."
+
+        self.register(SlashCommand(
+            "cd",
+            "Смена рабочей директории: /cd <путь> | .. | ~ | -",
+            cd_handler,
+        ))
+
+        async def ls_handler(arg: str = "", **_) -> str:
+            from pathlib import Path as _Path
+
+            text = arg.strip()
+            long_mode = "--l" in text or "-l" in text
+            show_all = "--all" in text or "-a" in text
+            for flag in ("--l", "-l", "--all", "-a"):
+                text = text.replace(flag, "").strip()
+
+            target = _Path(text) if text else _Path.cwd()
+            if not target.exists():
+                return f"Не найдено: `{text}`"
+            if not target.is_dir():
+                return f"`{text}` — не директория."
+
+            _SKIP = {"__pycache__", ".mypy_cache", ".pytest_cache"}
+
+            try:
+                entries = sorted(target.iterdir(), key=lambda e: (e.is_file(), e.name.lower()))
+            except PermissionError:
+                return f"Нет прав для чтения `{target}`."
+
+            if not show_all:
+                entries = [e for e in entries if not e.name.startswith(".") and e.name not in _SKIP]
+
+            if not entries:
+                return f"`{target}` — пусто."
+
+            lines = [f"**`{target}/`** ({len(entries)} элементов)", ""]
+
+            if long_mode:
+                from datetime import datetime as _dt
+                for e in entries:
+                    try:
+                        st = e.stat()
+                        size = st.st_size
+                        mtime = _dt.fromtimestamp(st.st_mtime).strftime("%m-%d %H:%M")
+                        icon = "📁" if e.is_dir() else "📄"
+                        if size < 1024:
+                            size_str = f"{size}Б"
+                        elif size < 1_048_576:
+                            size_str = f"{size//1024}КБ"
+                        else:
+                            size_str = f"{size//1_048_576}МБ"
+                        lines.append(f"{icon} `{e.name:<30}` {size_str:>8}  {mtime}")
+                    except Exception:
+                        lines.append(f"  `{e.name}`")
+            else:
+                # Compact grid: dirs first, then files
+                dirs = [e for e in entries if e.is_dir()]
+                files = [e for e in entries if e.is_file()]
+                if dirs:
+                    lines.append("**Директории:**  " + "  ".join(f"`{d.name}/`" for d in dirs))
+                if files:
+                    # Group by extension
+                    from collections import defaultdict as _dd
+                    by_ext: dict = _dd(list)
+                    for f in files:
+                        by_ext[f.suffix or "(без расш.)"].append(f.name)
+                    for ext, names in sorted(by_ext.items()):
+                        lines.append(f"**{ext}:**  " + "  ".join(f"`{n}`" for n in names[:20]))
+
+            lines.append(f"\n*`{target}`*")
+            return "\n".join(lines)
+
+        self.register(SlashCommand(
+            "ls",
+            "Список файлов: /ls [путь] [--l] [--all]",
+            ls_handler,
+        ))
+
+        # ── Task 225: /macro ──────────────────────────────────────────────────
+        # Record and replay sequences of slash commands
+
+        self._macros: dict[str, list[str]] = {}
+        self._macro_recording: str | None = None
+        self._macro_buffer: list[str] = []
+
+        async def macro_handler(arg: str = "", **_) -> str:
+            text = arg.strip()
+
+            if not text or text == "list":
+                if not self._macros:
+                    return "Макросов нет. Создайте: `/macro record <имя>`"
+                lines = [f"**Макросы** ({len(self._macros)} шт.)", ""]
+                for name, cmds in self._macros.items():
+                    lines.append(f"  **{name}** — {len(cmds)} команд: {', '.join(f'`{c}`' for c in cmds[:3])}" +
+                                 ("…" if len(cmds) > 3 else ""))
+                return "\n".join(lines)
+
+            parts = text.split(None, 1)
+            subcmd = parts[0].lower()
+            rest = parts[1].strip() if len(parts) > 1 else ""
+
+            if subcmd == "record":
+                if not rest:
+                    return "Укажите имя макроса: `/macro record <имя>`"
+                if self._macro_recording:
+                    return (f"Уже записывается макрос `{self._macro_recording}`. "
+                            "Завершите: `/macro stop`")
+                self._macro_recording = rest
+                self._macro_buffer = []
+                return f"⏺ Запись макроса `{rest}` начата. Вводите команды, затем `/macro stop`."
+
+            if subcmd == "stop":
+                if not self._macro_recording:
+                    return "Нет активной записи."
+                name = self._macro_recording
+                self._macros[name] = list(self._macro_buffer)
+                count = len(self._macro_buffer)
+                self._macro_recording = None
+                self._macro_buffer = []
+                return f"⏹ Макрос `{name}` сохранён ({count} команд)."
+
+            if subcmd == "add":
+                if not self._macro_recording:
+                    return "Запись не активна. Начните: `/macro record <имя>`"
+                if not rest:
+                    return "Укажите команду: `/macro add <команда>`"
+                self._macro_buffer.append(rest)
+                return f"✓ Добавлено в `{self._macro_recording}` [#{len(self._macro_buffer)}]: `{rest}`"
+
+            if subcmd == "play":
+                if not rest:
+                    return "Укажите имя макроса: `/macro play <имя>`"
+                if rest not in self._macros:
+                    available = ", ".join(self._macros.keys()) or "нет"
+                    return f"Макрос `{rest}` не найден. Доступные: {available}"
+                cmds = self._macros[rest]
+                lines = [f"**Воспроизведение макроса `{rest}`** ({len(cmds)} команд)", ""]
+                for i, cmd in enumerate(cmds, 1):
+                    lines.append(f"  {i}. `{cmd}`")
+                lines.append(
+                    f"\n*Для выполнения команд используйте их напрямую "
+                    f"или `/run` для shell-команд.*"
+                )
+                return "\n".join(lines)
+
+            if subcmd == "del" or subcmd == "delete":
+                if not rest:
+                    return "Укажите имя: `/macro del <имя>`"
+                if rest not in self._macros:
+                    return f"Макрос `{rest}` не найден."
+                del self._macros[rest]
+                return f"Макрос `{rest}` удалён."
+
+            if subcmd == "show":
+                if not rest:
+                    return "Укажите имя: `/macro show <имя>`"
+                if rest not in self._macros:
+                    return f"Макрос `{rest}` не найден."
+                cmds = self._macros[rest]
+                lines = [f"**Макрос `{rest}`** ({len(cmds)} команд)", ""]
+                for i, cmd in enumerate(cmds, 1):
+                    lines.append(f"  {i}. `/{cmd}`")
+                return "\n".join(lines)
+
+            if subcmd == "clear":
+                count = len(self._macros)
+                self._macros.clear()
+                return f"Удалено {count} макросов."
+
+            return (
+                "**Использование:** `/macro <подкоманда>`\n\n"
+                "  `record <имя>` — начать запись\n"
+                "  `add <команда>` — добавить команду в запись\n"
+                "  `stop` — завершить запись\n"
+                "  `play <имя>` — показать шаги макроса\n"
+                "  `show <имя>` — просмотр команд\n"
+                "  `del <имя>` — удалить макрос\n"
+                "  `list` — все макросы\n"
+                "  `clear` — удалить все"
+            )
+
+        self.register(SlashCommand(
+            "macro",
+            "Макросы команд: /macro record|stop|add|play|show|del|list|clear",
+            macro_handler,
+        ))
+
+        # ── Task 226: /coverage ───────────────────────────────────────────────
+
+        async def coverage_handler(arg: str = "", **_) -> str:
+            import asyncio as _asyncio
+            import json as _json
+            from pathlib import Path as _Path
+
+            text = arg.strip()
+            show_missing = "--missing" in text or "--m" in text
+            for flag in ("--missing", "--m"):
+                text = text.replace(flag, "").strip()
+
+            target = text or "."
+
+            # Try reading existing .coverage / coverage.json first
+            cov_json = _Path(".coverage.json")
+            cov_xml = _Path("coverage.xml")
+
+            # Run pytest --cov if no existing report
+            async def _run_coverage(path: str) -> tuple[int, str]:
+                try:
+                    proc = await _asyncio.create_subprocess_exec(
+                        "python", "-m", "pytest", path,
+                        "--cov=" + path,
+                        "--cov-report=term-missing",
+                        "--cov-report=json:.coverage.json",
+                        "-q", "--no-header", "--tb=no",
+                        stdout=_asyncio.subprocess.PIPE,
+                        stderr=_asyncio.subprocess.STDOUT,
+                    )
+                    out, _ = await _asyncio.wait_for(proc.communicate(), timeout=60)
+                    return proc.returncode or 0, out.decode("utf-8", errors="replace")
+                except _asyncio.TimeoutError:
+                    return 1, "Timeout (60s)"
+                except FileNotFoundError:
+                    return 1, "pytest не найден."
+                except Exception as exc:
+                    return 1, str(exc)
+
+            lines = [f"**Coverage** `{target}`", ""]
+
+            # Try reading existing JSON report
+            if cov_json.exists():
+                try:
+                    data = _json.loads(cov_json.read_text())
+                    totals = data.get("totals", {})
+                    pct = totals.get("percent_covered", 0)
+                    covered = totals.get("covered_lines", 0)
+                    missing = totals.get("missing_lines", 0)
+                    total_stmts = totals.get("num_statements", 0)
+
+                    # Bar
+                    bar_w = 25
+                    filled = int(bar_w * pct / 100)
+                    color_char = "█" if pct >= 80 else ("▓" if pct >= 60 else "░")
+                    bar = color_char * filled + "░" * (bar_w - filled)
+
+                    lines.append(f"[{bar}] **{pct:.1f}%**")
+                    lines.append("")
+                    lines.append(f"Покрыто:  `{covered}` / `{total_stmts}` строк")
+                    lines.append(f"Пропущено: `{missing}` строк")
+                    lines.append("")
+
+                    # Per-file breakdown
+                    files_data = data.get("files", {})
+                    if files_data:
+                        lines.append("**По файлам:**")
+                        sorted_files = sorted(
+                            files_data.items(),
+                            key=lambda x: x[1].get("summary", {}).get("percent_covered", 100),
+                        )
+                        for fname, fdata in sorted_files[:20]:
+                            summary = fdata.get("summary", {})
+                            fpct = summary.get("percent_covered", 0)
+                            fmissing = summary.get("missing_lines", 0)
+                            icon = "✅" if fpct >= 80 else ("⚠️" if fpct >= 60 else "❌")
+                            short = _Path(fname).name
+                            miss_str = f" (пропущено: {fdata.get('missing_lines', [][:5])})" if show_missing and fmissing else ""
+                            lines.append(f"  {icon} `{short:<30}` {fpct:>5.1f}%{miss_str}")
+
+                    lines.append(f"\n*Из кэша `.coverage.json`. Запустите тесты для обновления.*")
+                    return "\n".join(lines)
+                except Exception:
+                    pass
+
+            # No existing report — run coverage
+            lines.append("Запускаю тесты с coverage…")
+            rc, output = await _run_coverage(target)
+
+            # Try to parse JSON after run
+            if cov_json.exists():
+                try:
+                    data = _json.loads(cov_json.read_text())
+                    totals = data.get("totals", {})
+                    pct = totals.get("percent_covered", 0)
+                    lines = [f"**Coverage** `{target}`", "", f"**Итого: {pct:.1f}%**", ""]
+                    lines.append("```")
+                    for line in output.splitlines()[-30:]:
+                        lines.append(line)
+                    lines.append("```")
+                    return "\n".join(lines)
+                except Exception:
+                    pass
+
+            # Fallback: show raw output
+            out_lines = output.splitlines()[-40:]
+            lines.extend(["```"] + out_lines + ["```"])
+            if rc != 0:
+                lines.append(f"\n*Exit code: {rc}*")
+            return "\n".join(lines)
+
+        self.register(SlashCommand(
+            "coverage",
+            "Отчёт покрытия тестами: /coverage [путь] [--missing]",
+            coverage_handler,
+        ))
+
+        # ── Task 227: /complexity ─────────────────────────────────────────────
+
+        async def complexity_handler(arg: str = "", **_) -> str:
+            import ast as _ast
+            from pathlib import Path as _Path
+
+            text = arg.strip()
+            if not text:
+                return (
+                    "**Использование:** `/complexity <файл.py> [--top N]`\n\n"
+                    "Цикломатическая сложность функций файла.\n\n"
+                    "  `/complexity src/utils.py` — все функции\n"
+                    "  `/complexity module.py --top 5` — топ-5 сложных"
+                )
+
+            top_n = 0
+            if "--top" in text:
+                parts = text.split("--top", 1)
+                text = parts[0].strip()
+                tok = parts[1].strip().split()[0]
+                if tok.isdigit():
+                    top_n = int(tok)
+
+            p = _Path(text)
+            if not p.exists():
+                return f"Файл не найден: `{text}`"
+            if not p.is_file():
+                return f"`{text}` — не файл."
+
+            try:
+                source = p.read_text(encoding="utf-8", errors="replace")
+                tree = _ast.parse(source, filename=str(p))
+            except SyntaxError as exc:
+                return f"Синтаксическая ошибка: {exc}"
+            except Exception as exc:
+                return f"Ошибка чтения: {exc}"
+
+            def _cyclomatic(node) -> int:
+                """Count decision points: if/elif/for/while/except/with/assert/bool ops."""
+                count = 1  # base complexity
+                for child in _ast.walk(node):
+                    if isinstance(child, (
+                        _ast.If, _ast.For, _ast.While, _ast.ExceptHandler,
+                        _ast.With, _ast.Assert, _ast.comprehension,
+                    )):
+                        count += 1
+                    elif isinstance(child, _ast.BoolOp):
+                        count += len(child.values) - 1
+                return count
+
+            results: list[tuple[int, str, int, str]] = []  # (complexity, name, lineno, kind)
+
+            for node in _ast.walk(tree):
+                if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                    cc = _cyclomatic(node)
+                    kind = "async def" if isinstance(node, _ast.AsyncFunctionDef) else "def"
+                    results.append((cc, node.name, node.lineno, kind))
+                elif isinstance(node, _ast.ClassDef):
+                    # Count class-level complexity (methods)
+                    class_methods = [
+                        n for n in _ast.walk(node)
+                        if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+                    ]
+                    if not class_methods:
+                        results.append((1, node.name, node.lineno, "class"))
+
+            if not results:
+                return f"`{p.name}` — нет функций или классов для анализа."
+
+            results.sort(key=lambda x: -x[0])
+            if top_n:
+                results = results[:top_n]
+
+            total = len(results)
+            avg = sum(r[0] for r in results) / total if total else 0
+            max_cc = results[0][0] if results else 0
+
+            def _label(cc: int) -> str:
+                if cc <= 5:
+                    return "✅ просто"
+                elif cc <= 10:
+                    return "⚠️ умеренно"
+                elif cc <= 20:
+                    return "🔶 сложно"
+                else:
+                    return "❌ очень сложно"
+
+            lines = [
+                f"**Цикломатическая сложность: `{p.name}`**",
+                "",
+                f"Функций: {total} · Средняя: {avg:.1f} · Максимум: {max_cc}",
+                "",
+                f"{'Сложность':>10}  {'Функция':<30}  {'Строка':>6}  Оценка",
+                "─" * 65,
+            ]
+
+            for cc, name, lineno, kind in results:
+                label = _label(cc)
+                lines.append(f"{cc:>10}  `{kind} {name}`{'':.<{max(0, 28-len(name)-len(kind)-1)}}  L{lineno:<5}  {label}")
+
+            lines.append("")
+            lines.append(f"*Рекомендуется: CC ≤ 10. Рефакторинг при CC > 10.*")
+            return "\n".join(lines)
+
+        self.register(SlashCommand(
+            "complexity",
+            "Цикломатическая сложность: /complexity <файл.py> [--top N]",
+            complexity_handler,
+        ))
+
+        # ── Task 228: /docstring ──────────────────────────────────────────────
+
+        async def docstring_handler(arg: str = "", **_) -> str:
+            import ast as _ast
+            from pathlib import Path as _Path
+
+            text = arg.strip()
+
+            if not self._session:
+                return "Сессия не инициализирована."
+
+            if not text:
+                return (
+                    "**Использование:** `/docstring <файл.py> [<функция>]`\n\n"
+                    "AI-генерация docstrings для функций и классов.\n\n"
+                    "  `/docstring utils.py` — для всех публичных функций\n"
+                    "  `/docstring utils.py parse_config` — для конкретной функции"
+                )
+
+            # Split file from optional function name
+            tokens = text.split()
+            file_path_str = tokens[0]
+            target_fn = tokens[1] if len(tokens) > 1 else None
+
+            p = _Path(file_path_str)
+            if not p.exists():
+                return f"Файл не найден: `{file_path_str}`"
+            if not p.is_file():
+                return f"`{file_path_str}` — не файл."
+            if p.suffix.lower() != ".py":
+                return f"Только Python-файлы (.py), получен `{p.suffix}`."
+
+            try:
+                source = p.read_text(encoding="utf-8", errors="replace")
+                tree = _ast.parse(source)
+            except SyntaxError as exc:
+                return f"Синтаксическая ошибка: {exc}"
+
+            source_lines = source.splitlines()
+
+            def _get_snippet(node) -> str:
+                start = node.lineno - 1
+                end = min(start + 30, len(source_lines))
+                return "\n".join(source_lines[start:end])
+
+            # Find functions/classes to document
+            targets: list[tuple[str, str, int]] = []  # (name, snippet, lineno)
+            for node in _ast.walk(tree):
+                if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
+                    if node.name.startswith("_"):
+                        continue
+                    if target_fn and node.name != target_fn:
+                        continue
+                    # Check if already has docstring
+                    has_doc = (
+                        isinstance(node.body[0], _ast.Expr)
+                        and isinstance(node.body[0].value, _ast.Constant)
+                        and isinstance(node.body[0].value.value, str)
+                    ) if node.body else False
+                    if not has_doc:
+                        targets.append((node.name, _get_snippet(node), node.lineno))
+
+            if not targets:
+                if target_fn:
+                    return f"Функция `{target_fn}` не найдена или уже имеет docstring."
+                return f"✅ Все публичные функции в `{p.name}` уже имеют docstrings."
+
+            # Limit to 5 at a time
+            cap = targets[:5]
+            if len(targets) > 5:
+                note = f"\n*Показаны первые 5 из {len(targets)} функций без docstring.*"
+            else:
+                note = ""
+
+            snippets = "\n\n".join(
+                f"### `{name}` (строка {lineno})\n```python\n{snippet}\n```"
+                for name, snippet, lineno in cap
+            )
+
+            prompt = (
+                f"Сгенерируй docstrings в Google-стиле для следующих Python функций из `{p.name}`.\n\n"
+                "Формат для каждой:\n"
+                "```\n"
+                "Функция: <имя>\n"
+                '"""\n'
+                "Краткое описание.\n\n"
+                "Args:\n"
+                "    param: описание\n\n"
+                "Returns:\n"
+                "    описание возвращаемого значения\n\n"
+                "Raises:\n"
+                "    ExceptionType: когда возникает\n"
+                '"""\n'
+                "```\n\n"
+                f"{snippets}"
+            )
+
+            try:
+                resp = await self._session.llm.complete(
+                    [{"role": "user", "content": prompt}],
+                    temperature=0.2,
+                )
+                docstrings = resp.content
+            except Exception as exc:
+                return f"Ошибка LLM: {exc}"
+
+            header = (
+                f"**Docstrings для `{p.name}`**"
+                + (f" → `{target_fn}`" if target_fn else f" ({len(cap)} функций)")
+            )
+            return f"{header}\n\n{docstrings}{note}"
+
+        self.register(SlashCommand(
+            "docstring",
+            "AI-генерация docstrings: /docstring <файл.py> [функция]",
+            docstring_handler,
+        ))
+
