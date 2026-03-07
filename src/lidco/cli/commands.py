@@ -7143,3 +7143,744 @@ class CommandRegistry:
             docstring_handler,
         ))
 
+        # ── Task 229: /security-scan ──────────────────────────────────────────
+
+        async def security_scan_handler(arg: str = "", **_) -> str:
+            import re as _re
+            from pathlib import Path as _Path
+
+            text = arg.strip()
+            if not text:
+                return (
+                    "**Использование:** `/security-scan <файл.py или директория>`\n\n"
+                    "Сканирует Python-код на типичные уязвимости:\n"
+                    "  · Захардкоженные секреты (пароли, API-ключи, токены)\n"
+                    "  · SQL-инъекции (f-строки в SQL-запросах)\n"
+                    "  · Использование `eval`, `exec`, `pickle`\n"
+                    "  · `subprocess` с `shell=True`\n"
+                    "  · Небезопасная десериализация\n"
+                    "  · Отладочные маркеры в production-коде"
+                )
+
+            # Security patterns: (regex, severity, description)
+            _PATTERNS: list[tuple[str, str, str]] = [
+                # Hardcoded secrets
+                (r'(?i)(password|passwd|pwd|secret|api_key|apikey|token|auth)\s*=\s*["\'][^"\']{4,}["\']',
+                 "HIGH", "Захардкоженный секрет"),
+                (r'(?i)(aws_access_key|aws_secret|private_key)\s*=\s*["\'][^"\']+["\']',
+                 "CRITICAL", "Захардкоженный AWS/cloud ключ"),
+                # SQL injection
+                (r'(?i)(execute|cursor\.execute|query)\s*\(\s*f["\'].*\{',
+                 "HIGH", "Потенциальная SQL-инъекция (f-строка в запросе)"),
+                (r'(?i)(execute|cursor\.execute)\s*\(\s*["\'].*%s.*["\']\s*%\s*',
+                 "MEDIUM", "SQL-запрос с %-форматированием"),
+                # Dangerous builtins
+                (r'\beval\s*\(', "HIGH", "Использование eval()"),
+                (r'\bexec\s*\(', "HIGH", "Использование exec()"),
+                # Subprocess with shell
+                (r'subprocess\.(run|Popen|call|check_output).*shell\s*=\s*True',
+                 "HIGH", "subprocess с shell=True (риск инъекции)"),
+                # Unsafe deserialization
+                (r'\bpickle\.loads?\s*\(', "HIGH", "Небезопасная десериализация (pickle)"),
+                (r'\byaml\.load\s*\([^)]*\)', "MEDIUM", "yaml.load() без Loader (используйте safe_load)"),
+                (r'\bmarshal\.loads?\s*\(', "HIGH", "Небезопасная десериализация (marshal)"),
+                # Weak crypto
+                (r'(?i)hashlib\.(md5|sha1)\s*\(', "LOW", "Слабый алгоритм хеширования"),
+                (r'(?i)Crypto\.Cipher\.DES\b', "MEDIUM", "Слабый шифр DES"),
+                # Debug markers
+                (r'\bpdb\.set_trace\s*\(\)', "LOW", "Отладочный breakpoint (pdb)"),
+                (r'\bbreakpoint\s*\(\)', "LOW", "Отладочный breakpoint()"),
+                (r'(?i)TODO.*(security|auth|password|token|secret)',
+                 "LOW", "TODO с упоминанием безопасности"),
+                # Temp files
+                (r'(?i)(tempfile\.mktemp|/tmp/["\'])', "LOW", "Небезопасное использование /tmp"),
+                # HTTP without verification
+                (r'verify\s*=\s*False', "MEDIUM", "SSL-верификация отключена"),
+                (r'ssl\._create_unverified_context', "HIGH", "Небезопасный SSL-контекст"),
+            ]
+
+            p = _Path(text)
+            if not p.exists():
+                return f"Путь не найден: `{text}`"
+
+            # Collect Python files
+            py_files: list[_Path] = []
+            if p.is_file():
+                if p.suffix == ".py":
+                    py_files = [p]
+                else:
+                    return f"Только .py файлы. Получен: `{p.suffix}`"
+            else:
+                _SKIP = {".git", "__pycache__", ".venv", "venv", "node_modules"}
+                for f in p.rglob("*.py"):
+                    if not any(s in f.parts for s in _SKIP):
+                        py_files.append(f)
+                py_files = py_files[:50]  # cap
+
+            if not py_files:
+                return f"Python-файлов не найдено в `{text}`."
+
+            findings: list[tuple[str, int, str, str, str]] = []
+            # (file, line, severity, description, snippet)
+
+            for pyf in py_files:
+                try:
+                    lines = pyf.read_text(encoding="utf-8", errors="replace").splitlines()
+                except Exception:
+                    continue
+                for lineno, line in enumerate(lines, 1):
+                    for pattern, severity, desc in _PATTERNS:
+                        if _re.search(pattern, line):
+                            snippet = line.strip()[:80]
+                            findings.append((str(pyf), lineno, severity, desc, snippet))
+
+            if not findings:
+                return (
+                    f"✅ **Уязвимостей не обнаружено** в `{text}`\n\n"
+                    f"*Проверено {len(py_files)} файлов, {len(_PATTERNS)} паттернов.*"
+                )
+
+            # Sort by severity
+            _ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+            findings.sort(key=lambda x: (_ORDER.get(x[2], 9), x[0], x[1]))
+
+            _ICONS = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🔵"}
+
+            counts = {s: sum(1 for f in findings if f[2] == s) for s in ("CRITICAL", "HIGH", "MEDIUM", "LOW")}
+            summary_parts = [f"{_ICONS[s]} {s}: {c}" for s, c in counts.items() if c > 0]
+
+            lines_out = [
+                f"**Security Scan: `{text}`**",
+                f"Файлов: {len(py_files)} · Находок: {len(findings)}",
+                "  ".join(summary_parts),
+                "",
+            ]
+
+            shown = findings[:30]
+            for fpath, lineno, severity, desc, snippet in shown:
+                rel = _Path(fpath).name
+                icon = _ICONS.get(severity, "⚪")
+                lines_out.append(f"{icon} **[{severity}]** `{rel}:{lineno}` — {desc}")
+                lines_out.append(f"   `{snippet}`")
+
+            if len(findings) > 30:
+                lines_out.append(f"\n*…ещё {len(findings) - 30} находок (показаны первые 30)*")
+
+            lines_out.append(f"\n*Статический анализ, возможны ложные срабатывания.*")
+            return "\n".join(lines_out)
+
+        self.register(SlashCommand(
+            "security-scan",
+            "Сканирование уязвимостей: /security-scan <файл.py|директория>",
+            security_scan_handler,
+        ))
+
+        # ── Task 230: /size-report ────────────────────────────────────────────
+
+        async def size_report_handler(arg: str = "", **_) -> str:
+            from pathlib import Path as _Path
+            from collections import defaultdict as _dd
+
+            text = arg.strip()
+            root = _Path(text) if text else _Path(".")
+
+            if not root.exists():
+                return f"Путь не найден: `{text}`"
+
+            _SKIP = {".git", "__pycache__", ".venv", "venv", "node_modules",
+                     ".mypy_cache", ".pytest_cache", "dist", "build", ".eggs"}
+
+            # Gather stats
+            ext_stats: dict[str, dict] = _dd(lambda: {"files": 0, "lines": 0, "bytes": 0})
+            dir_stats: dict[str, dict] = _dd(lambda: {"files": 0, "lines": 0, "bytes": 0})
+            total_files = 0
+            total_lines = 0
+            total_bytes = 0
+            largest: list[tuple[int, str]] = []  # (lines, path)
+
+            def _walk(d: _Path) -> None:
+                nonlocal total_files, total_lines, total_bytes
+                try:
+                    entries = list(d.iterdir())
+                except PermissionError:
+                    return
+                for e in entries:
+                    if e.name in _SKIP or e.name.startswith("."):
+                        continue
+                    if e.is_dir():
+                        _walk(e)
+                    elif e.is_file():
+                        try:
+                            raw = e.read_bytes()
+                            size = len(raw)
+                            total_files += 1
+                            total_bytes += size
+                            ext = e.suffix.lower() or "(без расш.)"
+                            ext_stats[ext]["files"] += 1
+                            ext_stats[ext]["bytes"] += size
+
+                            # Line count for text files
+                            if size < 500_000 and b"\x00" not in raw[:512]:
+                                try:
+                                    nlines = raw.decode("utf-8", errors="replace").count("\n")
+                                    ext_stats[ext]["lines"] += nlines
+                                    total_lines += nlines
+
+                                    # Track for dir stats
+                                    rel_dir = str(e.parent.relative_to(root))
+                                    top_dir = rel_dir.split("/")[0].split("\\")[0] if rel_dir != "." else "."
+                                    dir_stats[top_dir]["files"] += 1
+                                    dir_stats[top_dir]["lines"] += nlines
+                                    dir_stats[top_dir]["bytes"] += size
+
+                                    largest.append((nlines, str(e.relative_to(root))))
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+
+            _walk(root)
+
+            if total_files == 0:
+                return f"Файлов не найдено в `{root}`."
+
+            def _fmt(n: int) -> str:
+                if n < 1024:
+                    return f"{n} Б"
+                elif n < 1_048_576:
+                    return f"{n/1024:.1f} КБ"
+                else:
+                    return f"{n/1_048_576:.1f} МБ"
+
+            lines_out = [
+                f"**Аналитика размера: `{root.resolve().name or '.'}`**",
+                "",
+                f"Файлов: **{total_files:,}** · "
+                f"Строк: **{total_lines:,}** · "
+                f"Размер: **{_fmt(total_bytes)}**",
+                "",
+            ]
+
+            # By extension
+            lines_out.append("**По типу файлов:**")
+            sorted_ext = sorted(ext_stats.items(), key=lambda x: -x[1]["lines"])
+            for ext, s in sorted_ext[:12]:
+                bar = "█" * min(20, s["lines"] // max(1, total_lines // 20))
+                lines_out.append(
+                    f"  `{ext:<10}` {s['files']:>4} файл(а)  "
+                    f"{s['lines']:>6} строк  {_fmt(s['bytes']):>10}  {bar}"
+                )
+
+            # By top-level directory
+            if len(dir_stats) > 1:
+                lines_out.append("")
+                lines_out.append("**По директориям (верхний уровень):**")
+                sorted_dirs = sorted(dir_stats.items(), key=lambda x: -x[1]["lines"])
+                for dname, s in sorted_dirs[:10]:
+                    pct = (s["lines"] / total_lines * 100) if total_lines else 0
+                    lines_out.append(
+                        f"  `{dname:<20}` {s['lines']:>6} строк ({pct:.0f}%)  {_fmt(s['bytes'])}"
+                    )
+
+            # Largest files
+            largest.sort(reverse=True)
+            if largest:
+                lines_out.append("")
+                lines_out.append("**Самые большие файлы (по строкам):**")
+                for nlines, fpath in largest[:8]:
+                    lines_out.append(f"  `{fpath}` — {nlines:,} строк")
+
+            return "\n".join(lines_out)
+
+        self.register(SlashCommand(
+            "size-report",
+            "Аналитика размера кодовой базы: /size-report [путь]",
+            size_report_handler,
+        ))
+
+        # ── Task 231: /journal ────────────────────────────────────────────────
+
+        async def journal_handler(arg: str = "", **_) -> str:
+            import json as _json
+            from pathlib import Path as _Path
+            from datetime import datetime as _dt, date as _date
+
+            journal_path = _Path(".lidco") / "journal.json"
+
+            def _load() -> list:
+                if journal_path.exists():
+                    try:
+                        return _json.loads(journal_path.read_text(encoding="utf-8"))
+                    except Exception:
+                        return []
+                return []
+
+            def _save(entries: list) -> None:
+                journal_path.parent.mkdir(parents=True, exist_ok=True)
+                journal_path.write_text(
+                    _json.dumps(entries, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+
+            text = arg.strip()
+
+            # today — show today's entries
+            if not text or text == "today":
+                entries = _load()
+                today_str = _date.today().isoformat()
+                today_entries = [e for e in entries if e.get("date") == today_str]
+                if not today_entries:
+                    return (
+                        f"**Журнал за {today_str}** — записей нет.\n\n"
+                        "Добавьте: `/journal <текст>` или `/journal add <текст>`"
+                    )
+                lines = [f"**Журнал за {today_str}** ({len(today_entries)} записей)", ""]
+                for e in today_entries:
+                    time_str = e.get("time", "")
+                    tag = f" `[{e['tag']}]`" if e.get("tag") else ""
+                    lines.append(f"**{time_str}**{tag} {e['text']}")
+                return "\n".join(lines)
+
+            # list [N] — show last N days
+            if text.startswith("list") or text.startswith("all"):
+                parts = text.split()
+                n_days = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 7
+                entries = _load()
+                if not entries:
+                    return "Журнал пуст."
+                # Group by date
+                by_date: dict[str, list] = {}
+                for e in entries:
+                    d = e.get("date", "")
+                    by_date.setdefault(d, []).append(e)
+                # Last N days
+                sorted_dates = sorted(by_date.keys(), reverse=True)[:n_days]
+                lines = [f"**Журнал** (последние {n_days} дн., {len(entries)} записей)", ""]
+                for d in sorted_dates:
+                    lines.append(f"**{d}:**")
+                    for e in by_date[d]:
+                        time_str = e.get("time", "")
+                        tag = f" `[{e['tag']}]`" if e.get("tag") else ""
+                        lines.append(f"  {time_str}{tag} {e['text']}")
+                return "\n".join(lines)
+
+            # search <query>
+            if text.startswith("search ") or text.startswith("find "):
+                query = text.split(None, 1)[1].strip().lower()
+                entries = _load()
+                matches = [e for e in entries if query in e.get("text", "").lower()]
+                if not matches:
+                    return f"По запросу «{query}» ничего не найдено."
+                lines = [f"**Найдено:** {len(matches)} записей", ""]
+                for e in matches[-20:]:
+                    lines.append(f"**{e.get('date')} {e.get('time','')}** {e['text']}")
+                return "\n".join(lines)
+
+            # stats
+            if text == "stats":
+                entries = _load()
+                if not entries:
+                    return "Журнал пуст."
+                dates = {e.get("date") for e in entries}
+                tags = {}
+                for e in entries:
+                    if e.get("tag"):
+                        tags[e["tag"]] = tags.get(e["tag"], 0) + 1
+                lines = [
+                    f"**Статистика журнала**", "",
+                    f"Записей: {len(entries)}",
+                    f"Дней: {len(dates)}",
+                    f"Среднее в день: {len(entries)/max(1,len(dates)):.1f}",
+                ]
+                if tags:
+                    lines.append("\n**Теги:**")
+                    for tag, cnt in sorted(tags.items(), key=lambda x: -x[1])[:10]:
+                        lines.append(f"  `#{tag}`: {cnt}")
+                return "\n".join(lines)
+
+            # del N
+            if text.startswith("del ") or text.startswith("delete "):
+                idx_str = text.split(None, 1)[1].strip()
+                if not idx_str.isdigit():
+                    return "Укажите номер записи: `/journal del <N>`"
+                entries = _load()
+                idx = int(idx_str) - 1
+                if idx < 0 or idx >= len(entries):
+                    return f"Запись #{idx_str} не найдена."
+                removed = entries.pop(idx)
+                _save(entries)
+                return f"Удалена запись: *{removed['text'][:60]}*"
+
+            # clear
+            if text == "clear":
+                entries = _load()
+                _save([])
+                return f"Журнал очищен ({len(entries)} записей удалено)."
+
+            # add <text> — strip "add " prefix if present
+            if text.startswith("add "):
+                text = text[4:].strip()
+
+            # Parse optional #tag
+            tag = ""
+            if text.startswith("#"):
+                parts = text.split(None, 1)
+                tag = parts[0][1:]
+                text = parts[1].strip() if len(parts) > 1 else ""
+                if not text:
+                    return "Укажите текст записи: `/journal #tag текст`"
+
+            now = _dt.now()
+            entries = _load()
+            entries.append({
+                "text": text,
+                "tag": tag,
+                "date": now.date().isoformat(),
+                "time": now.strftime("%H:%M"),
+            })
+            _save(entries)
+            tag_str = f" `[{tag}]`" if tag else ""
+            return f"✓ Запись #{len(entries)} добавлена{tag_str}: *{text[:80]}*"
+
+        self.register(SlashCommand(
+            "journal",
+            "Dev-журнал: /journal [add|today|list|search|stats|del|clear]",
+            journal_handler,
+        ))
+
+        # ── Task 232: /table ──────────────────────────────────────────────────
+
+        async def table_handler(arg: str = "", **_) -> str:
+            import csv as _csv
+            import io as _io
+            from pathlib import Path as _Path
+
+            text = arg.strip()
+            if not text:
+                return (
+                    "**Использование:** `/table <csv_файл или данные> [--sep ,] [--no-header]`\n\n"
+                    "Рендеринг CSV как таблицы.\n\n"
+                    "  `/table data.csv` — из файла\n"
+                    "  `/table \"name,age\\nAlice,30\\nBob,25\"` — из текста\n"
+                    "  `/table data.csv --sep ;` — с разделителем `;`"
+                )
+
+            sep = ","
+            has_header = True
+            if "--sep" in text:
+                parts = text.split("--sep", 1)
+                text = parts[0].strip()
+                sep_tok = parts[1].strip().split()[0]
+                sep = sep_tok if sep_tok else ","
+            if "--no-header" in text:
+                has_header = False
+                text = text.replace("--no-header", "").strip()
+
+            # Try as file first
+            source_label = "inline"
+            raw_csv = text
+            p = _Path(text)
+            if p.exists() and p.is_file():
+                try:
+                    raw_csv = p.read_text(encoding="utf-8", errors="replace")
+                    source_label = p.name
+                except Exception as exc:
+                    return f"Ошибка чтения файла: {exc}"
+            else:
+                # Allow \n escape in inline data
+                raw_csv = raw_csv.replace("\\n", "\n")
+
+            try:
+                reader = _csv.reader(_io.StringIO(raw_csv), delimiter=sep)
+                rows = list(reader)
+            except Exception as exc:
+                return f"Ошибка парсинга CSV: {exc}"
+
+            if not rows:
+                return "CSV пуст."
+
+            # Cap rows
+            max_rows = 50
+            truncated = len(rows) > max_rows + (1 if has_header else 0)
+
+            if has_header:
+                headers = rows[0]
+                data_rows = rows[1:max_rows + 1]
+            else:
+                headers = [f"Col{i+1}" for i in range(len(rows[0]))]
+                data_rows = rows[:max_rows]
+
+            if not headers:
+                return "CSV не содержит столбцов."
+
+            # Calculate column widths
+            col_widths = [len(h) for h in headers]
+            for row in data_rows:
+                for i, cell in enumerate(row):
+                    if i < len(col_widths):
+                        col_widths[i] = max(col_widths[i], min(len(cell), 30))
+
+            def _fmt_row(cells: list[str]) -> str:
+                parts = []
+                for i, w in enumerate(col_widths):
+                    cell = cells[i] if i < len(cells) else ""
+                    cell = cell[:30]  # truncate long cells
+                    parts.append(cell.ljust(w))
+                return "│ " + " │ ".join(parts) + " │"
+
+            sep_line = "├─" + "─┼─".join("─" * w for w in col_widths) + "─┤"
+            top_line = "┌─" + "─┬─".join("─" * w for w in col_widths) + "─┐"
+            bot_line = "└─" + "─┴─".join("─" * w for w in col_widths) + "─┘"
+
+            lines = [
+                f"**Таблица: `{source_label}`** "
+                f"({len(data_rows)} строк × {len(headers)} столбцов)",
+                "",
+                "```",
+                top_line,
+                _fmt_row(headers),
+                sep_line,
+            ]
+            for row in data_rows:
+                lines.append(_fmt_row(row))
+            lines.append(bot_line)
+            lines.append("```")
+
+            if truncated:
+                total = len(rows) - (1 if has_header else 0)
+                lines.append(f"\n*Показано {len(data_rows)} из {total} строк.*")
+
+            return "\n".join(lines)
+
+        self.register(SlashCommand(
+            "table",
+            "Рендер CSV как таблицы: /table <файл.csv|данные> [--sep ,] [--no-header]",
+            table_handler,
+        ))
+
+        # ── Task 233: /api ────────────────────────────────────────────────────
+
+        async def api_handler(arg: str = "", **_) -> str:
+            import asyncio as _asyncio
+            import json as _json
+
+            text = arg.strip()
+            if not text:
+                return (
+                    "**Использование:** `/api <url> [метод] [тело] [--header K:V]`\n\n"
+                    "HTTP-клиент прямо в REPL.\n\n"
+                    "  `/api https://httpbin.org/get` — GET запрос\n"
+                    "  `/api https://httpbin.org/post POST '{\"key\":\"val\"}'`\n"
+                    "  `/api https://api.example.com DELETE --header Authorization:Bearer_token`"
+                )
+
+            # Parse method
+            _METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+            parts = text.split(None, 2)
+            url = parts[0]
+            method = "GET"
+            body = ""
+            headers: dict[str, str] = {"User-Agent": "LIDCO/1.0"}
+
+            rest = " ".join(parts[1:]) if len(parts) > 1 else ""
+
+            # Extract --header flags
+            import re as _re
+            header_matches = _re.findall(r'--header\s+(\S+):(\S+)', rest)
+            for k, v in header_matches:
+                headers[k] = v.replace("_", " ")
+            rest = _re.sub(r'--header\s+\S+:\S+', "", rest).strip()
+
+            rest_parts = rest.split(None, 1)
+            if rest_parts and rest_parts[0].upper() in _METHODS:
+                method = rest_parts[0].upper()
+                body = rest_parts[1].strip() if len(rest_parts) > 1 else ""
+            elif rest_parts:
+                body = rest.strip()
+
+            # Validate URL
+            if not url.startswith(("http://", "https://")):
+                return f"URL должен начинаться с http:// или https://. Получено: `{url}`"
+
+            # Execute via urllib (no external deps)
+            import urllib.request as _urllib
+            import urllib.error as _urlerr
+
+            try:
+                req_body = body.encode("utf-8") if body else None
+                if req_body and "Content-Type" not in headers:
+                    try:
+                        _json.loads(body)
+                        headers["Content-Type"] = "application/json"
+                    except Exception:
+                        headers["Content-Type"] = "text/plain"
+
+                req = _urllib.Request(url, data=req_body, headers=headers, method=method)
+
+                import asyncio as _aio
+                loop = _aio.get_event_loop()
+
+                def _do_request():
+                    with _urllib.urlopen(req, timeout=10) as resp:
+                        status = resp.status
+                        resp_headers = dict(resp.headers)
+                        resp_body = resp.read().decode("utf-8", errors="replace")
+                        return status, resp_headers, resp_body
+
+                status, resp_headers, resp_body = await loop.run_in_executor(None, _do_request)
+
+            except _urlerr.HTTPError as exc:
+                status = exc.code
+                resp_headers = {}
+                try:
+                    resp_body = exc.read().decode("utf-8", errors="replace")
+                except Exception:
+                    resp_body = str(exc)
+            except Exception as exc:
+                return f"Ошибка запроса: {exc}"
+
+            # Format response
+            status_icon = "✅" if 200 <= status < 300 else ("⚠️" if 200 <= status < 400 else "❌")
+            lines = [
+                f"**{method} {url}**",
+                "",
+                f"{status_icon} **Статус:** `{status}`",
+            ]
+
+            # Content-type
+            ct = resp_headers.get("Content-Type", resp_headers.get("content-type", ""))
+            if ct:
+                lines.append(f"**Content-Type:** `{ct}`")
+
+            lines.append("")
+
+            # Body
+            body_display = resp_body[:3000]
+            if resp_body.strip().startswith("{") or resp_body.strip().startswith("["):
+                try:
+                    parsed = _json.loads(resp_body)
+                    body_display = _json.dumps(parsed, indent=2, ensure_ascii=False)[:3000]
+                    lang = "json"
+                except Exception:
+                    lang = ""
+            else:
+                lang = ""
+
+            lines.append(f"```{lang}")
+            lines.append(body_display)
+            lines.append("```")
+
+            if len(resp_body) > 3000:
+                lines.append(f"\n*…обрезано ({len(resp_body):,} символов всего)*")
+
+            return "\n".join(lines)
+
+        self.register(SlashCommand(
+            "api",
+            "HTTP-клиент: /api <url> [GET|POST|...] [тело] [--header K:V]",
+            api_handler,
+        ))
+
+        # ── Task 234: /lint-fix ───────────────────────────────────────────────
+
+        async def lint_fix_handler(arg: str = "", **_) -> str:
+            import asyncio as _asyncio
+            from pathlib import Path as _Path
+
+            text = arg.strip()
+            if not text:
+                return (
+                    "**Использование:** `/lint-fix <файл.py или директория> [--check]`\n\n"
+                    "Автоматическое исправление lint-ошибок через ruff.\n\n"
+                    "  `/lint-fix src/utils.py` — исправить файл\n"
+                    "  `/lint-fix src/ --check` — показать что будет исправлено\n"
+                    "  `/lint-fix .` — исправить всё в текущей директории"
+                )
+
+            check_only = "--check" in text
+            if check_only:
+                text = text.replace("--check", "").strip()
+
+            p = _Path(text)
+            if not p.exists():
+                return f"Путь не найден: `{text}`"
+
+            async def _ruff(*args, timeout=30) -> tuple[int, str]:
+                try:
+                    proc = await _asyncio.create_subprocess_exec(
+                        "ruff", *args,
+                        stdout=_asyncio.subprocess.PIPE,
+                        stderr=_asyncio.subprocess.STDOUT,
+                    )
+                    out, _ = await _asyncio.wait_for(proc.communicate(), timeout=timeout)
+                    return proc.returncode or 0, out.decode("utf-8", errors="replace").strip()
+                except FileNotFoundError:
+                    return 1, "ruff не найден. Установите: `pip install ruff`"
+                except _asyncio.TimeoutError:
+                    return 1, "Timeout (30s)"
+                except Exception as exc:
+                    return 1, str(exc)
+
+            # First: check what would be fixed
+            rc_check, check_out = await _ruff("check", str(p), "--no-fix")
+
+            if check_only:
+                if rc_check == 0:
+                    return f"✅ `{p}` — lint-ошибок нет."
+                lines = [
+                    f"**ruff check** `{p}` (режим --check)",
+                    "",
+                    "```",
+                ]
+                for line in check_out.splitlines()[:40]:
+                    lines.append(line)
+                lines.append("```")
+                count = sum(1 for l in check_out.splitlines() if ".py:" in l)
+                if count:
+                    lines.append(f"\n*{count} проблем будет исправлено командой `/lint-fix {text}`*")
+                return "\n".join(lines)
+
+            if rc_check == 0:
+                return f"✅ `{p}` — lint-ошибок нет, исправление не требуется."
+
+            # Count before
+            before_count = sum(1 for l in check_out.splitlines() if ".py:" in l)
+
+            # Apply fixes
+            rc_fix, fix_out = await _ruff("check", str(p), "--fix")
+
+            # Count after
+            rc_after, after_out = await _ruff("check", str(p), "--no-fix")
+            after_count = sum(1 for l in after_out.splitlines() if ".py:" in l) if rc_after != 0 else 0
+
+            fixed = before_count - after_count
+
+            lines = [f"**ruff --fix** `{p}`", ""]
+
+            if fixed > 0:
+                lines.append(f"✅ Исправлено: **{fixed}** проблем")
+            if after_count > 0:
+                lines.append(f"⚠️  Осталось: **{after_count}** (требуют ручного исправления)")
+
+            if fix_out:
+                lines.append("")
+                lines.append("```")
+                for line in fix_out.splitlines()[:20]:
+                    lines.append(line)
+                lines.append("```")
+
+            if after_count > 0 and after_out:
+                lines.append("\n**Оставшиеся проблемы:**")
+                lines.append("```")
+                for line in after_out.splitlines()[:20]:
+                    lines.append(line)
+                lines.append("```")
+
+            return "\n".join(lines)
+
+        self.register(SlashCommand(
+            "lint-fix",
+            "Автоисправление lint: /lint-fix <файл|директория> [--check]",
+            lint_fix_handler,
+        ))
+
