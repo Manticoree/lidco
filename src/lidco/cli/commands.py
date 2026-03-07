@@ -8699,3 +8699,434 @@ def {name}() -> Generator[None, None, None]:
             alias_handler,
         ))
 
+        # ── Task 241: /snippet ────────────────────────────────────────────────
+        # Snippets stored in .lidco/snippets.json as:
+        # {name: {code, lang, desc, created}}
+
+        def _snippets_file() -> Path:
+            return Path(".lidco") / "snippets.json"
+
+        def _load_snippets() -> dict:
+            import json as _json
+            f = _snippets_file()
+            if f.exists():
+                try:
+                    return _json.loads(f.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+            return {}
+
+        def _save_snippets(data: dict) -> None:
+            import json as _json
+            f = _snippets_file()
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(_json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        async def snippet_handler(arg: str = "", **_) -> str:
+            import re as _re
+            from datetime import datetime as _dt
+
+            raw = arg.strip()
+            db = _load_snippets()
+
+            # /snippet — list all
+            if not raw or raw == "list":
+                if not db:
+                    return (
+                        "*Сниппетов нет.*\n\n"
+                        "**Сохранить:** `/snippet save <имя> [--lang py] [--desc Описание]`\n"
+                        "**Из файла:** `/snippet save <имя> <файл.py>`\n"
+                        "**Показать:** `/snippet show <имя>`"
+                    )
+                lines = [f"**Сниппеты** ({len(db)}):\n"]
+                for name in sorted(db):
+                    s = db[name]
+                    lang = s.get("lang", "")
+                    desc = s.get("desc", "")
+                    loc = len(s.get("code", "").splitlines())
+                    tag = f"  *{desc}*" if desc else ""
+                    lines.append(f"- `{name}` ({lang}, {loc} строк){tag}")
+                return "\n".join(lines)
+
+            # /snippet show <name>
+            if raw.startswith("show "):
+                name = raw[5:].strip()
+                if name not in db:
+                    return f"❌ Сниппет `{name}` не найден."
+                s = db[name]
+                lang = s.get("lang", "")
+                desc = s.get("desc", "")
+                code = s.get("code", "")
+                header = f"**{name}**"
+                if desc:
+                    header += f"  *{desc}*"
+                return f"{header}\n\n```{lang}\n{code}\n```"
+
+            # /snippet del <name>
+            if raw.startswith("del "):
+                name = raw[4:].strip()
+                if not name:
+                    return "❌ Укажите имя: `/snippet del <имя>`"
+                if name not in db:
+                    return f"⚠️ Сниппет `{name}` не найден."
+                del db[name]
+                _save_snippets(db)
+                return f"✓ Сниппет `{name}` удалён."
+
+            # /snippet clear
+            if raw == "clear":
+                _save_snippets({})
+                return "✓ Все сниппеты удалены."
+
+            # /snippet export <name> <file>
+            if raw.startswith("export "):
+                parts = raw[7:].strip().split(None, 1)
+                if len(parts) < 2:
+                    return "❌ Использование: `/snippet export <имя> <файл>`"
+                name, fpath = parts[0], parts[1]
+                if name not in db:
+                    return f"❌ Сниппет `{name}` не найден."
+                p = Path(fpath)
+                if p.exists():
+                    return f"❌ Файл уже существует: `{fpath}`"
+                p.write_text(db[name]["code"], encoding="utf-8")
+                return f"✅ Сниппет `{name}` экспортирован в `{fpath}`"
+
+            # /snippet save <name> [<file>] [--lang X] [--desc Y]
+            if raw.startswith("save "):
+                rest = raw[5:].strip()
+
+                # Extract --lang
+                lang = "py"
+                m_lang = _re.search(r"--lang\s+(\S+)", rest)
+                if m_lang:
+                    lang = m_lang.group(1)
+                    rest = rest[:m_lang.start()].strip() + " " + rest[m_lang.end():].strip()
+
+                # Extract --desc
+                desc = ""
+                m_desc = _re.search(r"--desc\s+(.+?)(?:\s+--|$)", rest)
+                if m_desc:
+                    desc = m_desc.group(1).strip()
+                    rest = rest[:m_desc.start()].strip() + " " + rest[m_desc.end():].strip()
+
+                rest = rest.strip()
+                parts = rest.split(None, 1)
+                if not parts:
+                    return "❌ Укажите имя сниппета: `/snippet save <имя>`"
+
+                name = parts[0]
+                if not _re.match(r"^[A-Za-z0-9_.-]+$", name):
+                    return f"❌ Некорректное имя: `{name}`"
+
+                code = ""
+                if len(parts) > 1:
+                    fpath = parts[1].strip()
+                    fp = Path(fpath)
+                    if fp.exists() and fp.is_file():
+                        try:
+                            code = fp.read_text(encoding="utf-8")
+                            lang = fp.suffix.lstrip(".") or lang
+                        except Exception as e:
+                            return f"❌ Ошибка чтения файла: {e}"
+                    else:
+                        # Treat as inline code
+                        code = fpath
+
+                if not code.strip():
+                    return (
+                        "❌ Нет кода для сохранения.\n"
+                        "Использование: `/snippet save <имя> <файл>` или передайте код"
+                    )
+
+                db[name] = {
+                    "code": code,
+                    "lang": lang,
+                    "desc": desc,
+                    "created": _dt.now().isoformat(timespec="seconds"),
+                }
+                _save_snippets(db)
+                loc = len(code.splitlines())
+                return f"✅ Сниппет `{name}` сохранён ({loc} строк, {lang})"
+
+            return (
+                "**Использование:**\n"
+                "- `/snippet` — список сниппетов\n"
+                "- `/snippet save <имя> <файл|код> [--lang py] [--desc ...]` — сохранить\n"
+                "- `/snippet show <имя>` — показать\n"
+                "- `/snippet del <имя>` — удалить\n"
+                "- `/snippet export <имя> <файл>` — экспортировать\n"
+                "- `/snippet clear` — удалить все"
+            )
+
+        self.register(SlashCommand(
+            "snippet",
+            "Сниппеты кода: /snippet [save|show|del|export|clear|list]",
+            snippet_handler,
+        ))
+
+        # ── Task 242: /todo ───────────────────────────────────────────────────
+        # Todos stored in .lidco/todos.json as list of:
+        # {id, text, done, priority, created}
+
+        def _todos_file() -> Path:
+            return Path(".lidco") / "todos.json"
+
+        def _load_todos() -> list:
+            import json as _json
+            f = _todos_file()
+            if f.exists():
+                try:
+                    return _json.loads(f.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+            return []
+
+        def _save_todos(data: list) -> None:
+            import json as _json
+            f = _todos_file()
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(_json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        async def todo_handler(arg: str = "", **_) -> str:
+            import re as _re
+            from datetime import datetime as _dt
+
+            raw = arg.strip()
+            todos = _load_todos()
+
+            def _next_id() -> int:
+                return max((t["id"] for t in todos), default=0) + 1
+
+            def _render(todo_list: list, title: str = "TODO") -> str:
+                if not todo_list:
+                    return f"*{title}: нет задач.*"
+                lines = [f"**{title}** ({len(todo_list)} задач):\n"]
+                for t in todo_list:
+                    check = "✅" if t.get("done") else "☐"
+                    pri = t.get("priority", "")
+                    pri_tag = f" [{pri}]" if pri else ""
+                    lines.append(f"{check} **#{t['id']}** {t['text']}{pri_tag}")
+                return "\n".join(lines)
+
+            # /todo — list pending
+            if not raw or raw == "list":
+                pending = [t for t in todos if not t.get("done")]
+                done_count = len(todos) - len(pending)
+                result = _render(pending, "TODO")
+                if done_count:
+                    result += f"\n\n*+ {done_count} выполнено. Используйте `/todo all` для просмотра.*"
+                if not pending and not todos:
+                    result = (
+                        "*Список задач пуст.*\n\n"
+                        "**Добавить:** `/todo Описание задачи`\n"
+                        "**Приоритет:** `/todo !high Срочная задача`"
+                    )
+                return result
+
+            # /todo all
+            if raw == "all":
+                return _render(todos, "Все задачи")
+
+            # /todo done <id>
+            if raw.startswith("done "):
+                try:
+                    tid = int(raw[5:].strip())
+                except ValueError:
+                    return "❌ Укажите номер задачи: `/todo done <номер>`"
+                for t in todos:
+                    if t["id"] == tid:
+                        t["done"] = True
+                        _save_todos(todos)
+                        return f"✅ Задача **#{tid}** выполнена: *{t['text']}*"
+                return f"⚠️ Задача **#{tid}** не найдена."
+
+            # /todo del <id>
+            if raw.startswith("del "):
+                try:
+                    tid = int(raw[4:].strip())
+                except ValueError:
+                    return "❌ Укажите номер задачи: `/todo del <номер>`"
+                before = len(todos)
+                todos = [t for t in todos if t["id"] != tid]
+                if len(todos) == before:
+                    return f"⚠️ Задача **#{tid}** не найдена."
+                _save_todos(todos)
+                return f"✓ Задача **#{tid}** удалена."
+
+            # /todo clear
+            if raw == "clear":
+                _save_todos([])
+                return "✓ Список задач очищен."
+
+            # /todo undone <id>
+            if raw.startswith("undone "):
+                try:
+                    tid = int(raw[7:].strip())
+                except ValueError:
+                    return "❌ Укажите номер задачи: `/todo undone <номер>`"
+                for t in todos:
+                    if t["id"] == tid:
+                        t["done"] = False
+                        _save_todos(todos)
+                        return f"↩️ Задача **#{tid}** возвращена в список."
+                return f"⚠️ Задача **#{tid}** не найдена."
+
+            # /todo stats
+            if raw == "stats":
+                total = len(todos)
+                done = sum(1 for t in todos if t.get("done"))
+                pending = total - done
+                pct = int(done / total * 100) if total else 0
+                bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
+                return (
+                    f"**TODO статистика**\n\n"
+                    f"Всего: {total} | Выполнено: {done} | Ожидает: {pending}\n"
+                    f"Прогресс: [{bar}] {pct}%"
+                )
+
+            # /todo search <query>
+            if raw.startswith("search "):
+                q = raw[7:].strip().lower()
+                matches = [t for t in todos if q in t["text"].lower()]
+                return _render(matches, f"Поиск: {q}")
+
+            # /todo <text> — add new
+            # Priority prefix: !high !med !low
+            priority = ""
+            text = raw
+            m_pri = _re.match(r"^!(high|med|low)\s+(.+)", raw, _re.IGNORECASE)
+            if m_pri:
+                priority = m_pri.group(1).upper()
+                text = m_pri.group(2).strip()
+
+            if not text:
+                return "❌ Укажите текст задачи."
+
+            new_todo = {
+                "id": _next_id(),
+                "text": text,
+                "done": False,
+                "priority": priority,
+                "created": _dt.now().isoformat(timespec="seconds"),
+            }
+            todos.append(new_todo)
+            _save_todos(todos)
+            pri_tag = f" [{priority}]" if priority else ""
+            return f"✓ Задача **#{new_todo['id']}** добавлена: *{text}*{pri_tag}"
+
+        self.register(SlashCommand(
+            "todo",
+            "Список задач: /todo [текст] [done|del|undone|stats|search|clear|all]",
+            todo_handler,
+        ))
+
+        # ── Task 243: /timer ──────────────────────────────────────────────────
+        # In-memory session timers: {name: start_ts}
+        if not hasattr(self, "_timers"):
+            self._timers: dict[str, float] = {}
+
+        async def timer_handler(arg: str = "", **_) -> str:
+            import time as _time
+            import re as _re
+
+            raw = arg.strip()
+
+            def _fmt_elapsed(seconds: float) -> str:
+                s = int(seconds)
+                h, rem = divmod(s, 3600)
+                m, sc = divmod(rem, 60)
+                if h:
+                    return f"{h}ч {m:02d}м {sc:02d}с"
+                if m:
+                    return f"{m}м {sc:02d}с"
+                return f"{sc}с"
+
+            # /timer — list active timers
+            if not raw or raw == "list":
+                if not self._timers:
+                    return (
+                        "*Нет активных таймеров.*\n\n"
+                        "**Запустить:** `/timer start [имя]`\n"
+                        "**Остановить:** `/timer stop [имя]`\n"
+                        "**Статус:** `/timer status [имя]`"
+                    )
+                now = _time.monotonic()
+                lines = [f"**Активные таймеры** ({len(self._timers)}):\n"]
+                for name, start in sorted(self._timers.items()):
+                    elapsed = now - start
+                    lines.append(f"- `{name}` — {_fmt_elapsed(elapsed)}")
+                return "\n".join(lines)
+
+            # /timer start [name]
+            if raw == "start" or raw.startswith("start "):
+                name = raw[6:].strip() if raw.startswith("start ") else "default"
+                if not name:
+                    name = "default"
+                if name in self._timers:
+                    elapsed = _time.monotonic() - self._timers[name]
+                    return f"⚠️ Таймер `{name}` уже запущен ({_fmt_elapsed(elapsed)} назад)."
+                self._timers[name] = _time.monotonic()
+                return f"▶️ Таймер `{name}` запущен."
+
+            # /timer stop [name]
+            if raw == "stop" or raw.startswith("stop "):
+                name = raw[5:].strip() if raw.startswith("stop ") else "default"
+                if not name:
+                    name = "default"
+                if name not in self._timers:
+                    return f"⚠️ Таймер `{name}` не найден."
+                elapsed = _time.monotonic() - self._timers.pop(name)
+                return f"⏹️ Таймер `{name}` остановлен. Прошло: **{_fmt_elapsed(elapsed)}**"
+
+            # /timer status [name]
+            if raw == "status" or raw.startswith("status "):
+                name = raw[7:].strip() if raw.startswith("status ") else "default"
+                if not name:
+                    name = "default"
+                if name not in self._timers:
+                    return f"⚠️ Таймер `{name}` не найден."
+                elapsed = _time.monotonic() - self._timers[name]
+                return f"⏱️ Таймер `{name}`: **{_fmt_elapsed(elapsed)}**"
+
+            # /timer reset [name]
+            if raw == "reset" or raw.startswith("reset "):
+                name = raw[6:].strip() if raw.startswith("reset ") else "default"
+                if not name:
+                    name = "default"
+                self._timers[name] = _time.monotonic()
+                return f"🔄 Таймер `{name}` перезапущен."
+
+            # /timer clear
+            if raw == "clear":
+                count = len(self._timers)
+                self._timers.clear()
+                return f"✓ Удалено {count} таймер(ов)."
+
+            # /timer lap [name] — show elapsed without stopping
+            if raw == "lap" or raw.startswith("lap "):
+                name = raw[4:].strip() if raw.startswith("lap ") else "default"
+                if not name:
+                    name = "default"
+                if name not in self._timers:
+                    return f"⚠️ Таймер `{name}` не найден."
+                elapsed = _time.monotonic() - self._timers[name]
+                return f"⏱️ Lap `{name}`: {_fmt_elapsed(elapsed)}"
+
+            return (
+                "**Использование `/timer`:**\n"
+                "- `/timer start [имя]` — запустить таймер\n"
+                "- `/timer stop [имя]` — остановить и показать время\n"
+                "- `/timer status [имя]` — текущее время\n"
+                "- `/timer lap [имя]` — промежуточный результат\n"
+                "- `/timer reset [имя]` — перезапустить\n"
+                "- `/timer list` — все активные таймеры\n"
+                "- `/timer clear` — удалить все"
+            )
+
+        self.register(SlashCommand(
+            "timer",
+            "Таймер рабочей сессии: /timer [start|stop|status|lap|reset|list|clear] [имя]",
+            timer_handler,
+        ))
+
