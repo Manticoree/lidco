@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 
 # Suppress litellm's verbose logging
 litellm.suppress_debug_info = True
+litellm.set_verbose = False
+# Use local model cost map to avoid network fetch on startup
+import os as _os
+import logging as _logging
+_os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+# LiteLLM uses both "litellm" and "LiteLLM" logger names
+_logging.getLogger("litellm").setLevel(_logging.ERROR)
+_logging.getLogger("LiteLLM").setLevel(_logging.ERROR)
 
 _ANTHROPIC_BETA_CACHING = ["prompt-caching-2024-07-31"]
 

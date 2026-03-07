@@ -203,13 +203,35 @@ def _detect_fast_path_error_type(error_context: str) -> str | None:
     return None
 
 ROUTER_PROMPT = """\
-You are a task router. Select the best agent. Respond JSON: {{"agent": "<name>", "needs_review": bool, "needs_planning": bool}}
+You are a task router for a coding assistant. Select the best agent and decide if a plan is needed.
+Respond with ONLY valid JSON: {{"agent": "<name>", "needs_review": bool, "needs_planning": bool}}
 
 Available agents:
 {agents}
 
-needs_review=true for code modifications. needs_planning=true for new features, multi-file, architecture.
-Rules: plan/design→planner, review/audit→reviewer, debug/error/bug/traceback/exception/attributeerror/typeerror/importerror/keyerror/stack trace→debugger, architecture→architect, test/coverage→tester, refactor/cleanup→refactor, docs/docstring/readme→docs, search/research/web→researcher, validate/qa/check compilation/run tests after feature→qa, profile/performance/hotspot/slow/optimize speed→profiler, explain/what does/how does/walk me through/describe→explain, security/vulnerability/owasp/injection/xss/csrf/secrets/pentest→security, implement/create/write/add/build→coder, else→coder.
+ROUTING RULES (apply the FIRST matching rule):
+- debug / fix bug / error / traceback / exception / AttributeError / TypeError / ImportError / NameError / KeyError / stack trace / crash → debugger
+- test / write tests / add tests / coverage / pytest / unittest → tester
+- refactor / cleanup / simplify / reorganize / rename / extract / restructure → refactor
+- architecture / design system / design pattern / how should I structure / diagram → architect
+- security / vulnerability / OWASP / injection / XSS / CSRF / pentest / audit security / secrets / hardcoded password → security
+- profile / performance / hotspot / slow / benchmark / optimize speed → profiler
+- explain / what does / how does / walk me through / what is / describe / understand → explain
+- review / code review / audit / check quality / LGTM → reviewer
+- docs / docstring / README / documentation / comment / changelog → docs
+- search / research / find library / what library / latest version / web / browse → researcher
+- validate / run tests / check compilation / QA / after implementing / does it work → qa
+- plan / design plan / implementation plan / roadmap / breakdown → planner
+- implement / create / write / add / build / integrate / develop / make / generate code → coder
+- else → coder
+
+PLANNING RULES:
+- needs_planning=true when: implementing new feature, creating new files, modifying multiple files, integrating components, building something non-trivial (more than ~5 lines of change)
+- needs_planning=false when: explaining code, fixing a typo/simple bug, answering a question, running tests, searching, reviewing
+
+REVIEW RULES:
+- needs_review=true when: agent is coder, tester, refactor, architect (i.e. code was written/modified)
+- needs_review=false when: agent is explain, reviewer, researcher, debugger, docs, profiler, qa
 """
 
 
@@ -1570,12 +1592,25 @@ class GraphOrchestrator(BaseOrchestrator):
         """Pass-through node; routing is handled by _needs_planning."""
         return state
 
+    # Minimum message length (chars) to auto-trigger planning without router flag.
+    # Short messages (questions, typo fixes) skip planning automatically.
+    _PLAN_MIN_MSG_LEN = 40
+
+    # Keywords that suggest a trivial/non-planning task even for planning agents.
+    _SKIP_PLAN_SIGNALS = frozenset({
+        "what is", "what does", "how does", "explain", "show me", "print",
+        "what", "how", "why", "when", "who", "which", "list", "tell me",
+        "что такое", "как работает", "объясни", "покажи", "расскажи",
+    })
+
     def _needs_planning(self, state: GraphState) -> Literal["plan", "skip"]:
         """Decide whether to run planner before the selected agent.
 
-        force_plan (from /plan command) bypasses both the auto_plan flag and the
-        _PLANNING_AGENTS restriction so that an explicit plan request always runs
-        the planner regardless of global settings or which agent was selected.
+        Planning triggers when:
+        1. /plan command was issued (force_plan=True) — always plan
+        2. Router explicitly set needs_planning=True
+        3. auto_plan=True + agent is an implementation agent + message is non-trivial
+           (length > threshold and no skip signals detected)
         """
         if self._registry.get("planner") is None:
             return "skip"
@@ -1584,15 +1619,27 @@ class GraphOrchestrator(BaseOrchestrator):
         if state.get("force_plan", False) and state.get("selected_agent"):
             return "plan"
 
-        # Normal auto-planning: only for implementation agents when router requests it
-        if (
-            self._auto_plan
-            and state.get("needs_planning")
-            and state.get("selected_agent") in _PLANNING_AGENTS
-        ):
+        agent = state.get("selected_agent", "")
+        if agent not in _PLANNING_AGENTS:
+            return "skip"
+
+        if not self._auto_plan:
+            return "skip"
+
+        # Router explicitly requested planning → always plan
+        if state.get("needs_planning"):
             return "plan"
 
-        return "skip"
+        # Auto-detect: plan for non-trivial messages even without router flag
+        msg = (state.get("user_message") or "").strip().lower()
+        if len(msg) < self._PLAN_MIN_MSG_LEN:
+            return "skip"
+
+        # Skip planning for question/explanation patterns
+        if any(sig in msg for sig in self._SKIP_PLAN_SIGNALS):
+            return "skip"
+
+        return "plan"
 
     async def _execute_planner_node(self, state: GraphState) -> GraphState:
         """Run the planner agent to create an implementation plan."""

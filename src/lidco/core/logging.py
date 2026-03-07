@@ -123,5 +123,5 @@ def setup_logging(
     )
 
     # Silence noisy third-party loggers regardless of level
-    for noisy in ("httpx", "httpcore", "openai", "litellm", "chromadb"):
-        logging.getLogger(noisy).setLevel(logging.WARNING)
+    for noisy in ("httpx", "httpcore", "openai", "litellm", "LiteLLM", "chromadb"):
+        logging.getLogger(noisy).setLevel(logging.ERROR)
