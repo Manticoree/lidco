@@ -7884,3 +7884,805 @@ class CommandRegistry:
             lint_fix_handler,
         ))
 
+        # ── Task 235: /refactor ───────────────────────────────────────────────
+
+        async def refactor_handler(arg: str = "", **_) -> str:
+            if not arg.strip():
+                return (
+                    "**Использование:** `/refactor <файл> [инструкция]`\n\n"
+                    "Примеры:\n"
+                    "- `/refactor utils.py` — общий рефакторинг\n"
+                    "- `/refactor auth.py извлеки функции` — по инструкции\n"
+                    "- `/refactor module.py --dry` — только показать предложения"
+                )
+            if self._session is None:
+                return "❌ Сессия не инициализирована. Начните сессию перед использованием `/refactor`."
+
+            parts = arg.strip().split(None, 1)
+            file_part = parts[0]
+            instruction = parts[1] if len(parts) > 1 else ""
+
+            # Handle --dry flag
+            dry_run = False
+            if "--dry" in instruction:
+                dry_run = True
+                instruction = instruction.replace("--dry", "").strip()
+            elif file_part == "--dry":
+                return "**Использование:** `/refactor <файл> [--dry]`"
+
+            p = Path(file_part)
+            if not p.exists():
+                return f"❌ Файл не найден: `{file_part}`"
+            if not p.is_file():
+                return f"❌ `{file_part}` — не файл."
+            if p.suffix != ".py":
+                return f"❌ Поддерживаются только `.py` файлы (получен `{p.suffix}`)."
+
+            try:
+                source = p.read_text(encoding="utf-8")
+            except Exception as e:
+                return f"❌ Ошибка чтения файла: {e}"
+
+            loc = len(source.splitlines())
+            if loc > 1000:
+                return (
+                    f"⚠️ Файл слишком большой ({loc} строк). "
+                    "Используйте `/refactor <файл> <функция>` для рефакторинга конкретной части."
+                )
+
+            model = self._session.config.llm.default_model
+            hint = f"\n\nИнструкция: {instruction}" if instruction else ""
+            prompt = (
+                f"Проанализируй следующий Python-файл и предложи рефакторинг.{hint}\n"
+                "Верни улучшенный код ЦЕЛИКОМ, обёрнутый в ```python ... ```.\n"
+                "После кода добавь секцию ## Изменения с кратким списком того, что было изменено.\n\n"
+                f"Файл: {p.name}\n\n```python\n{source}\n```"
+            )
+
+            try:
+                resp = await self._session.llm.complete(
+                    [{"role": "user", "content": prompt}],
+                    model=model,
+                    max_tokens=4096,
+                )
+                content = resp.content if hasattr(resp, "content") else str(resp)
+            except Exception as e:
+                return f"❌ Ошибка LLM: {e}"
+
+            if dry_run:
+                return f"**Предложения по рефакторингу** `{p.name}` (режим --dry, файл не изменён)\n\n{content}"
+
+            # Extract code block
+            import re as _re
+            code_match = _re.search(r"```python\n(.*?)```", content, _re.DOTALL)
+            if not code_match:
+                return f"**Предложения по рефакторингу** `{p.name}`\n\n{content}"
+
+            new_source = code_match.group(1)
+            if new_source.strip() == source.strip():
+                return f"✅ `{p.name}` — рефакторинг не требуется, код уже оптимален.\n\n{content}"
+
+            try:
+                p.write_text(new_source, encoding="utf-8")
+            except Exception as e:
+                return f"❌ Ошибка записи файла: {e}"
+
+            # Extract changes section
+            changes_match = _re.search(r"## Изменения(.*?)(?:##|$)", content, _re.DOTALL)
+            changes = changes_match.group(1).strip() if changes_match else ""
+
+            lines = [f"✅ **Рефакторинг** `{p.name}` — файл обновлён"]
+            if changes:
+                lines.append(f"\n**Изменения:**\n{changes}")
+            lines.append(f"\n*Применено к {p}*")
+            return "\n".join(lines)
+
+        self.register(SlashCommand(
+            "refactor",
+            "AI-рефакторинг: /refactor <файл> [инструкция|--dry]",
+            refactor_handler,
+        ))
+
+        # ── Task 236: /chart ──────────────────────────────────────────────────
+
+        async def chart_handler(arg: str = "", **_) -> str:
+            if not arg.strip():
+                return (
+                    "**Использование:** `/chart <данные> [--type bar|line|pie] [--title Заголовок]`\n\n"
+                    "Форматы данных:\n"
+                    "- `10,20,30,40` — список чисел\n"
+                    "- `Jan:10,Feb:20,Mar:30` — метки:значения\n"
+                    "- `10 20 30 40` — пробелами\n\n"
+                    "Примеры:\n"
+                    "- `/chart 10,25,15,40 --type bar`\n"
+                    "- `/chart Jan:10,Feb:20,Mar:5 --type line`\n"
+                    "- `/chart Python:40,JS:30,Rust:20,Other:10 --type pie`"
+                )
+
+            import re as _re
+
+            raw = arg.strip()
+
+            # Extract flags
+            chart_type = "bar"
+            m_type = _re.search(r"--type\s+(bar|line|pie)", raw)
+            if m_type:
+                chart_type = m_type.group(1)
+                raw = raw[:m_type.start()].strip() + raw[m_type.end():].strip()
+
+            title = ""
+            m_title = _re.search(r"--title\s+(.+?)(?:\s+--|$)", raw)
+            if m_title:
+                title = m_title.group(1).strip()
+                raw = raw[:m_title.start()].strip() + raw[m_title.end():].strip()
+
+            raw = raw.strip()
+
+            # Parse data: label:value,label:value OR value,value OR value value
+            labels: list[str] = []
+            values: list[float] = []
+
+            try:
+                if ":" in raw:
+                    for item in raw.replace(";", ",").split(","):
+                        item = item.strip()
+                        if not item:
+                            continue
+                        if ":" in item:
+                            lbl, val = item.rsplit(":", 1)
+                            labels.append(lbl.strip())
+                            values.append(float(val.strip()))
+                        else:
+                            labels.append(f"#{len(values)+1}")
+                            values.append(float(item))
+                else:
+                    sep = "," if "," in raw else None
+                    parts_v = raw.split(sep) if sep else raw.split()
+                    for i, v in enumerate(parts_v):
+                        v = v.strip()
+                        if v:
+                            labels.append(f"#{i+1}")
+                            values.append(float(v))
+            except ValueError as e:
+                return f"❌ Ошибка парсинга данных: {e}\n\nОжидается формат: `10,20,30` или `A:10,B:20`"
+
+            if not values:
+                return "❌ Нет данных для построения графика."
+
+            if len(values) > 30:
+                return f"❌ Слишком много точек ({len(values)}). Максимум 30."
+
+            max_val = max(values)
+            min_val = min(values)
+            total = sum(values)
+
+            header = f"**{title}**\n" if title else ""
+            type_label = {"bar": "Столбчатая", "line": "Линейная", "pie": "Круговая"}[chart_type]
+            header += f"*{type_label} диаграмма — {len(values)} точек*\n\n"
+
+            if chart_type in ("bar", "line"):
+                # ASCII bar / line chart
+                W = 40
+                rows = []
+
+                if chart_type == "bar":
+                    max_lbl = max(len(l) for l in labels)
+                    for lbl, val in zip(labels, values):
+                        bar_len = int(round((val / max_val) * W)) if max_val > 0 else 0
+                        bar = "█" * bar_len
+                        rows.append(f"{lbl:>{max_lbl}} │{bar:<{W}} {val:g}")
+                else:
+                    # Line chart: plot on a 2D grid
+                    H = min(10, len(values))
+                    grid = [[" "] * len(values) for _ in range(H)]
+                    rng = max_val - min_val if max_val != min_val else 1
+                    for i, val in enumerate(values):
+                        row = int(round((H - 1) * (1 - (val - min_val) / rng)))
+                        row = max(0, min(H - 1, row))
+                        grid[row][i] = "●"
+                    for row_idx, row in enumerate(grid):
+                        y_val = max_val - (max_val - min_val) * row_idx / max(H - 1, 1)
+                        rows.append(f"{y_val:>7.1f} │{''.join(row)}")
+                    rows.append(" " * 8 + "└" + "─" * len(values))
+                    max_lbl = max(len(l) for l in labels)
+                    rows.append(" " * 9 + "  ".join(f"{l:>{max_lbl}}" for l in labels)[:80])
+
+                output = header + "```\n" + "\n".join(rows) + "\n```"
+
+            else:
+                # Pie chart: ASCII representation
+                rows = []
+                chars = "▓░▒▪▫◆◇●○■□"
+                for i, (lbl, val) in enumerate(zip(labels, values)):
+                    pct = (val / total * 100) if total > 0 else 0
+                    bar_len = int(round(pct / 100 * 30))
+                    ch = chars[i % len(chars)]
+                    rows.append(f"{ch * bar_len:<30} {lbl}: {val:g} ({pct:.1f}%)")
+                output = header + "```\n" + "\n".join(rows) + "\n```"
+
+            # Stats footer
+            stats = (
+                f"\n*Мин: {min_val:g}  Макс: {max_val:g}  "
+                f"Сумма: {total:g}  Среднее: {total/len(values):.2f}*"
+            )
+            return output + stats
+
+        self.register(SlashCommand(
+            "chart",
+            "ASCII-диаграмма: /chart <данные> [--type bar|line|pie] [--title ...]",
+            chart_handler,
+        ))
+
+        # ── Task 237: /perf ───────────────────────────────────────────────────
+
+        async def perf_handler(arg: str = "", **_) -> str:
+            if not arg.strip():
+                return (
+                    "**Использование:** `/perf <файл.py> [функция] [--top N] [--calls]`\n\n"
+                    "Примеры:\n"
+                    "- `/perf script.py` — профилировать весь файл\n"
+                    "- `/perf script.py main` — профилировать функцию main\n"
+                    "- `/perf script.py --top 20` — показать top-20 функций\n"
+                    "- `/perf script.py --calls` — включить дерево вызовов"
+                )
+
+            import re as _re
+            import sys
+
+            raw = arg.strip()
+
+            # Extract flags
+            top_n = 10
+            m_top = _re.search(r"--top\s+(\d+)", raw)
+            if m_top:
+                top_n = int(m_top.group(1))
+                raw = raw[:m_top.start()].strip() + raw[m_top.end():].strip()
+
+            show_calls = "--calls" in raw
+            if show_calls:
+                raw = raw.replace("--calls", "").strip()
+
+            parts = raw.split(None, 1)
+            file_part = parts[0]
+            func_name = parts[1].strip() if len(parts) > 1 else ""
+
+            p = Path(file_part)
+            if not p.exists():
+                return f"❌ Файл не найден: `{file_part}`"
+            if not p.is_file():
+                return f"❌ `{file_part}` — не файл."
+            if p.suffix != ".py":
+                return f"❌ Поддерживаются только `.py` файлы."
+
+            # Build a profiling script that runs the target and dumps stats
+            import asyncio
+            import tempfile, json as _json
+
+            prof_script = f"""\
+import cProfile
+import pstats
+import io
+import sys
+import json
+
+sys.path.insert(0, r"{p.parent}")
+
+pr = cProfile.Profile()
+pr.enable()
+
+try:
+    import runpy
+    runpy.run_path(r"{p}", run_name="__main__")
+except SystemExit:
+    pass
+except Exception as exc:
+    pass
+finally:
+    pr.disable()
+
+s = io.StringIO()
+ps = pstats.Stats(pr, stream=s).sort_stats("cumulative")
+ps.print_stats({top_n})
+stats_text = s.getvalue()
+print(stats_text)
+"""
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as tf:
+                tf.write(prof_script)
+                tf_name = tf.name
+
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, tf_name,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                try:
+                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    return f"❌ Профилирование прервано: превышен лимит 30 секунд."
+            finally:
+                import os as _os
+                try:
+                    _os.unlink(tf_name)
+                except Exception:
+                    pass
+
+            out = stdout.decode("utf-8", errors="replace")
+            err = stderr.decode("utf-8", errors="replace")
+
+            if not out.strip() and err.strip():
+                err_lines = err.splitlines()[:10]
+                return f"❌ Ошибка выполнения:\n```\n" + "\n".join(err_lines) + "\n```"
+
+            # Parse pstats output into a table
+            lines_out = out.splitlines()
+            # Find the header line
+            table_start = None
+            for i, ln in enumerate(lines_out):
+                if "ncalls" in ln and "tottime" in ln:
+                    table_start = i
+                    break
+
+            result_lines = [
+                f"**Профиль** `{p.name}`  (top {top_n} по cumtime)",
+                "",
+            ]
+
+            if table_start is not None:
+                # Header
+                result_lines.append("```")
+                header_line = lines_out[table_start]
+                result_lines.append(header_line)
+                result_lines.append("-" * min(len(header_line), 80))
+
+                data_rows = []
+                for ln in lines_out[table_start + 1:]:
+                    if not ln.strip():
+                        continue
+                    data_rows.append(ln)
+                    if len(data_rows) >= top_n:
+                        break
+
+                result_lines.extend(data_rows)
+                result_lines.append("```")
+            else:
+                # Fallback: show raw output
+                result_lines.append("```")
+                for ln in lines_out[:min(len(lines_out), top_n + 10)]:
+                    result_lines.append(ln)
+                result_lines.append("```")
+
+            # Summary: total time from "function calls in X seconds"
+            for ln in lines_out:
+                if "function calls" in ln and "seconds" in ln:
+                    result_lines.append(f"\n*{ln.strip()}*")
+                    break
+
+            # Call tree hint
+            if show_calls:
+                result_lines.append("\n**Совет:** Для дерева вызовов используйте `snakeviz` или `py-spy`.")
+
+            # Hotspot hint
+            if data_rows if table_start is not None else False:
+                first_row = data_rows[0] if data_rows else ""
+                result_lines.append(
+                    f"\n💡 Самая медленная функция: `{first_row.rsplit(None, 1)[-1] if first_row else '?'}`"
+                )
+
+            return "\n".join(result_lines)
+
+        self.register(SlashCommand(
+            "perf",
+            "Профилирование Python: /perf <файл.py> [--top N] [--calls]",
+            perf_handler,
+        ))
+
+        # ── Task 238: /env ────────────────────────────────────────────────────
+
+        async def env_handler(arg: str = "", **_) -> str:
+            import os as _os
+            import re as _re
+
+            raw = arg.strip()
+
+            # /env --export
+            if raw == "--export":
+                lines = ["**Export:**", "```bash"]
+                for k, v in sorted(_os.environ.items()):
+                    lines.append(f"export {k}={v!r}")
+                lines.append("```")
+                return "\n".join(lines)
+
+            # /env unset VAR
+            if raw == "unset" or raw.startswith("unset "):
+                key = raw[6:].strip() if raw.startswith("unset ") else ""
+                if not key:
+                    return "❌ Укажите имя переменной: `/env unset VAR`"
+                if key in _os.environ:
+                    del _os.environ[key]
+                    return f"✓ Переменная `{key}` удалена из окружения."
+                return f"⚠️ `{key}` не установлена."
+
+            # /env --filter PATTERN
+            m_filter = _re.match(r"--filter\s+(.+)", raw)
+            if m_filter:
+                pat = m_filter.group(1).strip().lower()
+                matches = {k: v for k, v in _os.environ.items() if pat in k.lower() or pat in v.lower()}
+                if not matches:
+                    return f"*Нет переменных, содержащих `{pat}`.*"
+                lines = [f"**Переменные окружения** (фильтр: `{pat}`):\n"]
+                for k in sorted(matches):
+                    v = matches[k]
+                    display = v if len(v) <= 60 else v[:60] + "…"
+                    lines.append(f"- `{k}` = `{display}`")
+                return "\n".join(lines)
+
+            # /env VAR=value — set
+            if "=" in raw and not raw.startswith("-"):
+                key, _, val = raw.partition("=")
+                key = key.strip()
+                val = val.strip()
+                if not key or not _re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
+                    return f"❌ Некорректное имя переменной: `{key}`"
+                _os.environ[key] = val
+                return f"✓ `{key}` = `{val}`"
+
+            # /env VAR — show one
+            if raw and not raw.startswith("-"):
+                val = _os.environ.get(raw)
+                if val is None:
+                    return f"⚠️ Переменная `{raw}` не установлена."
+                return f"**{raw}** = `{val}`"
+
+            # /env — list all (grouped by prefix)
+            env = _os.environ
+            total = len(env)
+            MAX = 50
+            lines = [f"**Переменные окружения** ({total} всего):\n"]
+            for k in sorted(env)[:MAX]:
+                v = env[k]
+                display = v if len(v) <= 60 else v[:60] + "…"
+                lines.append(f"- `{k}` = `{display}`")
+            if total > MAX:
+                lines.append(f"\n*…и ещё {total - MAX}. Используйте `/env --filter pat` для поиска.*")
+            lines.append(
+                "\n**Команды:** `/env VAR` • `/env VAR=val` • `/env unset VAR` • "
+                "`/env --filter pat` • `/env --export`"
+            )
+            return "\n".join(lines)
+
+        self.register(SlashCommand(
+            "env",
+            "Переменные окружения: /env [VAR] [VAR=val] [unset VAR] [--filter pat] [--export]",
+            env_handler,
+        ))
+
+        # ── Task 239: /template ───────────────────────────────────────────────
+
+        _TEMPLATES: dict[str, tuple[str, str]] = {
+            "class": ("MyClass.py", '''\
+class {Name}:
+    """Docstring for {Name}."""
+
+    def __init__(self) -> None:
+        pass
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}()"
+'''),
+            "function": ("func.py", '''\
+from typing import Any
+
+
+def {name}(*args: Any, **kwargs: Any) -> None:
+    """Docstring for {name}."""
+    raise NotImplementedError
+'''),
+            "dataclass": ("model.py", '''\
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class {Name}:
+    """Data model for {Name}."""
+
+    id: int = 0
+    name: str = ""
+    tags: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "name": self.name, "tags": self.tags}
+'''),
+            "test": ("test_module.py", '''\
+"""Tests for {name}."""
+from __future__ import annotations
+
+import pytest
+
+
+class Test{Name}:
+    def test_basic(self) -> None:
+        assert True
+
+    def test_raises(self) -> None:
+        with pytest.raises(NotImplementedError):
+            raise NotImplementedError
+'''),
+            "cli": ("cli.py", '''\
+"""CLI entry point."""
+from __future__ import annotations
+
+import argparse
+import sys
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="{name}")
+    parser.add_argument("--verbose", "-v", action="store_true")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+'''),
+            "fastapi": ("app.py", '''\
+"""FastAPI application."""
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+app = FastAPI(title="{name}")
+
+
+class Item(BaseModel):
+    id: int
+    name: str
+
+
+@app.get("/")
+async def root() -> dict[str, str]:
+    return {{"message": "Hello from {name}"}}
+
+
+@app.get("/items/{{item_id}}")
+async def get_item(item_id: int) -> Item:
+    return Item(id=item_id, name="example")
+'''),
+            "decorator": ("decorators.py", '''\
+"""Custom decorators."""
+from __future__ import annotations
+
+import functools
+import logging
+from typing import Any, Callable, TypeVar
+
+F = TypeVar("F", bound=Callable[..., Any])
+log = logging.getLogger(__name__)
+
+
+def {name}(func: F) -> F:
+    """Decorator: {name}."""
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        log.debug("Calling %s", func.__name__)
+        result = func(*args, **kwargs)
+        log.debug("Done %s", func.__name__)
+        return result
+    return wrapper  # type: ignore[return-value]
+'''),
+            "context": ("context.py", '''\
+"""Context manager."""
+from __future__ import annotations
+
+from contextlib import contextmanager
+from typing import Generator
+
+
+@contextmanager
+def {name}() -> Generator[None, None, None]:
+    """Context manager: {name}."""
+    # setup
+    try:
+        yield
+    finally:
+        # teardown
+        pass
+'''),
+        }
+
+        async def template_handler(arg: str = "", **_) -> str:
+            import re as _re
+
+            raw = arg.strip()
+
+            # /template — list all
+            if not raw or raw == "list":
+                names = sorted(_TEMPLATES)
+                lines = [f"**Доступные шаблоны** ({len(names)}):\n"]
+                for name in names:
+                    default_file, content = _TEMPLATES[name]
+                    loc = len(content.splitlines())
+                    lines.append(f"- `{name}` — `{default_file}` ({loc} строк)")
+                lines.append(
+                    "\n**Использование:**\n"
+                    "- `/template <имя>` — показать шаблон\n"
+                    "- `/template <имя> <файл.py>` — создать файл\n"
+                    "- `/template <имя> <файл.py> Name=MyClass` — с заменой"
+                )
+                return "\n".join(lines)
+
+            parts = raw.split(None)
+            tmpl_name = parts[0].lower()
+
+            if tmpl_name not in _TEMPLATES:
+                close = [k for k in _TEMPLATES if k.startswith(tmpl_name[:2])]
+                hint = f" Возможно: {', '.join(close)}" if close else ""
+                return f"❌ Шаблон `{tmpl_name}` не найден.{hint}\n\nДоступные: {', '.join(sorted(_TEMPLATES))}"
+
+            default_file, template_content = _TEMPLATES[tmpl_name]
+
+            # Collect substitutions: Name=Foo or name=foo from remaining parts
+            output_path: str | None = None
+            subs: dict[str, str] = {}
+            for part in parts[1:]:
+                if "=" in part and not part.startswith("/"):
+                    k, _, v = part.partition("=")
+                    subs[k.strip()] = v.strip()
+                elif not output_path:
+                    output_path = part
+
+            # Apply substitutions to template
+            content = template_content
+            for k, v in subs.items():
+                content = content.replace("{" + k + "}", v)
+
+            # /template name — just show
+            if output_path is None:
+                return (
+                    f"**Шаблон:** `{tmpl_name}` (→ `{default_file}`)\n\n"
+                    f"```python\n{content}```\n\n"
+                    f"*Создать файл: `/template {tmpl_name} <путь.py>`*"
+                )
+
+            p = Path(output_path)
+            if p.exists():
+                return f"❌ Файл уже существует: `{output_path}`. Удалите или выберите другое имя."
+
+            try:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(content, encoding="utf-8")
+            except Exception as e:
+                return f"❌ Ошибка записи: {e}"
+
+            loc = len(content.splitlines())
+            return (
+                f"✅ **Создан** `{output_path}` из шаблона `{tmpl_name}` ({loc} строк)\n\n"
+                f"```python\n{content[:400]}{'…' if len(content) > 400 else ''}```"
+            )
+
+        self.register(SlashCommand(
+            "template",
+            "Шаблоны кода: /template [имя] [файл] [Key=Value]",
+            template_handler,
+        ))
+
+        # ── Task 240: /alias ──────────────────────────────────────────────────
+
+        # Aliases are stored in .lidco/aliases.json as {name: command_string}
+        # They are also cached in-memory on the registry for fast lookup.
+        if not hasattr(self, "_aliases"):
+            self._aliases: dict[str, str] = {}
+
+        def _aliases_file() -> Path:
+            return Path(".lidco") / "aliases.json"
+
+        def _load_aliases() -> dict[str, str]:
+            import json as _json
+            f = _aliases_file()
+            if f.exists():
+                try:
+                    return _json.loads(f.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+            return {}
+
+        def _save_aliases(data: dict[str, str]) -> None:
+            import json as _json
+            f = _aliases_file()
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(_json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        async def alias_handler(arg: str = "", **_) -> str:
+            import re as _re
+
+            # Sync in-memory cache from disk on every call
+            self._aliases = _load_aliases()
+            raw = arg.strip()
+
+            # /alias — list
+            if not raw or raw == "list":
+                if not self._aliases:
+                    return (
+                        "*Нет сохранённых псевдонимов.*\n\n"
+                        "**Создать:** `/alias имя=/команда аргументы`\n"
+                        "**Удалить:** `/alias del имя`\n"
+                        "**Выполнить:** `/alias run имя`"
+                    )
+                lines = [f"**Псевдонимы** ({len(self._aliases)}):\n"]
+                for name in sorted(self._aliases):
+                    lines.append(f"- `{name}` → `{self._aliases[name]}`")
+                lines.append("\n**Выполнить:** `/alias run <имя>` | **Удалить:** `/alias del <имя>`")
+                return "\n".join(lines)
+
+            # /alias del name
+            if raw.startswith("del "):
+                name = raw[4:].strip()
+                if not name:
+                    return "❌ Укажите имя псевдонима: `/alias del <имя>`"
+                if name not in self._aliases:
+                    return f"⚠️ Псевдоним `{name}` не найден."
+                del self._aliases[name]
+                _save_aliases(self._aliases)
+                return f"✓ Псевдоним `{name}` удалён."
+
+            # /alias run name
+            if raw.startswith("run "):
+                name = raw[4:].strip()
+                if not name:
+                    return "❌ Укажите имя псевдонима: `/alias run <имя>`"
+                if name not in self._aliases:
+                    return f"⚠️ Псевдоним `{name}` не найден."
+                cmd = self._aliases[name]
+                return f"**Псевдоним** `{name}` → `{cmd}`\n\n*Скопируйте команду в строку ввода для выполнения.*"
+
+            # /alias show name
+            if raw.startswith("show "):
+                name = raw[5:].strip()
+                if not name:
+                    return "❌ Укажите имя: `/alias show <имя>`"
+                if name not in self._aliases:
+                    return f"⚠️ Псевдоним `{name}` не найден."
+                return f"**{name}** = `{self._aliases[name]}`"
+
+            # /alias clear
+            if raw == "clear":
+                self._aliases.clear()
+                _save_aliases(self._aliases)
+                return "✓ Все псевдонимы удалены."
+
+            # /alias name=/command ... — create/update
+            if "=" in raw:
+                name, _, cmd = raw.partition("=")
+                name = name.strip()
+                cmd = cmd.strip()
+                if not name or not _re.match(r"^[A-Za-z0-9_-]+$", name):
+                    return f"❌ Некорректное имя псевдонима: `{name}`. Используйте буквы, цифры, `-`, `_`."
+                if not cmd:
+                    return f"❌ Команда не может быть пустой."
+                self._aliases[name] = cmd
+                _save_aliases(self._aliases)
+                return f"✓ Псевдоним `{name}` = `{cmd}` сохранён."
+
+            # Unknown subcommand
+            return (
+                f"❌ Неизвестная команда: `{raw}`\n\n"
+                "**Использование:**\n"
+                "- `/alias` — список псевдонимов\n"
+                "- `/alias <имя>=<команда>` — создать\n"
+                "- `/alias run <имя>` — показать для выполнения\n"
+                "- `/alias del <имя>` — удалить\n"
+                "- `/alias clear` — удалить все"
+            )
+
+        self.register(SlashCommand(
+            "alias",
+            "Псевдонимы команд: /alias [имя=команда] [run|del|list|clear]",
+            alias_handler,
+        ))
+
