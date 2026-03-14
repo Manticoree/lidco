@@ -393,29 +393,126 @@ class CommandRegistry:
             return "__EXIT__"
 
         async def init_handler(arg: str = "", **_: Any) -> str:
+            from pathlib import Path
+
+            from lidco.cli.init_generator import InitGenerator
             from lidco.core.rules import RulesManager
 
-            rules_mgr = RulesManager()
-            if rules_mgr.has_rules_file():
+            project_dir = (
+                registry._session.project_dir
+                if registry._session
+                else Path.cwd()
+            )
+            rules_mgr = RulesManager(project_dir)
+
+            if rules_mgr.has_rules_file() and "--force" not in (arg or ""):
                 return (
                     f"**LIDCO.md** already exists at `{rules_mgr.rules_file}`.\n\n"
-                    "Use `/rules` to view or add rules."
+                    "Use `/init --force` to regenerate it, or `/rules` to manage rules."
                 )
 
-            project_name = arg.strip() if arg.strip() else None
-            try:
-                path = rules_mgr.init_rules(project_name=project_name)
-            except OSError as e:
-                return f"Failed to create rules file: {e}"
+            gen = InitGenerator(project_dir)
+            profile = gen.analyze()
+            content = gen.generate(profile)
 
-            return (
-                f"Created **LIDCO.md** at `{path}`\n\n"
-                f"Also created `.lidco/rules/` directory for additional rule files.\n\n"
-                "Edit `LIDCO.md` directly or use:\n"
-                "- `/rules add Title: description` - append a rule to LIDCO.md\n"
-                "- `/rules file name: content` - create a separate rule file\n"
-                "- `/rules list` - show all current rules"
+            if rules_mgr.has_rules_file() and "--force" in (arg or ""):
+                rules_mgr.rules_file.write_text(content, encoding="utf-8")
+                return f"Regenerated **LIDCO.md** at `{rules_mgr.rules_file}` based on project analysis."
+
+            try:
+                rules_mgr.rules_file.write_text(content, encoding="utf-8")
+                rules_mgr.rules_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                return f"Failed to create LIDCO.md: {e}"
+
+            sources = (
+                f"\n\nDetected: **{profile.language}**"
+                + (f" / {profile.framework}" if profile.framework else "")
+                + (f" · tests: `{profile.test_runner}`" if profile.test_runner else "")
             )
+            return (
+                f"Created **LIDCO.md** at `{rules_mgr.rules_file}`{sources}\n\n"
+                "Edit it freely — agents read it on every session start.\n"
+                "Use `/rules` to manage rules, `/permissions` to manage tool access."
+            )
+
+        async def permissions_handler(arg: str = "", **_: Any) -> str:
+            """View and manage permission rules."""
+            from rich.table import Table
+
+            if not registry._session:
+                return "Session not initialized."
+
+            engine = registry._session.permission_engine
+            summary = engine.get_summary()
+            arg = (arg or "").strip()
+
+            # Subcommands
+            if arg.startswith("mode "):
+                new_mode = arg[5:].strip()
+                valid_modes = {"default", "accept_edits", "plan", "dont_ask", "bypass"}
+                if new_mode not in valid_modes:
+                    return f"Invalid mode. Valid: {', '.join(sorted(valid_modes))}"
+                engine.set_mode(new_mode)
+                return f"Permission mode set to **{new_mode}**"
+
+            if arg.startswith("add "):
+                parts_arg = arg[4:].strip().split(None, 1)
+                if len(parts_arg) < 2:
+                    return "Usage: `/permissions add allow|ask|deny Rule(pattern)`"
+                level, rule_spec = parts_arg[0], parts_arg[1]
+                if level == "allow":
+                    engine.add_persistent_allow(rule_spec)
+                elif level == "deny":
+                    engine.add_persistent_deny(rule_spec)
+                elif level == "ask":
+                    engine._ask_rules.append(
+                        __import__("lidco.core.permission_engine", fromlist=["RuleParser"]).RuleParser.parse(rule_spec)
+                    )
+                else:
+                    return "Level must be: allow | ask | deny"
+                return f"Added **{level}** rule: `{rule_spec}`"
+
+            if arg.startswith("remove "):
+                return "Use `/permissions remove allow N` or `deny N` (0-indexed)."
+
+            if arg == "clear":
+                engine._session_allowed.clear()
+                engine._session_denied.clear()
+                return "Session permission decisions cleared."
+
+            if arg == "save":
+                engine._save()
+                return f"Rules saved to `.lidco/permissions.json`"
+
+            # Default: show summary
+            mode_color = {
+                "default": "white", "accept_edits": "green", "plan": "yellow",
+                "dont_ask": "red", "bypass": "magenta",
+            }.get(summary["mode"], "white")
+
+            lines = [f"**Permission Mode:** [{mode_color}]{summary['mode']}[/{mode_color}]\n"]
+
+            def _section(title: str, rules: list[str], color: str) -> None:
+                if rules:
+                    lines.append(f"**{title}** ({len(rules)})")
+                    for r in rules:
+                        lines.append(f"  [{color}]✓[/{color}] `{r}`")
+                    lines.append("")
+
+            _section("Command allowlist", summary["command_allowlist"], "green")
+            _section("Config allow_rules", summary["allow_rules"], "green")
+            _section("Config ask_rules", summary["ask_rules"], "yellow")
+            _section("Config deny_rules", summary["deny_rules"], "red")
+            _section("Persistent allow", summary["persistent_allow"], "green")
+            _section("Persistent deny", summary["persistent_deny"], "red")
+            _section("Session allowed", summary["session_allowed"], "cyan")
+            _section("Session denied", summary["session_denied"], "dim")
+
+            lines.append(
+                "\n**Subcommands:** `mode <mode>` · `add allow|ask|deny Rule(pat)` · `clear` · `save`"
+            )
+            return "\n".join(lines)
 
         async def rules_handler(arg: str = "", **_: Any) -> str:
             from lidco.core.rules import RulesManager
@@ -1689,7 +1786,8 @@ class CommandRegistry:
         self.register(SlashCommand("context", "Show current project context", context_handler))
         self.register(SlashCommand("index", "Build/update the structural project index", index_handler))
         self.register(SlashCommand("index-status", "Show current index statistics", index_status_handler))
-        self.register(SlashCommand("init", "Initialize LIDCO.md rules file", init_handler))
+        self.register(SlashCommand("init", "Generate LIDCO.md from project analysis [--force]", init_handler))
+        self.register(SlashCommand("permissions", "View and manage tool permission rules", permissions_handler))
         self.register(SlashCommand("rules", "Manage project rules", rules_handler))
         self.register(SlashCommand("decisions", "Manage clarification decisions", decisions_handler))
         self.register(SlashCommand("export", "Export session to JSON (default) or Markdown (--md)", export_handler))

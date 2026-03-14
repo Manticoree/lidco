@@ -1337,3 +1337,797 @@ ddmin(input_components):
 | 142 | Multiline Line Counter | ✅ Done | 0.5d | Промпт показывает `[3 lines]` при мультилайн-вводе вместо подсказки (Esc+Enter) |
 | 143 | `/retry` Command | ✅ Done | 0.5d | Повторяет последнее сообщение (или новое если передан аргумент) |
 | 144 | `/undo` Command | ✅ Done | 0.5d | Показывает изменённые файлы + `/undo --force` восстанавливает через `git restore` |
+
+---
+
+
+## Q37 — Safety & Permissions
+
+**Цель:** реализовать систему разрешений и контроля — фундаментальная функция всех конкурентов (Claude Code, Codex CLI, Droid). Без неё LIDCO небезопасно запускать в автономном режиме.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 244 | [LIDCO.md — инструкции проекта](#244-lidcomd) | ✅ Done | 2d | единый источник правил для агентов |
+| 245 | [Система режимов разрешений](#245-permission-modes) | ✅ Done | 3d | безопасный автономный режим |
+| 246 | [Per-tool правила с wildcards](#246-per-tool-rules) | ✅ Done | 2d | точный контроль разрешений |
+| 247 | [Интерактивный approval flow](#247-approval-flow) | ✅ Done | 2d | y/n/always/never перед опасными ops |
+| 248 | [/permissions команда](#248-permissions-command) | ✅ Done | 1d | просмотр и управление правилами |
+| 249 | [Sandboxed shell execution](#249-sandboxed-shell) | ✅ Done | 3d | изоляция процессов, configurable writable roots |
+| 250 | [Path-scoped правила](#250-path-scoped-rules) | ✅ Done | 1d | правила активны только для нужных файлов |
+| 251 | [/init — auto-generate LIDCO.md](#251-init-command) | ✅ Done | 2d | анализ проекта и генерация готового файла инструкций |
+| 252 | [Rule-based command allowlist](#252-command-allowlist) | ✅ Done | 1d | allow-list часто используемых команд без повторных запросов |
+
+---
+
+## Q38 — MCP Protocol
+
+**Цель:** поддержка Model Context Protocol — стандарт для подключения внешних инструментов. Claude Code: 50+ серверов, Codex CLI: 40+. LIDCO: 0. Самый большой функциональный пробел.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 253 | [MCP stdio transport — ядро](#253-mcp-stdio) | 🔲 TODO | 4d | подключение локальных MCP серверов (Browser, Playwright, etc.) |
+| 254 | [MCP tool injection в агенты](#254-mcp-tool-injection) | 🔲 TODO | 2d | MCP-инструменты автоматически доступны всем агентам |
+| 255 | [MCP HTTP/SSE transport](#255-mcp-http) | 🔲 TODO | 3d | удалённые MCP серверы (Linear, Slack, GitHub, Notion) |
+| 256 | [/mcp команда — интерактивный UI](#256-mcp-command) | 🔲 TODO | 1d | list/add/remove/status MCP серверов в сессии |
+| 257 | [Per-project mcp.json конфиг](#257-mcp-config) | 🔲 TODO | 1d | .lidco/mcp.json + ~/.lidco/mcp.json с приоритетами |
+| 258 | [OAuth auth flow для HTTP MCP](#258-mcp-oauth) | 🔲 TODO | 2d | авторизация в GitHub, Linear, Notion через браузер |
+| 259 | [LIDCO как MCP сервер](#259-lidco-as-mcp) | 🔲 TODO | 2d | expose собственных инструментов LIDCO для внешних агентов |
+| 260 | [MCP hot-reload](#260-mcp-hotreload) | 🔲 TODO | 1d | изменение mcp.json без рестарта сессии |
+
+---
+
+## Q39 — Headless Mode & CI/CD
+
+**Цель:** неинтерактивный режим для автоматизации, CI/CD, pre-commit хуков. Все конкуренты имеют exec-режим. LIDCO работает только как REPL.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 261 | [lidco exec — headless режим](#261-lidco-exec) | 🔲 TODO | 3d | неинтерактивное выполнение: lidco exec "fix all tests" |
+| 262 | [JSON output mode (--json)](#262-json-output) | 🔲 TODO | 1d | машиночитаемый вывод всех действий и результатов |
+| 263 | [Правильные exit codes](#263-exit-codes) | 🔲 TODO | 0.5d | 0=success, 1=task_failed, 2=config_error, 3=permission_denied |
+| 264 | [GitHub Actions интеграция](#264-github-actions) | 🔲 TODO | 2d | lidco-action: установка, proxy, lidco exec в CI |
+| 265 | [Pre-commit hook режим](#265-precommit-hook) | 🔲 TODO | 1d | code review и security scan перед каждым коммитом |
+| 266 | [GitLab CI/CD поддержка](#266-gitlab-ci) | 🔲 TODO | 1d | unified diff как .patch + git apply --check |
+| 267 | [Pipe-friendly stdin/stdout](#267-pipe-mode) | 🔲 TODO | 1d | echo "fix tests" | lidco exec, composable CLI |
+
+---
+
+## Q40 — YAML Agents & Worktrees
+
+**Цель:** создание агентов через .md файлы без написания кода (как в Claude Code .claude/agents/ и Droid .factory/droids/), параллельные агенты в изолированных git worktrees.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 268 | [YAML-агенты (.lidco/agents/)](#268-yaml-agents) | 🔲 TODO | 4d | создание агентов через Markdown+YAML frontmatter |
+| 269 | [Git worktree isolation](#269-worktree-isolation) | 🔲 TODO | 3d | каждый параллельный агент в отдельном git worktree |
+| 270 | [Background agent execution](#270-background-agents) | 🔲 TODO | 2d | Ctrl+B переводит агента в фон, уведомление по завершению |
+| 271 | [/agents команда](#271-agents-command) | 🔲 TODO | 1d | list/inspect/stop агентов, просмотр running threads |
+| 272 | [Agent memory dirs](#272-agent-memory) | 🔲 TODO | 1d | персистентная память на агента (.lidco/memory/{agent_name}/) |
+| 273 | [Tool allowlist/denylist в YAML](#273-agent-tools) | 🔲 TODO | 1d | tools: [read, grep, bash] + disallowed_tools: [file_write] |
+| 274 | [Per-agent permission mode](#274-agent-permissions) | 🔲 TODO | 1d | permission_mode: plan для read-only аналитических агентов |
+| 275 | [Agent forking через Task tool](#275-agent-forking) | 🔲 TODO | 2d | агент создаёт субагентов по имени через Task(subagent_type=name) |
+
+---
+
+## Q41 — UX Completeness
+
+**Цель:** закрыть UX-пробелы по сравнению с конкурентами — команды для управления контекстом, файлами, темой, моделью.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 276 | [/compact [focus]](#276-compact-command) | 🔲 TODO | 1d | явная LLM-компрессия истории с указанием что сохранить |
+| 277 | [/context — визуальный gauge](#277-context-gauge) | 🔲 TODO | 1d | цветовая шкала + % + разбивка токенов по слоям |
+| 278 | [/mention — добавить файлы в контекст](#278-mention-command) | 🔲 TODO | 1d | /mention src/foo.py инжектирует файл в следующий turn |
+| 279 | [/model — смена модели в сессии](#279-model-switch) | 🔲 TODO | 0.5d | без рестарта, немедленный эффект для следующего запроса |
+| 280 | [/theme — выбор цветовой темы](#280-theme-command) | 🔲 TODO | 1d | preview + сохранение: dark/light/solarized/nord/monokai |
+| 281 | [/add-dir — расширить доступные директории](#281-adddir-command) | 🔲 TODO | 1d | добавить внешние папки к сессии (--add-dir ../backend) |
+| 282 | [@-mentions файлов в промпте](#282-at-mentions) | 🔲 TODO | 2d | @src/foo.py в тексте автоматически читает и инжектирует файл |
+| 283 | [Checkpoint-based undo](#283-checkpoints) | 🔲 TODO | 2d | снапшот перед каждым file-write → /undo N шагов назад |
+| 284 | [Interactive diff approval](#284-diff-approval) | 🔲 TODO | 2d | approve/reject/edit каждого file-write до реальной записи |
+| 285 | [Session resume после crash](#285-session-resume) | 🔲 TODO | 2d | автосохранение состояния сессии → lidco --resume SESSION_ID |
+
+---
+
+## Q42 — TDD Pipeline & Batch
+
+**Цель:** нативная TDD-оркестрация как в Droid (spec→test→code loop) и /batch для параллельной обработки больших задач как в Claude Code.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 286 | [Native TDD pipeline](#286-tdd-pipeline) | 🔲 TODO | 4d | spec-writer → tester (RED) → coder (GREEN) → verify loop |
+| 287 | [/spec — specification mode](#287-spec-mode) | 🔲 TODO | 2d | генерация детальной спецификации перед реализацией |
+| 288 | [/batch — параллельная декомпозиция](#288-batch-command) | 🔲 TODO | 4d | задача разбивается на 5-30 единиц, каждая в своём worktree |
+| 289 | [/simplify — параллельный code review](#289-simplify-command) | 🔲 TODO | 2d | 3 параллельных reviewer → объединение и исправление замечаний |
+| 290 | [Best-of-N code generation](#290-best-of-n) | 🔲 TODO | 2d | --attempts N → N вариантов решения → выбор лучшего по тестам |
+| 291 | [Test-first enforcement](#291-test-first) | 🔲 TODO | 1d | предупреждение/блокировка если coder пишет без тестов |
+| 292 | [Auto-coverage gap closure](#292-coverage-closure) | 🔲 TODO | 2d | tester агент автодописывает тесты для непокрытых строк |
+
+---
+
+## Q43 — Skills & Plugin System
+
+**Цель:** переиспользуемые workflow-определения как в Codex CLI (SKILL.md) и Claude Code Skills. Пользователи создают и шарят автоматизации без написания кода.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 293 | [Skills система (.lidco/skills/)](#293-skills-system) | 🔲 TODO | 3d | SKILL.md с YAML frontmatter (name, desc, prompt, context, scripts) |
+| 294 | [Skill discovery → slash-команды](#294-skill-discovery) | 🔲 TODO | 1d | авто-обнаружение из .lidco/skills/ и ~/.lidco/skills/ |
+| 295 | [Skill chaining (pipeline)](#295-skill-chaining) | 🔲 TODO | 2d | /skill1 | /skill2 — результат одного передаётся следующему |
+| 296 | [Custom slash commands (commands.yaml)](#296-custom-commands) | 🔲 TODO | 1d | .lidco/commands.yaml: name: /review, prompt: "review {args}" |
+| 297 | [Global skill library (~/.lidco/skills/)](#297-global-skills) | 🔲 TODO | 1d | персональные skills, доступные во всех проектах |
+| 298 | [/skills команда + popup](#298-skills-command) | 🔲 TODO | 1d | list/describe/run/edit; popup при вводе / в REPL |
+| 299 | [Skill версионирование и зависимости](#299-skill-versioning) | 🔲 TODO | 1d | version: 1.2, requires: [git, pytest], авто-проверка |
+
+---
+
+## Q44 — API Server & IDE Integration
+
+**Цель:** JSON-RPC сервер как API-слой для IDE-интеграций, базовый VS Code extension, remote доступ к сессиям.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 300 | [lidco server — JSON-RPC API](#300-api-server) | 🔲 TODO | 4d | HTTP+WebSocket сервер для IDE-коннекторов и внешних клиентов |
+| 301 | [WebSocket streaming API](#301-ws-streaming) | 🔲 TODO | 2d | real-time стриминг ответов и статусов агента в IDE |
+| 302 | [REST API для tool execution](#302-rest-api) | 🔲 TODO | 2d | POST /execute, GET /status, GET /history, GET /tools |
+| 303 | [VS Code extension (MVP)](#303-vscode-extension) | 🔲 TODO | 5d | chat panel + diff viewer + inline suggestions через lidco server |
+| 304 | [LSP bridge](#304-lsp-bridge) | 🔲 TODO | 3d | Language Server Protocol адаптер — поддержка любого LSP редактора |
+| 305 | [Remote session (HTTPS tunnel)](#305-remote-session) | 🔲 TODO | 3d | подключение к lidco server с другой машины через токен |
+| 306 | [Multi-session management](#306-multi-session) | 🔲 TODO | 2d | несколько параллельных сессий, /sessions для переключения |
+
+---
+
+## Q45 — Advanced Context & Memory
+
+**Цель:** контекст как OS-ресурс (Droid-подход) — умное управление что включать, когда сжимать, как шарить между сессиями и командой.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 307 | [Adaptive context paging](#307-context-paging) | 🔲 TODO | 4d | динамическое ранжирование что включать — "OS for context" |
+| 308 | [Path-scoped rule loading](#308-path-scoped-loading) | 🔲 TODO | 2d | rules/ грузятся только при работе с matching файлами — экономия токенов |
+| 309 | [Multi-level memory hierarchy](#309-memory-hierarchy) | 🔲 TODO | 2d | session > project > user > org; конкретное перекрывает общее |
+| 310 | [Memory search и browse](#310-memory-search) | 🔲 TODO | 1d | /memory search <query> по всем memory файлам с ранжированием |
+| 311 | [Team/org shared memory](#311-shared-memory) | 🔲 TODO | 3d | .lidco/team-memory.md — общая база знаний команды в репо |
+| 312 | [Context layers visualization](#312-context-layers) | 🔲 TODO | 1d | /context детально: LIDCO.md N tok, memory N tok, RAG N tok, history N tok |
+| 313 | [Memory auto-compression](#313-memory-compression) | 🔲 TODO | 2d | при росте MEMORY.md > 500 строк — LLM сжимает старые записи |
+
+---
+
+## Q46 — Advanced AI Features
+
+**Цель:** возможности, превышающие конкурентов — multi-model sampling, адаптивное планирование, режим глубокого мышления.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 314 | [Multi-model sampling (best-of-N)](#314-multimodel-sampling) | 🔲 TODO | 3d | N параллельных LLM-вызовов → выбор лучшего по critic |
+| 315 | [/think — режим глубокого мышления](#315-think-mode) | 🔲 TODO | 1d | расширенный token budget на reasoning, extended thinking API |
+| 316 | [Speculative tool pre-fetch](#316-speculative-prefetch) | 🔲 TODO | 3d | предсказать следующий tool call и начать выполнение заранее |
+| 317 | [MPC-inspired adaptive planning](#317-mpc-planning) | 🔲 TODO | 4d | после каждого шага пересчитывать оптимальную траекторию плана |
+| 318 | [Confidence-weighted routing](#318-confidence-routing) | 🔲 TODO | 2d | роутер выдаёт confidence score → re-route при низкой уверенности |
+| 319 | [Plan rollback on failure](#319-plan-rollback) | 🔲 TODO | 2d | автоматический rollback на checkpoint при провале шага плана |
+| 320 | [Self-consistency checking](#320-self-consistency) | 🔲 TODO | 2d | N независимых ответов → выбор наиболее консистентного |
+
+---
+
+## Q47 — Enterprise & Security
+
+**Цель:** enterprise-grade безопасность и аудит. DroidShield-аналог. Пригодность для production-команд.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 321 | [AI Shield — pre-commit анализ](#321-ai-shield) | 🔲 TODO | 3d | LLM-анализ диффа перед коммитом: уязвимости, баги, секреты |
+| 322 | [Full audit trail](#322-audit-trail) | 🔲 TODO | 2d | каждое действие агента логируется с reasoning в SQLite |
+| 323 | [Session replay](#323-session-replay) | 🔲 TODO | 2d | воспроизведение прошлой сессии пошагово для отладки |
+| 324 | [Secret detection (pre-commit)](#324-secret-detection) | 🔲 TODO | 1d | обнаружение API-ключей и паролей в изменённых файлах |
+| 325 | [Role-based access control (RBAC)](#325-rbac) | 🔲 TODO | 3d | роли: viewer/editor/admin — ограничения tool access per role |
+| 326 | [Usage analytics dashboard](#326-analytics) | 🔲 TODO | 2d | /analytics: top commands, cost по дням, agent usage, LLM calls |
+| 327 | [Compliance reporting](#327-compliance) | 🔲 TODO | 2d | экспорт audit log в JSON/CSV для compliance и security отчётов |
+
+---
+
+## Q48 — Cloud & Async Execution
+
+**Цель:** асинхронные фоновые задачи, персистентность сессий, multi-repo поддержка как в Codex CLI Cloud Tasks.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 328 | [Async task queue](#328-cloud-tasks) | 🔲 TODO | 5d | lidco exec --async → задача в очереди, lidco task status ID |
+| 329 | [Session persistence (resume)](#329-session-persistence) | 🔲 TODO | 3d | сессия сохраняется при выходе → lidco --resume SESSION_ID |
+| 330 | [Multi-repo support](#330-multi-repo) | 🔲 TODO | 2d | --add-repo ../backend — работа с несколькими репозиториями |
+| 331 | [Task notification system](#331-notifications) | 🔲 TODO | 1d | desktop/webhook уведомления по завершению долгих задач |
+| 332 | [Task result apply](#332-task-apply) | 🔲 TODO | 2d | lidco task apply TASK_ID — применение изменений из async задачи |
+| 333 | [Parallel task management](#333-parallel-tasks) | 🔲 TODO | 2d | /tasks — список активных задач, cancel/pause/resume |
+| 334 | [Best-of-N async runs](#334-best-of-n-async) | 🔲 TODO | 2d | --attempts 3 → 3 параллельных запуска, выбор лучшего по тестам |
+
+---
+
+## Task Details (Q37+)
+
+### 244. LIDCO.md
+**Файлы:** `src/lidco/core/config.py`, `src/lidco/core/session.py`, `src/lidco/cli/app.py`
+**Цель:** стандартный файл инструкций проекта по аналогии с CLAUDE.md (Claude Code) и AGENTS.md (Codex CLI / Droid). Агенты автоматически читают его при старте.
+**Иерархия** (более конкретное перекрывает общее):
+1. `C:\ProgramData\lidco\LIDCO.md` — managed (организационная политика)
+2. `.lidco/LIDCO.md` или `LIDCO.md` — project level
+3. `~/.lidco/LIDCO.md` — user level
+**Подход:**
+- Загружать при старте сессии через `LidcoMdLoader.load(cwd)` — обходит от CWD вверх до root
+- Поддержка `@path/to/file.md` синтаксиса для включения внешних файлов
+- Lazy-загрузка из поддиректорий (load on demand при работе с файлом в поддиректории)
+- `LidcoMdExcludes` glob-паттерны в config для исключения файлов
+- Инжектировать как первый system message с тегом `## Project Instructions`
+- `/init` команда (задача 251) генерирует шаблон анализируя проект
+
+---
+
+### 245. Permission Modes
+**Файлы:** `src/lidco/core/permissions.py` (новый), `src/lidco/core/config.py`, `src/lidco/agents/base.py`
+**Цель:** система режимов разрешений с гранулярным контролем каждого инструмента.
+**Режимы:**
+- `default` — запрашивает разрешение при первом использовании каждого инструмента
+- `accept_edits` — автоматически принимает все file edit разрешения
+- `plan` — read-only: нет записи файлов, нет выполнения команд
+- `dont_ask` — автоматически отклоняет если нет явного allow-правила
+- `bypass` — пропускает все проверки (только для контейнеров/VM)
+**Подход:**
+- `PermissionManager` с методом `check(tool_name, args) -> PermissionResult`
+- `PermissionResult`: allow / ask / deny + reason
+- Порядок оценки: deny-правила → ask-правила → allow-правила → default режим
+- Сохранение решений в `.lidco/permissions.json` (session-scoped)
+- `config.permissions.mode: str` — режим по умолчанию
+
+---
+
+### 246. Per-Tool Rules
+**Файлы:** `src/lidco/core/permissions.py`, `src/lidco/core/config.py`
+**Цель:** точные правила разрешений для каждого инструмента с wildcard-паттернами.
+**Синтаксис:**
+```yaml
+permissions:
+  allow:
+    - "Bash(pytest *)"
+    - "Bash(git diff *)"
+    - "FileRead(**)"
+  ask:
+    - "Bash(git *)"
+    - "FileWrite(src/**)"
+  deny:
+    - "Bash(git push *)"
+    - "FileWrite(.env)"
+    - "Bash(rm -rf *)"
+```
+**Подход:**
+- `RuleParser.parse(spec)` — разбирает `Tool(pattern)` синтаксис
+- Wildcard: `*` = любой суффикс, `**` = рекурсивный путь
+- Для Bash: аргументы как список через execvp-семантику
+- Для FileRead/FileWrite: gitignore-паттерны путей
+- Правила из `.lidco/settings.json` + `~/.lidco/settings.json` + managed config
+
+---
+
+### 247. Approval Flow
+**Файлы:** `src/lidco/cli/approval.py` (новый), `src/lidco/cli/app.py`
+**Цель:** интерактивный запрос разрешения перед опасными операциями.
+**UI:**
+```
+ Bash  git push origin main
+Allow? [y]es / [n]o / [a]lways / [A]lways for session / [N]ever / [e]xplain
+```
+**Подход:**
+- `ApprovalPrompt.ask(tool_name, args, context) -> Decision`
+- `Decision`: allow_once / allow_always / allow_session / deny_once / deny_always
+- Сохранение allow_always в `.lidco/permissions.json`
+- `explain` показывает почему инструмент требует разрешения
+- Цветовое кодирование: зелёный=безопасно, жёлтый=обратимо, красный=необратимо
+- При `plan` режиме — автоматически deny с объяснением
+
+---
+
+### 248. /permissions Command
+**Файлы:** `src/lidco/cli/commands.py`
+**Цель:** интерактивный просмотр и управление текущими правилами разрешений.
+**UI:**
+```
+Permission Rules (session)
+Mode: default
+
+ALLOWED (3)
+  ✓ Bash(pytest *)
+  ✓ FileRead(**)
+
+DENIED (1)
+  ✗ Bash(git push *)
+
+[a]dd rule  [r]emove  [m]ode  [c]lear session
+```
+**Подход:**
+- Таблица Rich с текущими allow/ask/deny правилами
+- Интерактивное добавление/удаление правил
+- Смена режима (`/permissions mode plan`)
+- Экспорт в `.lidco/settings.json`
+
+---
+
+### 249. Sandboxed Shell Execution
+**Файлы:** `src/lidco/tools/bash.py`, `src/lidco/core/sandbox.py` (новый)
+**Цель:** изоляция shell-команд агента — ограничение файловой системы и сети.
+**Подход:**
+- `SandboxConfig`: `writable_roots: list[str]`, `network_access: bool`, `allowed_domains: list[str]`
+- На Windows: Job Objects для ограничения child процессов
+- На Linux: seccomp/landlock через subprocess с ограниченными capabilities
+- `writable_roots` по умолчанию: только CWD проекта
+- `--add-dir` расширяет writable_roots
+- Блокировка записи в `.git/`, `.lidco/` даже в writable_roots
+- Конфигурация через `config.sandbox.*`
+
+---
+
+### 250. Path-Scoped Rules
+**Файлы:** `src/lidco/core/config.py`, `src/lidco/core/session.py`
+**Цель:** правила, которые активируются только при работе с определёнными файлами — экономия токенов на системных промптах.
+**Синтаксис в LIDCO.md:**
+```markdown
+<!-- scope: src/api/**/*.py -->
+Always validate input with Pydantic schemas.
+Never use global state.
+<!-- end scope -->
+```
+**Подход:**
+- `PathScopedRule(pattern: str, content: str)`
+- Активация при наличии текущего файла matching pattern в контексте
+- `RuleActivator.get_active_rules(current_files: list[str]) -> list[str]`
+- Инжекция активных правил в начало system prompt
+
+---
+
+### 251. /init Command
+**Файлы:** `src/lidco/cli/commands.py`, `src/lidco/cli/init_generator.py` (новый)
+**Цель:** автоматическая генерация LIDCO.md анализом текущего проекта.
+**Анализ:**
+- Язык/фреймворк (pyproject.toml, package.json, Cargo.toml, go.mod)
+- Тест-фреймворк (pytest, jest, cargo test, go test)
+- Линтеры (ruff, eslint, clippy)
+- Команды сборки и запуска тестов
+- Существующие соглашения из README.md
+- Структура директорий
+**Генерирует:**
+```markdown
+# LIDCO.md
+
+## Project
+Python CLI tool. Python 3.13, pytest, ruff.
+
+## Commands
+- Run tests: python -m pytest -q
+- Lint: ruff check src/
+
+## Conventions
+- All tests in tests/unit/
+- Use frozen dataclasses for data objects
+- No mutation of arguments
+```
+
+---
+
+### 252. Command Allowlist
+**Файлы:** `src/lidco/core/config.py`, `src/lidco/core/permission_engine.py`
+**Статус:** ✅ Done — `PermissionsConfig.command_allowlist: list[str]` с дефолтными безопасными командами (pytest, git status/diff/log, ruff, mypy). Автоматически раскрываются в `Bash(pattern)` allow-правила в `PermissionEngine`. Отображаются отдельной секцией в `/permissions`. 22 теста в `test_command_allowlist.py`.
+
+---
+
+### 253. MCP Stdio Transport
+**Файлы:** `src/lidco/mcp/` (новый пакет), `src/lidco/core/session.py`
+**Цель:** запуск MCP серверов как дочерних процессов, управление lifecycle.
+**Подход:**
+- `MCPServer`: dataclass с `name, command, args, env`
+- `MCPClient`: запускает `command args` как subprocess, JSON-RPC по stdin/stdout
+- Протокол: JSON-RPC 2.0, методы `initialize`, `tools/list`, `tools/call`
+- `MCPManager`: singleton, управляет всеми серверами (start/stop/restart)
+- Авто-старт при загрузке `mcp.json`
+- Reconnect при падении сервера (exponential backoff)
+- Timeout на initialize (5s), на tool call (30s, configurable)
+- Пример: подключение `@playwright/mcp`, `@modelcontextprotocol/server-github`
+
+---
+
+### 254. MCP Tool Injection
+**Файлы:** `src/lidco/mcp/tool_adapter.py` (новый), `src/lidco/core/tool_registry.py`
+**Цель:** MCP-инструменты становятся доступны агентам наравне с встроенными.
+**Подход:**
+- `MCPToolAdapter.to_tool(mcp_tool_schema) -> BaseTool` — оборачивает MCP tool
+- Namespace: `mcp__servername__toolname` для уникальности
+- Инжекция в `ToolRegistry` при старте сессии
+- `MCPTool.execute(args)` → JSON-RPC call → ответ как ToolResult
+- Фильтрация по агентам: в YAML-агенте можно ограничить `mcp_servers: [github]`
+
+---
+
+### 261. lidco exec
+**Файлы:** `src/lidco/cli/exec_mode.py` (новый), `pyproject.toml`
+**Цель:** полноценный headless режим для CI/CD и автоматизации.
+**CLI:**
+```bash
+lidco exec "fix all failing tests"
+lidco exec --json "add docstrings to src/api/"
+lidco exec --max-turns 20 --permission-mode bypass "refactor utils.py"
+echo "task from stdin" | lidco exec
+```
+**Подход:**
+- `ExecRunner.run(task, config) -> ExecResult`
+- `ExecResult`: success: bool, changes: list[FileChange], output: str, cost: float
+- Нет Rich/spinner — только plain text или JSON
+- `--json` флаг: структурированный вывод всех действий
+- Автоматический `permission_mode=bypass` если `--no-interactive`
+- Сигналы: SIGTERM — graceful stop, SIGKILL — immediate
+
+---
+
+### 262. JSON Output Mode
+**Файлы:** `src/lidco/cli/json_reporter.py` (новый)
+**Формат:**
+```json
+{
+  "session_id": "abc123",
+  "task": "fix tests",
+  "status": "success",
+  "duration_s": 45.2,
+  "cost_usd": 0.042,
+  "changes": [
+    {"file": "src/foo.py", "action": "edit", "lines_added": 3, "lines_removed": 1}
+  ],
+  "tool_calls": 12,
+  "messages": [...]
+}
+```
+
+---
+
+### 264. GitHub Actions
+**Файлы:** `.github/actions/lidco/action.yml` (новый), `docs/ci.md`
+**Подход:**
+```yaml
+- uses: lidco/action@v1
+  with:
+    task: "review PR changes for bugs"
+    permission-mode: "plan"
+    model: "openai/glm-5"
+  env:
+    ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+```
+- Action: install lidco → `lidco exec --json "${{ inputs.task }}"`
+- Результат: comment к PR с изменениями или отчётом
+- Поддержка triggers: pull_request, push, schedule, issue_comment
+
+---
+
+### 268. YAML Agents
+**Файлы:** `src/lidco/agents/yaml_loader.py` (новый), `src/lidco/agents/` директория
+**Формат .lidco/agents/security-auditor.md:**
+```markdown
+---
+name: security-auditor
+description: Проверяет код на уязвимости OWASP Top 10. Используй проактивно после изменений API endpoints.
+model: openai/glm-5
+temperature: 0.0
+max_turns: 10
+permission_mode: plan
+tools:
+  - file_read
+  - grep
+  - web_search
+disallowed_tools:
+  - bash
+  - file_write
+hooks:
+  post_response: "echo 'Audit complete'"
+memory: project
+---
+
+You are a security expert specializing in Python web applications...
+```
+**Подход:**
+- `YAMLAgentLoader.load_from_dir(path) -> list[AgentConfig]`
+- Загрузка из `.lidco/agents/` (project) и `~/.lidco/agents/` (user)
+- `AgentFactory.create_from_config(config) -> BaseAgent`
+- Регистрация в `AgentRegistry` с именем
+- Доступен через routing (`auto`) и явный вызов (`/agent security-auditor`)
+- Hot-reload при изменении .md файла
+
+---
+
+### 269. Git Worktree Isolation
+**Файлы:** `src/lidco/agents/worktree.py` (новый), `src/lidco/agents/graph.py`
+**Цель:** каждый параллельный агент работает в отдельном git worktree без конфликтов.
+**Подход:**
+- `WorktreeManager.create(branch_name) -> WorktreePath`
+- `git worktree add .lidco/worktrees/{agent_id} -b lidco/{agent_id}`
+- Агент получает изолированную копию репозитория
+- По завершению: `WorktreeManager.merge_or_cleanup(agent_id)`
+- Если изменений нет → `git worktree remove` (авто-cleanup)
+- Если есть изменения → возврат пути для review/merge
+- `isolation: worktree` флаг в YAML агенте или в /batch
+
+---
+
+### 276. /compact
+**Файлы:** `src/lidco/cli/commands.py`, `src/lidco/core/conversation_pruner.py`
+**Цель:** явная пользовательская компрессия истории с указанием фокуса.
+**Использование:**
+```
+/compact                    # стандартное сжатие
+/compact "focus on the auth module changes"
+/compact --keep-last 10    # оставить последние 10 сообщений
+```
+**Подход:**
+- LLM-вызов: "Summarize this conversation in 5-7 sentences. Focus on: {focus}. Preserve: key decisions, file names, error messages."
+- Замена старых сообщений на `{"role": "system", "content": "## Earlier Summary\n{summary}"}`
+- Сохранение последних N сообщений без изменений
+- Отображение: "Compacted 47 messages → 1 summary (saved ~12k tokens)"
+
+---
+
+### 277. /context Gauge
+**Файлы:** `src/lidco/cli/commands.py`
+**Цель:** визуальное отображение использования контекста с разбивкой по слоям.
+**UI:**
+```
+Context Usage: 47,832 / 131,072 tokens (36%)
+
+████████████░░░░░░░░░░░░░░░░░░░  36%
+
+  LIDCO.md      1,234 tok   3%
+  Memory        2,891 tok   6%
+  History      28,442 tok  59%
+  RAG context   8,120 tok  17%
+  Tools         7,145 tok  15%
+
+[c]ompact  [h]istory  [m]emory  [r]ag
+```
+
+---
+
+### 282. @-Mentions
+**Файлы:** `src/lidco/cli/app.py`, `src/lidco/cli/mention_parser.py` (новый)
+**Цель:** упоминание файлов через @-синтаксис в REPL автоматически читает и инжектирует файл.
+**Подход:**
+- `MentionParser.extract(@path) -> list[str]` из пользовательского ввода
+- Autocomplete: при вводе `@` показывать список файлов проекта (fuzzy)
+- `@src/foo.py` → читать файл → добавить в контекст как `## File: src/foo.py\n{content}`
+- `@src/` → инжектировать дерево директории
+- Несколько @: `@tests/ @src/api.py` — все добавляются
+
+---
+
+### 283. Checkpoint-Based Undo
+**Файлы:** `src/lidco/core/checkpoints.py` (новый), `src/lidco/agents/base.py`
+**Цель:** снапшоты файловой системы перед каждым file-write → возможность отмены N шагов.
+**Подход:**
+- `CheckpointManager.snapshot(files: list[str]) -> checkpoint_id`
+- Хранение в `.lidco/checkpoints/{id}/` как git stash или diff patches
+- `CheckpointManager.restore(checkpoint_id)`
+- `/undo` без аргументов: отменяет последний checkpoint
+- `/undo 3`: откатывает 3 последних checkpoint
+- `/undo list`: список снапшотов с временными метками и файлами
+- Авто-cleanup: хранить не более 20 последних checkpoints
+
+---
+
+### 286. Native TDD Pipeline
+**Файлы:** `src/lidco/agents/tdd_orchestrator.py` (новый), `src/lidco/cli/commands.py`
+**Цель:** нативная TDD-оркестрация как в Droid: spec-writer → tester (RED) → coder (GREEN) → verify.
+**Подход:**
+- `/tdd "add user authentication"` запускает pipeline
+- Шаг 1: spec-writer агент генерирует детальную спецификацию
+- Шаг 2: tester агент пишет failing тесты (RED state)
+- Шаг 3: LIDCO запускает тесты → убеждается что они FAIL
+- Шаг 4: coder агент реализует минимальный код для прохождения
+- Шаг 5: LIDCO запускает тесты → убеждается что они PASS (GREEN)
+- Шаг 6: refactor агент улучшает код без нарушения тестов
+- Шаг 7: review агент финальный review
+- Весь цикл повторяется пока все acceptance criteria не выполнены
+
+---
+
+### 288. /batch Command
+**Файлы:** `src/lidco/cli/commands.py`, `src/lidco/agents/batch_orchestrator.py` (новый)
+**Цель:** декомпозиция большой задачи на 5-30 параллельных единиц в изолированных worktrees.
+**Использование:**
+```
+/batch "add type annotations to all files in src/"
+/batch --max-units 10 "write tests for every public function"
+```
+**Подход:**
+- Шаг 1: planner агент декомпозирует задачу → список единиц (файлы/функции/модули)
+- Шаг 2: показать пользователю список → approve/edit
+- Шаг 3: создать N worktrees, запустить N агентов параллельно
+- Шаг 4: сбор результатов, `/batch status` для мониторинга
+- Шаг 5: merge всех изменений с разрешением конфликтов
+- Шаг 6: reviewer агент проверяет финальный результат
+
+---
+
+### 293. Skills System
+**Файлы:** `src/lidco/skills/` (новый пакет), `src/lidco/cli/commands.py`
+**Формат .lidco/skills/security-review.md:**
+```markdown
+---
+name: security-review
+description: Проводит security review изменённых файлов
+trigger: /security-review
+context: git_diff
+scripts:
+  - bandit -r src/ -f json
+---
+
+Review the following code changes for security vulnerabilities.
+Focus on: SQL injection, XSS, SSRF, hardcoded secrets, insecure crypto.
+Report each finding with: severity, location, description, fix suggestion.
+```
+**Подход:**
+- `SkillLoader.discover() -> list[Skill]` из .lidco/skills/ и ~/.lidco/skills/
+- `Skill.execute(args, context) -> str`
+- Автоматическая регистрация как slash-команды
+- `context: git_diff` → автоматически инжектирует `git diff HEAD`
+- `scripts:` — выполняются перед вызовом LLM, вывод добавляется в контекст
+
+---
+
+### 295. Skill Chaining
+**Файлы:** `src/lidco/skills/chain.py` (новый)
+**Цель:** результат одного skill передаётся как input следующему.
+**Синтаксис:**
+```
+/lint | /fix-issues | /security-review
+```
+**Подход:**
+- `SkillChain.parse("/lint | /fix | /review") -> list[Skill]`
+- Выполнение последовательно: output[i] → input[i+1]
+- Передача через `{previous_output}` placeholder в prompt следующего skill
+- Прерывание цепи при ошибке с понятным сообщением
+
+---
+
+### 300. lidco server
+**Файлы:** `src/lidco/server/` (новый пакет)
+**Цель:** HTTP+WebSocket API сервер для IDE-интеграций и внешних клиентов.
+**Endpoints:**
+```
+POST /api/execute          # выполнить задачу
+GET  /api/session          # состояние сессии
+GET  /api/history          # история разговора
+GET  /api/tools            # список доступных инструментов
+WS   /api/stream           # WebSocket для стриминга
+POST /api/tools/{name}     # прямой вызов инструмента
+```
+**Подход:**
+- FastAPI + WebSockets
+- Аутентификация через Bearer токен (генерируется при старте)
+- `lidco server --port 8765 --token-file .lidco/server.token`
+- CORS для локальной разработки
+- Все ответы агента стримятся через WebSocket
+
+---
+
+### 303. VS Code Extension
+**Файлы:** `extensions/vscode/` (новый пакет)
+**Цель:** нативная интеграция LIDCO в VS Code через lidco server API.
+**Возможности MVP:**
+- Chat панель (Ctrl+Shift+L) — полноценный REPL в IDE
+- Inline diff viewer — показывает изменения в native VS Code diff
+- Статус бар — текущая фаза/инструмент/стоимость
+- @-mentions с autocomplete файлов проекта
+- Approve/reject изменений прямо в diff view
+- Открытие файлов упомянутых агентом одним кликом
+**Технически:** TypeScript extension, подключается к `lidco server` по WebSocket
+
+---
+
+### 307. Adaptive Context Paging
+**Файлы:** `src/lidco/core/context_pager.py` (новый)
+**Цель:** динамическое управление тем, что попадает в контекст, как OS управляет памятью.
+**Подход:**
+- Каждый элемент контекста имеет `relevance_score` и `recency_score`
+- `ContextPager.select(budget_tokens) -> list[ContextItem]`
+- Алгоритм: BM25 по запросу + recency decay + explicit mentions boost
+- Автоматически вытесняет менее релевантные элементы при нехватке токенов
+- Инвалидация при изменении файлов (watchdog интеграция)
+- Конфигурация: `config.context.paging_strategy: "bm25" | "recency" | "hybrid"`
+
+---
+
+### 314. Multi-Model Sampling
+**Файлы:** `src/lidco/llm/sampler.py` (новый)
+**Цель:** для критических решений запускать N параллельных LLM-вызовов, выбирать лучший.
+**Подход:**
+- `MultiModelSampler.sample(messages, n=3) -> str`
+- N параллельных вызовов через `asyncio.gather`
+- Critic-агент оценивает каждый ответ (correctness, completeness, clarity)
+- Выбор ответа с максимальным critic score
+- Применение: для planning nodes и final code generation
+- Конфигурация: `config.agents.sampling.n: int` (по умолчанию 1, т.е. отключено)
+- Активация: `/think --samples 3` или через флаг агента
+
+---
+
+### 315. /think Mode
+**Файлы:** `src/lidco/cli/commands.py`, `src/lidco/llm/litellm_provider.py`
+**Цель:** режим глубокого мышления с расширенным token budget на reasoning.
+**Использование:**
+```
+/think on    # включить extended thinking
+/think off
+/think       # toggle
+```
+**Подход:**
+- При включении: добавлять `"thinking": {"type": "enabled", "budget_tokens": 8000}` к API запросам
+- Для GLM-5: увеличивать `max_tokens` и температуру до 1.0
+- Индикация в статус-баре: `🧠 Deep Think` пока активно
+- Автоматическое включение для planning nodes при сложных задачах
+
+---
+
+### 321. AI Shield
+**Файлы:** `src/lidco/security/shield.py` (новый), `src/lidco/cli/hooks.py`
+**Цель:** LLM-анализ диффа перед коммитом — уязвимости, баги, утечка секретов.
+**Аналог DroidShield от Factory.**
+**Подход:**
+- Хук на `git commit` (через `.git/hooks/pre-commit`)
+- `AIShield.analyze(diff: str) -> ShieldReport`
+- Анализ: OWASP Top 10, hardcoded secrets, SQL injection, XSS, unsafe crypto
+- `ShieldReport`: findings: list[Finding], risk_level: low/medium/high/critical
+- При high/critical: показать предупреждение + запросить подтверждение
+- Опции: `--shield-mode warn|block|off`
+- Интеграция с ErrorLedger для отслеживания паттернов
+
+---
+
+### 322. Full Audit Trail
+**Файлы:** `src/lidco/core/audit.py` (новый)
+**Цель:** полная история всех действий агента с reasoning для enterprise-требований.
+**Схема SQLite:**
+```sql
+CREATE TABLE audit_log (
+  id TEXT PRIMARY KEY,
+  session_id TEXT,
+  timestamp REAL,
+  agent_name TEXT,
+  action_type TEXT,  -- tool_call / message / plan_step
+  tool_name TEXT,
+  tool_args TEXT,    -- JSON
+  tool_result TEXT,
+  reasoning TEXT,    -- почему агент выбрал это действие
+  success INTEGER,
+  duration_ms INTEGER
+);
+```
+**Подход:**
+- `AuditLogger.log(event)` вызывается из base.py после каждого tool call
+- Reasoning извлекается из thinking блоков LLM ответа
+- `/audit [--session ID] [--export csv]` для просмотра
+- Автоматическая ротация: хранить 30 дней
+
+---
+
+### 328. Async Task Queue
+**Файлы:** `src/lidco/tasks/` (новый пакет)
+**Цель:** запуск задач в фоне с персистентностью и мониторингом.
+**CLI:**
+```bash
+lidco exec --async "add tests for all public functions"
+# → Task ID: task_abc123 | Status: queued
+
+lidco task status task_abc123
+# → Status: running | Progress: 3/12 files | Cost: $0.02
+
+lidco task list
+# → [running] task_abc123 "add tests..." | 5m ago
+
+lidco task apply task_abc123
+# → Applied 8 file changes to working directory
+
+lidco task cancel task_abc123
+```
+**Подход:**
+- SQLite-backed task queue в `.lidco/tasks.db`
+- Background worker через `asyncio` + `multiprocessing`
+- Статус: queued / running / done / failed / cancelled
+- Результат: сохраняются file patches для последующего apply

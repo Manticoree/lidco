@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import difflib
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from lidco.tools.base import BaseTool, ToolParameter, ToolPermission, ToolResult
+
+if TYPE_CHECKING:
+    from lidco.core.sandbox import SandboxValidator
 
 # Maximum diff lines shown in the confirmation panel.
 _MAX_DIFF_LINES = 40
@@ -18,6 +21,10 @@ class FileWriteTool(BaseTool):
     # Injected by the CLI layer to ask the user before overwriting.
     # Signature: async (path: str, old: str, new: str) -> bool
     _confirm_callback: Callable[[str, str, str], Awaitable[bool]] | None = None
+    _sandbox: SandboxValidator | None = None
+
+    def set_sandbox(self, sandbox: SandboxValidator) -> None:
+        self._sandbox = sandbox
 
     def set_confirm_callback(
         self,
@@ -79,6 +86,14 @@ class FileWriteTool(BaseTool):
     async def _run(self, **kwargs: Any) -> ToolResult:
         path = Path(kwargs["path"]).resolve()
         content: str = kwargs["content"]
+
+        # Sandbox validation
+        if self._sandbox is not None:
+            allowed, reason = self._sandbox.validate_write_path(str(path))
+            if not allowed:
+                return ToolResult(
+                    output="", success=False, error=f"Sandbox blocked: {reason}"
+                )
 
         # Confirm before overwriting an existing file
         if path.exists() and self._confirm_callback is not None:

@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lidco.tools.base import BaseTool, ToolParameter, ToolPermission, ToolResult
+
+if TYPE_CHECKING:
+    from lidco.core.sandbox import SandboxValidator
 
 
 class BashTool(BaseTool):
     """Execute shell commands."""
+
+    def __init__(self) -> None:
+        self._sandbox: SandboxValidator | None = None
+
+    def set_sandbox(self, sandbox: SandboxValidator) -> None:
+        self._sandbox = sandbox
 
     @property
     def name(self) -> str:
@@ -57,6 +66,14 @@ class BashTool(BaseTool):
             if d in command:
                 return ToolResult(
                     output="", success=False, error=f"Blocked dangerous command: {command}"
+                )
+
+        # Sandbox validation
+        if self._sandbox is not None:
+            allowed, reason = self._sandbox.validate_command(command)
+            if not allowed:
+                return ToolResult(
+                    output="", success=False, error=f"Sandbox blocked: {reason}"
                 )
 
         try:

@@ -98,6 +98,7 @@ class CLIConfig(BaseModel):
 class PermissionsConfig(BaseModel):
     """Tool permission levels."""
 
+    # Legacy simple lists (kept for backward compatibility)
     auto_allow: list[str] = Field(
         default_factory=lambda: ["file_read", "glob", "grep"]
     )
@@ -106,12 +107,47 @@ class PermissionsConfig(BaseModel):
     )
     deny: list[str] = Field(default_factory=list)
 
+    # New permission engine fields
+    mode: str = "default"  # default | accept_edits | plan | dont_ask | bypass
+    allow_rules: list[str] = Field(default_factory=list)   # e.g. ["Bash(pytest *)", "FileRead(**)"]
+    ask_rules: list[str] = Field(default_factory=list)      # e.g. ["Bash(git *)"]
+    deny_rules: list[str] = Field(default_factory=list)     # e.g. ["Bash(git push *)", "FileWrite(.env)"]
+
+    # Task 252: pre-approved command patterns (expanded to Bash(pattern) allow rules)
+    command_allowlist: list[str] = Field(
+        default_factory=lambda: [
+            "pytest *",
+            "python -m pytest *",
+            "git status",
+            "git diff *",
+            "git log *",
+            "git show *",
+            "ruff check *",
+            "ruff format *",
+            "mypy *",
+            "python -m ruff *",
+            "python -m mypy *",
+        ]
+    )
+
     def get_level(self, tool_name: str) -> PermissionLevel:
         if tool_name in self.deny:
             return PermissionLevel.DENY
         if tool_name in self.auto_allow:
             return PermissionLevel.AUTO
         return PermissionLevel.ASK
+
+
+class SandboxConfig(BaseModel):
+    """Shell execution sandbox configuration."""
+
+    enabled: bool = False
+    writable_roots: list[str] = Field(default_factory=list)  # empty = CWD only
+    blocked_paths: list[str] = Field(
+        default_factory=lambda: [".git", ".lidco"]
+    )
+    network_access: bool = True
+    allowed_domains: list[str] = Field(default_factory=list)  # empty = all
 
 
 class AgentsConfig(BaseModel):
@@ -182,6 +218,7 @@ class LidcoConfig(BaseModel):
     llm_providers: LLMProvidersConfig = Field(default_factory=LLMProvidersConfig)
     cli: CLIConfig = Field(default_factory=CLIConfig)
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
+    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     rag: RAGConfig = Field(default_factory=RAGConfig)
@@ -204,7 +241,7 @@ class EnvSettings(BaseSettings):
 
 
 _SECTION_NAMES: frozenset[str] = frozenset(
-    {"llm", "cli", "permissions", "agents", "memory", "rag", "logging", "index"}
+    {"llm", "cli", "permissions", "sandbox", "agents", "memory", "rag", "logging", "index"}
     # Note: "llm_providers" is intentionally absent — it is loaded separately
     # via _load_llm_providers() with its own multi-file precedence chain and
     # cannot be overridden with LIDCO_<SECTION>_<FIELD> env vars.
