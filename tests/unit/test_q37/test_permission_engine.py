@@ -282,3 +282,70 @@ class TestPermissionEngineBackwardCompat:
         engine = PermissionEngine(config)
         result = engine.check("bash", {"command": "echo"})
         assert result.decision == "deny"
+
+
+# ─── Security fixes (eval order, anchor, public API) ─────────────────────────
+
+
+class TestSecurityFixes:
+    def test_session_allow_beats_persistent_allow(self) -> None:
+        """Session allow (step 4) takes precedence over persistent allow (step 5)."""
+        engine = _make_engine()
+        engine.add_session_allow("bash", {"command": "pytest -q"})
+        # add_persistent_allow for the same spec — session should still win
+        engine.add_persistent_allow("Bash(pytest *)")
+        result = engine.check("bash", {"command": "pytest -q"})
+        assert result.decision == "allow"
+        assert result.reason == "allowed this session"
+
+    def test_session_allow_reported_before_persistent(self) -> None:
+        """When session allow matches, reason identifies session decision."""
+        engine = _make_engine()
+        engine.add_session_allow("bash", {"command": "pytest -q"})
+        result = engine.check("bash", {"command": "pytest -x"})
+        assert "session" in result.reason
+
+    def test_allow_rule_anchored_to_start(self) -> None:
+        """Allow rule must match from the beginning — no compound-command bypass."""
+        engine = _make_engine(allow=["Bash(pytest *)"])
+        # "pytest" appearing as suffix after semicolon must NOT match
+        result = engine.check("bash", {"command": "rm -rf /tmp && pytest tests/"})
+        assert result.decision in ("ask", "deny"), (
+            "Allow rule should not match when allowed prefix is not at command start"
+        )
+
+    def test_allow_rule_matches_when_at_start(self) -> None:
+        engine = _make_engine(allow=["Bash(pytest *)"])
+        result = engine.check("bash", {"command": "pytest -q tests/"})
+        assert result.decision == "allow"
+
+    def test_deny_rule_anchored_to_start(self) -> None:
+        """Deny rule also anchored — but substring inside command still triggers."""
+        engine = _make_engine(deny=["Bash(rm *)"])
+        # rm at start → deny
+        result = engine.check("bash", {"command": "rm -rf /tmp/test"})
+        assert result.decision == "deny"
+
+    def test_make_spec_public_api(self) -> None:
+        engine = _make_engine()
+        spec = engine.make_spec("bash", {"command": "pytest -q"})
+        assert spec == "Bash(pytest *)"
+
+    def test_add_session_allow_spec(self) -> None:
+        engine = _make_engine()
+        engine.add_session_allow_spec("Bash(pytest *)")
+        result = engine.check("bash", {"command": "pytest -x"})
+        assert result.decision == "allow"
+        assert "session" in result.reason
+
+    def test_graceful_fallback_on_invalid_mode(self) -> None:
+        """PermissionEngine handles invalid mode gracefully."""
+        from unittest.mock import MagicMock
+        mock_config = MagicMock()
+        mock_config.mode = "nonexistent_invalid_mode"
+        mock_config.allow_rules = []
+        mock_config.ask_rules = []
+        mock_config.deny_rules = []
+        mock_config.command_allowlist = []
+        engine = PermissionEngine(mock_config)
+        assert engine.mode == PermissionMode.DEFAULT

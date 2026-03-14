@@ -70,12 +70,28 @@ class SandboxValidator:
             f"Writable: {[str(r) for r in self._writable_roots]}"
         )
 
+    # Patterns indicating complex shell constructs that bypass static analysis
+    _COMPLEX_SHELL_RE = re.compile(
+        r"\$\(|`[^`]+`|\$\{|\bcp\s|\bmv\s|\bpython\s+-c\s|\bperl\s+-e\s|\bnode\s+-e\s|<<\s*['\"]?EOF",
+        re.IGNORECASE,
+    )
+
     def validate_command(self, command: str) -> tuple[bool, str]:
         """Check if a shell command targets allowed paths.
 
-        Checks output redirections and cd targets. Conservative: unparseable
-        commands are allowed but logged (sandbox is defense-in-depth only).
+        NOTE: This is defense-in-depth validation only. It checks literal
+        redirect targets and tee/cd destinations parsed via regex. Complex
+        constructs (variable expansion, command substitution, cp/mv, heredocs,
+        one-liner interpreters) are NOT blocked — they are logged as warnings.
+        The permission engine provides the primary security boundary; sandbox
+        adds a secondary check for common redirect patterns.
         """
+        # Log complex constructs that bypass static analysis
+        if self._COMPLEX_SHELL_RE.search(command):
+            logger.warning(
+                "Sandbox: complex shell construct in command (static analysis limited): %s",
+                command[:200],
+            )
         # Check output redirections (>, >>)
         for m in _REDIRECT_RE.finditer(command):
             target = m.group(2).strip()

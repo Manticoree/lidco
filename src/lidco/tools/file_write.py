@@ -80,7 +80,7 @@ class FileWriteTool(BaseTool):
         if len(diff_lines) > _MAX_DIFF_LINES:
             orig_count = len(diff_lines)
             diff_lines = diff_lines[:_MAX_DIFF_LINES]
-            diff_lines.append(f"... (показано {_MAX_DIFF_LINES} из {orig_count} строк)")
+            diff_lines.append(f"... (showing {_MAX_DIFF_LINES} of {orig_count} lines)")
         return "\n".join(diff_lines)
 
     async def _run(self, **kwargs: Any) -> ToolResult:
@@ -104,7 +104,7 @@ class FileWriteTool(BaseTool):
             proceed = await self._confirm_callback(str(path), old_content, content)
             if not proceed:
                 return ToolResult(
-                    output=f"Запись отменена пользователем: {path}",
+                    output=f"Write cancelled by user: {path}",
                     success=True,
                     metadata={"path": str(path), "cancelled": True},
                 )

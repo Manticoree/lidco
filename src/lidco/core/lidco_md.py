@@ -145,12 +145,17 @@ class LidcoMdLoader:
             logger.warning("Cannot read %s: %s", path, exc)
 
     def _resolve_imports(
-        self, text: str, base_dir: Path, depth: int
+        self,
+        text: str,
+        base_dir: Path,
+        depth: int,
+        visited: frozenset[Path] | None = None,
     ) -> tuple[str, bool]:
         """Resolve @path imports recursively. Returns (resolved_text, all_ok)."""
         if depth >= _MAX_IMPORT_DEPTH:
             return text, True
 
+        visited = visited or frozenset()
         lines = text.splitlines(keepends=True)
         result_lines: list[str] = []
         all_ok = True
@@ -165,9 +170,17 @@ class LidcoMdLoader:
                     logger.warning("Blocked unsafe @import: %s", import_path)
                     all_ok = False
                     continue
+                # Cycle detection
+                if import_path in visited:
+                    logger.warning("Circular @import detected, skipping: %s", import_path)
+                    all_ok = False
+                    continue
                 try:
                     imported = import_path.read_text(encoding="utf-8")
-                    resolved, ok = self._resolve_imports(imported, import_path.parent, depth + 1)
+                    resolved, ok = self._resolve_imports(
+                        imported, import_path.parent, depth + 1,
+                        visited | {import_path},
+                    )
                     if not ok:
                         all_ok = False
                     result_lines.append(resolved)

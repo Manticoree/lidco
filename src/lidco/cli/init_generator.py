@@ -198,7 +198,7 @@ class InitGenerator:
 
         # Build
         if "build" in scripts:
-            profile.build_commands.append(f"npm run build")
+            profile.build_commands.append("npm run build")
 
         # Package manager
         if (self._dir / "pnpm-lock.yaml").exists():

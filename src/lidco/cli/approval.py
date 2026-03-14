@@ -127,15 +127,15 @@ def _run_prompt(
 
     for choice in choices:
         key = choice.key
+        decision_value = choice.decision.value
 
-        def _make_handler(k: str):  # type: ignore[no-untyped-def]
+        def _make_handler(dv: str):  # type: ignore[no-untyped-def]
             def _handler(event) -> None:  # type: ignore[no-untyped-def]
-                event.app.exit(result=Decision(k if k == "N" else k).value if k in ("N",) else
-                               next(c.decision.value for c in choices if c.key == k))
+                event.app.exit(result=dv)
             return _handler
 
         try:
-            kb.add(key)(_make_handler(key))
+            kb.add(key)(_make_handler(decision_value))
         except Exception:
             pass  # skip duplicate key registration
 

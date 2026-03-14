@@ -154,3 +154,55 @@ class TestRuleActivator:
         ]
         active = RuleActivator.get_active_rules(rules, ["src/api/foo.py"])
         assert len(active) == 2
+
+
+# ─── Import cycle detection ───────────────────────────────────────────────────
+
+
+class TestImportCycleDetection:
+    def test_cycle_does_not_recurse_infinitely(self, tmp_path: Path) -> None:
+        """Circular imports terminate without infinite recursion or hanging."""
+        a = tmp_path / "a.md"
+        b = tmp_path / "b.md"
+        a.write_text(f"@{b.name}\nA content.\n", encoding="utf-8")
+        b.write_text(f"@{a.name}\nB content.\n", encoding="utf-8")
+
+        loader = LidcoMdLoader(tmp_path)
+        text_a = a.read_text(encoding="utf-8")
+        # Should not raise, hang, or recurse indefinitely
+        result, _ = loader._resolve_imports(text_a, tmp_path, depth=0)
+        # B content is included (b.md was imported)
+        assert "B content." in result
+        # A content appears (from a.md itself and from b→a re-import before cycle cuts)
+        assert "A content." in result
+
+    def test_self_import_blocked_in_visited(self, tmp_path: Path) -> None:
+        """@import of an already-visited file is skipped (cycle detection)."""
+        f = tmp_path / "self.md"
+        f.write_text(f"@{f.name}\nSelf content.\n", encoding="utf-8")
+
+        loader = LidcoMdLoader(tmp_path)
+        text = f.read_text(encoding="utf-8")
+        # Pass f as already-visited to simulate re-entry detection
+        result, all_ok = loader._resolve_imports(
+            text, tmp_path, depth=0, visited=frozenset([f.resolve()])
+        )
+        # The @import line is removed (cycle), but the rest of f.md is kept
+        assert "@" not in result.split("\n")[0]  # first line no longer has @import
+        assert all_ok is False  # cycle was detected
+
+    def test_deep_but_non_cyclic_import_works(self, tmp_path: Path) -> None:
+        """Chain a→b→c (no cycle) resolves fully."""
+        c = tmp_path / "c.md"
+        b = tmp_path / "b.md"
+        a = tmp_path / "a.md"
+        c.write_text("C content.\n", encoding="utf-8")
+        b.write_text(f"@{c.name}\nB content.\n", encoding="utf-8")
+        a.write_text(f"@{b.name}\nA content.\n", encoding="utf-8")
+
+        loader = LidcoMdLoader(tmp_path)
+        result, ok = loader._resolve_imports(a.read_text(encoding="utf-8"), tmp_path, depth=0)
+        assert "A content." in result
+        assert "B content." in result
+        assert "C content." in result
+        assert ok is True

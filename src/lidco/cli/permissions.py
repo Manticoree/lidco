@@ -59,7 +59,7 @@ class PermissionManager:
             return True
 
         if decision == Decision.ALLOW_ALWAYS:
-            spec = self._engine._make_spec(tool_name, params)
+            spec = self._engine.make_spec(tool_name, params)
             self._engine.add_persistent_allow(spec)
             self._console.print(
                 f"[green]  ✓ {tool_name} always allowed (saved to permissions.json)[/green]"
@@ -71,7 +71,7 @@ class PermissionManager:
             return False
 
         if decision == Decision.DENY_ALWAYS:
-            spec = self._engine._make_spec(tool_name, params)
+            spec = self._engine.make_spec(tool_name, params)
             self._engine.add_persistent_deny(spec)
             self._console.print(
                 f"[red]  ✗ {tool_name} permanently denied (saved)[/red]"
@@ -83,10 +83,7 @@ class PermissionManager:
 
     def auto_allow(self, tool_name: str) -> None:
         """Mark a tool as auto-allowed for this session (backward compat)."""
-        from lidco.core.permission_engine import RuleParser, _SessionDecision
-        spec = tool_name
-        parsed = RuleParser.parse(spec)
-        self._engine._session_allowed.append(_SessionDecision(spec, parsed))
+        self._engine.add_session_allow_spec(tool_name)
 
     def allow_all(self) -> None:
         """Auto-allow all tools for this session (backward compat)."""

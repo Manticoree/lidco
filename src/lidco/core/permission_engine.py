@@ -3,15 +3,17 @@
 Evaluation order (first match wins):
   1. bypass mode → allow everything
   2. session deny list (from "never" decisions) → deny
-  3. config deny_rules → deny
-  4. session allow list (from "always" decisions) → allow
-  5. config allow_rules → allow
-  6. config ask_rules → ask
-  7. plan mode + write/execute tool → deny
-  8. accept_edits mode + file_write/file_edit → allow
-  9. dont_ask mode → deny
-  10. legacy config.auto_allow / config.ask / config.deny → delegate
-  11. default → ask
+  3. config deny_rules + persistent denied → deny
+  4. session allow list (from "allow session" decisions) → allow
+  5. persistent allowed (from "always allow" decisions) → allow
+  6. config allow_rules (including command_allowlist) → allow
+  7. config ask_rules → ask
+  8. plan mode + write/execute tool → deny
+  9. accept_edits mode + file_write/file_edit → allow
+  10. dont_ask mode → deny
+  11. legacy config.auto_allow / config.ask / config.deny → delegate
+  12. read-only tools → allow
+  13. default → ask
 """
 
 from __future__ import annotations
@@ -136,22 +138,29 @@ class RuleMatcher:
             return False
         if rule.pattern in ("**", "*", ""):
             return True
-        # For bash: match against command string
+        # For bash: anchor match to command start to prevent compound-command bypass
         if call_key == "bash":
             cmd = str(args.get("command", ""))
-            return RuleMatcher._match_glob(rule.pattern, cmd)
-        # For file tools: match against path
+            return RuleMatcher._match_glob(rule.pattern, cmd, anchor_start=True)
+        # For file tools: match against path (substring is fine for paths)
         path_arg = args.get("path") or args.get("file_path") or ""
         return RuleMatcher._match_glob(rule.pattern, str(path_arg))
 
     @staticmethod
-    def _match_glob(pattern: str, value: str) -> bool:
-        """Wildcard match: * = any chars except /, ** = any chars including /."""
+    def _match_glob(pattern: str, value: str, anchor_start: bool = False) -> bool:
+        """Wildcard match: * = any chars except /, ** = any chars including /.
+
+        anchor_start=True anchors the pattern to the beginning of the value,
+        which is important for bash command matching to prevent a prefix-match
+        bypass (e.g. allow rule 'pytest *' must not match 'echo foo && pytest').
+        """
         # Normalize path separators
         value = value.replace("\\", "/")
         pattern = pattern.replace("\\", "/")
         # Expand ** to match any path segment
         regex = re.escape(pattern).replace(r"\*\*", ".*").replace(r"\*", "[^/]*")
+        if anchor_start:
+            return bool(re.match(regex, value))
         return bool(re.search(regex, value))
 
 
@@ -225,15 +234,15 @@ class PermissionEngine:
             if RuleMatcher.matches(rule, tool_name, args):
                 return PermissionResult("deny", f"persistent deny: {rule.raw}", rule.raw, risk)
 
-        # 4. persistent allowed
-        for rule in self._persistent_allowed:
-            if RuleMatcher.matches(rule, tool_name, args):
-                return PermissionResult("allow", f"persistent rule: {rule.raw}", rule.raw, risk)
-
-        # 5. session allowed
+        # 4. session allowed (most recent user intent wins over older persistent rules)
         for dec in self._session_allowed:
             if RuleMatcher.matches(dec.parsed, tool_name, args):
                 return PermissionResult("allow", "allowed this session", dec.rule_spec, risk)
+
+        # 5. persistent allowed
+        for rule in self._persistent_allowed:
+            if RuleMatcher.matches(rule, tool_name, args):
+                return PermissionResult("allow", f"persistent rule: {rule.raw}", rule.raw, risk)
 
         # 6. config allow_rules
         for rule in self._allow_rules:
@@ -280,9 +289,17 @@ class PermissionEngine:
     def mode(self) -> PermissionMode:
         return self._mode
 
+    def make_spec(self, tool_name: str, args: dict[str, Any]) -> str:
+        """Build a rule spec string from a tool call (public API)."""
+        return self._make_spec(tool_name, args)
+
     def add_session_allow(self, tool_name: str, args: dict[str, Any]) -> None:
         """Record an allow-for-session decision."""
         spec = self._make_spec(tool_name, args)
+        self.add_session_allow_spec(spec)
+
+    def add_session_allow_spec(self, spec: str) -> None:
+        """Record an allow-for-session decision from a pre-built spec string."""
         parsed = RuleParser.parse(spec)
         self._session_allowed.append(_SessionDecision(spec, parsed))
 
