@@ -63,17 +63,33 @@ class ConfigReloader:
         self._status_callback = status_callback
         self._running = False
         self._thread: threading.Thread | None = None
+        # Q54/363: protect _mtimes / _agent_mtimes from background-thread race
+        self._lock = threading.Lock()
 
         # Determine which config files to watch (in load order)
         project = project_dir or Path.cwd()
+        self._project_dir = project
         self._watch_paths: list[Path] = [
             Path.home() / ".lidco" / "config.yaml",
             project / ".lidco" / "config.yaml",
         ]
+        # MCP config files watched separately
+        self._mcp_paths: list[Path] = [
+            Path.home() / ".lidco" / "mcp.json",
+            project / ".lidco" / "mcp.json",
+        ]
+        # Agent definition directories — watch for .yaml/.yml/.md changes
+        self._agent_dirs: list[Path] = [
+            Path.home() / ".lidco" / "agents",
+            project / ".lidco" / "agents",
+        ]
         # Record initial mtimes so we only react to actual changes
+        all_watched = self._watch_paths + self._mcp_paths
         self._mtimes: dict[str, float] = {
-            str(p): self._mtime(p) for p in self._watch_paths
+            str(p): self._mtime(p) for p in all_watched
         }
+        # Track agent file mtimes (glob on each poll)
+        self._agent_mtimes: dict[str, float] = self._scan_agent_files()
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -92,6 +108,16 @@ class ConfigReloader:
             self._thread = None
 
     # ── Internal ──────────────────────────────────────────────────────────────
+
+    def _scan_agent_files(self) -> dict[str, float]:
+        """Return a dict of {filepath: mtime} for all agent definition files."""
+        result: dict[str, float] = {}
+        for d in self._agent_dirs:
+            if d.is_dir():
+                for ext in ("*.yaml", "*.yml", "*.md"):
+                    for p in d.glob(ext):
+                        result[str(p)] = self._mtime(p)
+        return result
 
     @staticmethod
     def _mtime(path: Path) -> float:
@@ -112,24 +138,145 @@ class ConfigReloader:
 
     def _check(self) -> None:
         """Check if any config file changed and reload if so."""
-        changed = False
-        for path in self._watch_paths:
-            key = str(path)
-            new_mtime = self._mtime(path)
-            if new_mtime != self._mtimes.get(key, 0.0):
-                self._mtimes[key] = new_mtime
-                changed = True
+        # Q54/363: hold lock while reading/writing mtime dicts to prevent race
+        with self._lock:
+            config_changed = False
+            for path in self._watch_paths:
+                key = str(path)
+                new_mtime = self._mtime(path)
+                if new_mtime != self._mtimes.get(key, 0.0):
+                    self._mtimes[key] = new_mtime
+                    config_changed = True
 
-        if not changed:
+            mcp_changed = False
+            for path in self._mcp_paths:
+                key = str(path)
+                new_mtime = self._mtime(path)
+                if new_mtime != self._mtimes.get(key, 0.0):
+                    self._mtimes[key] = new_mtime
+                    mcp_changed = True
+
+            # Check agent files
+            agents_changed = False
+            new_agent_mtimes = self._scan_agent_files()
+            if new_agent_mtimes != self._agent_mtimes:
+                agents_changed = True
+                self._agent_mtimes = new_agent_mtimes
+
+        if config_changed:
+            logger.info("Config file changed — hot-reloading")
+            try:
+                from lidco.core.config import load_config
+                new_config = load_config(self._session.project_dir)
+                self._apply(new_config)
+            except Exception as exc:
+                logger.warning("Failed to reload config: %s", exc)
+
+        if mcp_changed:
+            logger.info("MCP config changed — hot-reloading")
+            self._reload_mcp()
+
+        if agents_changed:
+            logger.info("Agent files changed — hot-reloading agents")
+            self._reload_agents()
+
+    def _reload_mcp(self) -> None:
+        """Reload mcp.json and connect/disconnect changed servers."""
+        manager = getattr(self._session, "mcp_manager", None)
+        old_config = getattr(self._session, "mcp_config", None)
+        if manager is None:
             return
 
-        logger.info("Config file changed — hot-reloading")
         try:
-            from lidco.core.config import load_config
-            new_config = load_config(self._session.project_dir)
-            self._apply(new_config)
+            from lidco.mcp.config import load_mcp_config
+            new_mcp = load_mcp_config(self._project_dir)
         except Exception as exc:
-            logger.warning("Failed to reload config: %s", exc)
+            logger.warning("Failed to reload mcp.json: %s", exc)
+            return
+
+        # Diff — find removed and added servers
+        old_names: set[str] = {e.name for e in old_config.servers} if old_config else set()
+        new_names: set[str] = {e.name for e in new_mcp.servers}
+        removed = old_names - new_names
+        added = [e for e in new_mcp.servers if e.name not in old_names]
+
+        if not removed and not added:
+            return
+
+        # Apply changes synchronously via asyncio (we're on a background thread)
+        import asyncio
+
+        async def _apply_mcp() -> None:
+            from lidco.mcp.tool_adapter import inject_mcp_tools, remove_mcp_tools
+            for name in removed:
+                await manager.stop_server(name)
+                count = remove_mcp_tools(name, self._session.tool_registry)
+                logger.info("MCP: removed server '%s' (%d tool(s) unregistered)", name, count)
+            for entry in added:
+                success = await manager.start_server(entry)
+                if success:
+                    inject_mcp_tools(manager, self._session.tool_registry)
+                    logger.info("MCP: added server '%s'", entry.name)
+
+        # Q54/364: set event loop on this background thread so coroutines
+        # that call asyncio.get_event_loop() work correctly
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(_apply_mcp())
+            finally:
+                loop.close()
+                asyncio.set_event_loop(None)
+        except Exception as exc:
+            logger.warning("MCP hot-reload error: %s", exc)
+
+        self._session.mcp_config = new_mcp
+        msg = f"MCP reloaded — removed: {list(removed)}, added: {[e.name for e in added]}"
+        logger.info(msg)
+        if self._status_callback:
+            try:
+                self._status_callback(msg)
+            except Exception:
+                pass
+
+    def _reload_agents(self) -> None:
+        """Reload YAML/Markdown agent definitions from disk."""
+        registry = getattr(self._session, "agent_registry", None)
+        llm = getattr(self._session, "llm", None)
+        tool_registry = getattr(self._session, "tool_registry", None)
+        if registry is None or llm is None or tool_registry is None:
+            return
+        try:
+            from lidco.agents.loader import discover_yaml_agents
+            agents = discover_yaml_agents(
+                llm,
+                tool_registry,
+                search_dirs=[d for d in self._agent_dirs if d.is_dir()],
+            )
+            if not agents:
+                return
+            reloaded: list[str] = []
+            for agent_obj in agents:
+                name = getattr(getattr(agent_obj, "_config", None), "name", None) or getattr(agent_obj, "name", None)
+                if not name:
+                    continue
+                existing = registry.get(name)
+                old_repr = repr(getattr(existing, "_config", None)) if existing else None
+                new_repr = repr(getattr(agent_obj, "_config", None))
+                if old_repr != new_repr:
+                    registry.register(name, agent_obj)
+                    reloaded.append(name)
+            if reloaded:
+                msg = f"Agents reloaded: {', '.join(reloaded)}"
+                logger.info(msg)
+                if self._status_callback:
+                    try:
+                        self._status_callback(msg)
+                    except Exception:
+                        pass
+        except Exception as exc:
+            logger.warning("Failed to reload agents: %s", exc)
 
     def _apply(self, new: "LidcoConfig") -> None:
         """Apply changed fields from *new* config to the live session."""
@@ -210,6 +357,13 @@ class ConfigReloader:
                 orch.set_web_auto_route(new.agents.web_auto_route)
         except Exception as exc:
             logger.debug("Could not propagate changes to orchestrator: %s", exc)
+
+        # Propagate permission mode changes
+        engine = getattr(self._session, "permission_engine", None)
+        if engine is not None:
+            if new.permissions.mode != old.permissions.mode:
+                engine.set_mode(new.permissions.mode)
+                changed_fields.append(f"permissions.mode={new.permissions.mode}")
 
         if changed_fields:
             msg = "Config reloaded — " + ", ".join(changed_fields)

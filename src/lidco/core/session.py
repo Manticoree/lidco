@@ -97,6 +97,27 @@ class Session:
         # Tools
         self.tool_registry = ToolRegistry.create_default_registry()
 
+        # Permission engine
+        from lidco.core.permission_engine import PermissionEngine
+        self.permission_engine = PermissionEngine(self.config.permissions)
+        self.permission_engine.load_persistent(
+            self.project_dir / ".lidco" / "permissions.json"
+        )
+
+        # Sandbox (optional — inject into write/execute tools when enabled)
+        if self.config.sandbox.enabled:
+            from lidco.core.sandbox import SandboxValidator
+            _sandbox = SandboxValidator(self.config.sandbox, self.project_dir)
+            for _tool_name in ("bash", "file_write", "file_edit"):
+                _t = self.tool_registry.get(_tool_name)
+                if _t is not None and hasattr(_t, "set_sandbox"):
+                    _t.set_sandbox(_sandbox)
+
+        # LIDCO.md — project instructions for agents
+        from lidco.core.lidco_md import LidcoMdLoader
+        self._lidco_md_loader = LidcoMdLoader(self.project_dir)
+        self._lidco_md = self._lidco_md_loader.load()
+
         # Memory
         self.memory = MemoryStore(
             project_dir=self.project_dir,
@@ -155,6 +176,14 @@ class Session:
         self._register_builtin_agents()
         self._register_yaml_agents()
 
+        # Background task manager (Task 270)
+        from lidco.agents.background import BackgroundTaskManager
+        self.background_tasks = BackgroundTaskManager()
+
+        # SubagentTool — registered after agent registry is ready
+        from lidco.tools.subagent import SubagentTool
+        self.tool_registry.register(SubagentTool(self))
+
         # Orchestrator (try LangGraph, fallback to simple)
         self.orchestrator = self._create_orchestrator()
 
@@ -166,10 +195,57 @@ class Session:
             self._index_watcher = IndexWatcher(self.project_dir, db_path)
             self._index_watcher.start()
 
+        # MCP server manager (Task 253-260)
+        self.mcp_manager: Any = None
+        self.mcp_config: Any = None
+        if self.config.mcp_enabled:
+            self._init_mcp()
+
         # Config hot-reload — polls .lidco/config.yaml every 30s
         from lidco.core.config_reloader import ConfigReloader
         self._config_reloader = ConfigReloader(self, project_dir=self.project_dir)
         self._config_reloader.start()
+
+    def _init_mcp(self) -> None:
+        """Load MCP config and schedule server connections.
+
+        Actual async connection happens in ``start_mcp()`` which is called
+        from the async REPL startup.  ``_init_mcp()`` only loads config
+        so the manager is available synchronously.
+        """
+        try:
+            from lidco.mcp.config import load_mcp_config
+            from lidco.mcp.manager import MCPManager
+            self.mcp_config = load_mcp_config(self.project_dir)
+            self.mcp_manager = MCPManager()
+            logger.debug(
+                "MCP config loaded: %d server(s) configured",
+                len(self.mcp_config.servers),
+            )
+        except Exception as exc:
+            logger.warning("Failed to init MCP: %s", exc)
+
+    async def start_mcp(self) -> None:
+        """Connect all configured MCP servers.  Call from async REPL startup."""
+        if self.mcp_manager is None or self.mcp_config is None:
+            return
+        try:
+            await self.mcp_manager.start_all(self.mcp_config)
+            # Inject MCP tools into tool registry
+            from lidco.mcp.tool_adapter import inject_mcp_tools
+            injected = inject_mcp_tools(self.mcp_manager, self.tool_registry)
+            if injected:
+                logger.info("MCP: %d tool(s) injected into tool registry", injected)
+        except Exception as exc:
+            logger.warning("MCP start_all failed: %s", exc)
+
+    async def stop_mcp(self) -> None:
+        """Disconnect all MCP servers.  Call on REPL shutdown."""
+        if self.mcp_manager is not None:
+            try:
+                await self.mcp_manager.stop_all()
+            except Exception as exc:
+                logger.debug("MCP stop_all error: %s", exc)
 
     def _init_index_enricher(self) -> IndexContextEnricher | None:
         """Open the structural index enricher if the index DB exists."""
@@ -314,7 +390,7 @@ class Session:
     def _on_error_record(self, record: Any) -> None:
         """Handle a new error record — append to history and persist to ledger."""
         self._error_history.append(record)
-        # Also record in cross-session ledger
+        # Q54/367: track consecutive ledger failures and warn after threshold
         try:
             self._error_ledger.record(
                 error_type=record.error_type,
@@ -323,8 +399,14 @@ class Session:
                 message=record.message,
                 session_id="session",
             )
+            self._ledger_failure_count = 0  # reset on success
         except Exception as _e:
             logger.debug("ErrorLedger.record failed: %s", _e)
+            self._ledger_failure_count = getattr(self, "_ledger_failure_count", 0) + 1
+            if self._ledger_failure_count == 3:
+                logger.warning(
+                    "ErrorLedger недоступен 3 раза подряд — история ошибок не сохраняется"
+                )
 
     def clear_context_cache(self) -> None:
         """Reset deduplication cache so the next turn re-sends all static context."""
@@ -345,6 +427,11 @@ class Session:
                 that must not advance the dedup state.
         """
         parts: list[str] = []
+
+        # LIDCO.md — project instructions (highest priority, injected first)
+        if self._lidco_md.text:
+            if skip_dedup or self._dedup.is_new_or_changed("lidco_md", self._lidco_md.text):
+                parts.append(f"## Project Instructions\n\n{self._lidco_md.text}")
 
         if self.project_context:
             if skip_dedup or self._dedup.is_new_or_changed("project", self.project_context):

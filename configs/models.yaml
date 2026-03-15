@@ -4,6 +4,14 @@
 models:
   # ── Z.AI / Zhipu AI ──
 
+  # openai/glm-5 — недоступна на Lite-подписке z.ai
+  # openai/glm-5:
+  #   provider: zai-coding
+  #   context_window: 131072
+  #   supports_tools: true
+  #   supports_streaming: true
+  #   cost_tier: high
+
   openai/glm-4.7:
     provider: zai-coding
     context_window: 202752

@@ -207,7 +207,8 @@ class TestTimingCommand:
 
     def test_default_turn_times_empty(self):
         reg = _make_registry()
-        assert reg._turn_times == []
+        # Q54/366: _turn_times is now a bounded deque — falsy when empty
+        assert len(reg._turn_times) == 0
 
     def test_no_turns_shows_message(self):
         reg = _make_registry()

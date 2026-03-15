@@ -228,6 +228,34 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
             config.llm.default_model = flags.model
         if flags.timeout is not None:
             config.agents.agent_timeout = flags.timeout
+        # Task 380: --from-pr — inject PR context on startup
+        if getattr(flags, "from_pr", None) is not None:
+            import subprocess as _sproc
+            try:
+                _pr_result = _sproc.run(
+                    ["gh", "pr", "view", str(flags.from_pr), "--json",
+                     "title,body,files,number,state,author"],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=30,
+                )
+                if _pr_result.returncode == 0 and _pr_result.stdout.strip():
+                    import json as _json
+                    _pr_data = _json.loads(_pr_result.stdout)
+                    _pr_ctx_parts = [f"## PR #{_pr_data.get('number', flags.from_pr)}: {_pr_data.get('title', '')}"]
+                    if _pr_data.get("author"):
+                        _pr_ctx_parts.append(f"Author: {_pr_data['author'].get('login', '')}")
+                    _pr_ctx_parts.append(f"State: {_pr_data.get('state', '')}")
+                    if _pr_data.get("body"):
+                        _pr_ctx_parts.append(f"\n{_pr_data['body'][:1000]}")
+                    if _pr_data.get("files"):
+                        _files_list = [f.get("path", "") for f in _pr_data["files"][:20]]
+                        _pr_ctx_parts.append("\nChanged files:\n" + "\n".join(f"- {f}" for f in _files_list))
+                    lidco_session.active_pr_context = "\n".join(_pr_ctx_parts)
+            except Exception:
+                pass  # Non-fatal — proceed without PR context
     commands = CommandRegistry()
     commands.set_session(lidco_session)
     permissions = PermissionManager(config.permissions, console)
@@ -320,9 +348,56 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
 
     lidco_session.llm.set_fallback_callback(on_model_fallback)
 
+    # Task 283: wire CheckpointManager for /checkpoint undo
+    from lidco.cli.checkpoint import CheckpointManager
+    _checkpoint_mgr = CheckpointManager()
+    commands._checkpoint_mgr = _checkpoint_mgr
+
+    # Task 285: wire SessionStore
+    from lidco.cli.session_store import SessionStore
+    commands._session_store = SessionStore()
+
+    # Task 383: --session <name> — load named session on startup
+    if flags is not None and getattr(flags, "session_name", None):
+        _sname = flags.session_name
+        _sdata = commands._session_store.find_by_name(_sname)
+        if _sdata is not None:
+            _sorch = getattr(lidco_session, "orchestrator", None)
+            if _sorch is not None:
+                _sorch._conversation_history = _sdata.get("history", [])
+            commands._current_session_id = _sdata.get("session_id")
+            logger.info("Loaded named session '%s' (%s)", _sname, commands._current_session_id)
+
+    # Task 385: --profile <name> — apply workspace profile on startup
+    if flags is not None and getattr(flags, "profile_name", None):
+        try:
+            from lidco.core.profiles import ProfileLoader
+            _ploader = ProfileLoader()
+            _pdata = _ploader.load(flags.profile_name, Path.cwd())
+            if _pdata is not None:
+                if "agents" in _pdata and isinstance(_pdata["agents"], dict):
+                    for _k, _v in _pdata["agents"].items():
+                        if hasattr(config.agents, _k):
+                            try:
+                                setattr(config.agents, _k, _v)
+                            except Exception:
+                                pass
+                if "llm" in _pdata and isinstance(_pdata["llm"], dict):
+                    for _k, _v in _pdata["llm"].items():
+                        if hasattr(config.llm, _k):
+                            try:
+                                setattr(config.llm, _k, _v)
+                            except Exception:
+                                pass
+                commands._active_profile = flags.profile_name
+        except Exception:
+            pass  # Profile loading is non-fatal
+
     # Task 153: overwrite confirmation for file_write tool
     from lidco.tools.file_write import FileWriteTool
     _fw_tool = lidco_session.tool_registry.get("file_write")
+    if isinstance(_fw_tool, FileWriteTool):
+        _fw_tool.set_checkpoint_callback(_checkpoint_mgr.record)
     if isinstance(_fw_tool, FileWriteTool):
         async def _confirm_overwrite(path: str, old: str, new: str) -> bool:
             live = active_live[0]
@@ -476,6 +551,32 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
         """Ctrl+P → /status (only when buffer is empty)."""
         _run_shortcut(event, "/status")
 
+    @kb.add("escape", "e")
+    def _shortcut_editor(event: Any) -> None:
+        """Q55/368 — Alt+E (Escape then E) opens $EDITOR for the current buffer."""
+        import os
+        import subprocess
+        import tempfile
+        editor = os.environ.get("EDITOR", os.environ.get("VISUAL", "notepad" if sys.platform == "win32" else "nano"))
+        buf = event.current_buffer
+        current_text = buf.text
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".md", prefix="lidco_", encoding="utf-8", delete=False
+            ) as f:
+                f.write(current_text)
+                tmp_path = f.name
+            subprocess.run([editor, tmp_path], check=False)
+            with open(tmp_path, encoding="utf-8") as f:
+                new_text = f.read()
+            os.unlink(tmp_path)
+            buf.set_document(
+                buf.document.__class__(text=new_text, cursor_position=len(new_text)),
+                bypass_readonly=True,
+            )
+        except Exception:
+            pass  # Fail silently — user stays in current buffer
+
     prompt_session: PromptSession[str] = PromptSession(
         history=FileHistory(str(history_dir / "history")),
         completer=completer,
@@ -576,6 +677,32 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
             forced_agent: str | None = None
             message = user_input.strip()
 
+            # Task 282: @-mentions — expand @path/to/file in message
+            import re as _re_at
+            _AT_FILE_RE = _re_at.compile(r"@([^\s@]+\.[a-zA-Z0-9]+)")
+            _at_matches = _AT_FILE_RE.findall(message)
+            _at_injected: list[str] = []
+            for _at_path in _at_matches:
+                try:
+                    _at_p = Path(_at_path)
+                    if _at_p.is_file():
+                        _at_content = _at_p.read_text(encoding="utf-8", errors="replace")[:4000]
+                        _at_injected.append(f"## @{_at_path}\n\n```\n{_at_content}\n```")
+                        message = message.replace(f"@{_at_path}", f"`{_at_path}`", 1)
+                except OSError:
+                    pass
+            # Task 278: /mention — inject pre-mentioned files
+            for _mf in getattr(commands, "_mentions", []):
+                try:
+                    _mf_p = Path(_mf)
+                    if _mf_p.is_file():
+                        _mf_content = _mf_p.read_text(encoding="utf-8", errors="replace")[:4000]
+                        _at_injected.append(f"## Mentioned: {_mf}\n\n```\n{_mf_content}\n```")
+                except OSError:
+                    pass
+            if hasattr(commands, "_mentions"):
+                commands._mentions = []  # clear after use
+
             # Task 174: /vars — substitute {{VAR}} in user message
             if commands._vars and "{{" in message:
                 import re as _re
@@ -623,6 +750,17 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                 # Task 167: inject session note if set
                 if commands.session_note:
                     context = f"## Session Note\n\n{commands.session_note}\n\n{context}" if context else f"## Session Note\n\n{commands.session_note}"
+                # Task 282/278: inject @-mention and /mention file contents
+                if _at_injected:
+                    _at_block = "\n\n".join(_at_injected)
+                    context = f"{_at_block}\n\n{context}" if context else _at_block
+
+                # Task 272: inject /add-dir directories as context hint
+                if getattr(commands, "_extra_dirs", []):
+                    _extra = "\n".join(f"  · {d}" for d in commands._extra_dirs)
+                    _dir_section = f"## Extra Directories In Scope\n\n{_extra}"
+                    context = f"{_dir_section}\n\n{context}" if context else _dir_section
+
                 # Task 172: inject focus file content if set
                 if commands.focus_file:
                     try:
@@ -646,6 +784,9 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
 
                     def on_tokens_stream(total: int, total_cost_usd: float = 0.0) -> None:
                         stream_display.update_tokens(total, total_cost_usd)
+                        # Q55/374: update context window meter
+                        _ctx_max = getattr(lidco_session.config.llm, "context_window", 128_000)
+                        stream_display.update_context_usage(total, _ctx_max)
 
                     def on_text_chunk(text: str) -> None:
                         stream_display.on_text_chunk(text)
@@ -807,14 +948,18 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                             pass
 
                 # Task 187: /remind — fire due reminders
+                # Q54/361: use set-based removal to avoid index shifting after pop
                 _current_turn = len(commands._turn_times)
-                _fired: list[int] = []
+                _fired_set: set[int] = set()
                 for _ri, _rem in enumerate(commands._reminders):
                     if _current_turn >= _rem["fire_at"]:
                         renderer.info(f"⏰ Напоминание: {_rem['text']}")
-                        _fired.append(_ri)
-                for _ri in reversed(_fired):
-                    commands._reminders.pop(_ri)
+                        _fired_set.add(_ri)
+                if _fired_set:
+                    commands._reminders = [
+                        r for i, r in enumerate(commands._reminders)
+                        if i not in _fired_set
+                    ]
 
                 # Task 155: contextual next-step suggestions
                 from lidco.core.suggestions import suggest
@@ -848,6 +993,20 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
             break
 
     lidco_session.close()
+
+    # Task 383: auto-save named session on exit
+    if flags is not None and getattr(flags, "session_name", None):
+        try:
+            _exit_orch = getattr(lidco_session, "orchestrator", None)
+            _exit_history = getattr(_exit_orch, "_conversation_history", []) if _exit_orch else []
+            if _exit_history:
+                commands._session_store.save(
+                    _exit_history,
+                    session_id=getattr(commands, "_current_session_id", None),
+                    metadata={"name": flags.session_name},
+                )
+        except Exception:
+            pass  # Non-fatal
 
     _show_session_summary(
         console,

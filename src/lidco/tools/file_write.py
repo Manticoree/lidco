@@ -22,9 +22,21 @@ class FileWriteTool(BaseTool):
     # Signature: async (path: str, old: str, new: str) -> bool
     _confirm_callback: Callable[[str, str, str], Awaitable[bool]] | None = None
     _sandbox: SandboxValidator | None = None
+    # Task 283: checkpoint callback — (path: str, old_content: str | None) -> None
+    _checkpoint_callback: Callable[[str, "str | None"], None] | None = None
 
     def set_sandbox(self, sandbox: SandboxValidator) -> None:
         self._sandbox = sandbox
+
+    def set_checkpoint_callback(
+        self, callback: Callable[[str, "str | None"], None] | None
+    ) -> None:
+        """Set a callback invoked with (path, old_content) before every write.
+
+        Called for both new files (old_content=None) and overwrites.
+        Used by CheckpointManager to record undo snapshots.
+        """
+        self._checkpoint_callback = callback
 
     def set_confirm_callback(
         self,
@@ -94,6 +106,14 @@ class FileWriteTool(BaseTool):
                 return ToolResult(
                     output="", success=False, error=f"Sandbox blocked: {reason}"
                 )
+
+        # Task 283: record checkpoint before write
+        if self._checkpoint_callback is not None:
+            try:
+                old_for_cp = path.read_text(encoding="utf-8", errors="replace") if path.exists() else None
+                self._checkpoint_callback(str(path), old_for_cp)
+            except Exception:
+                pass
 
         # Confirm before overwriting an existing file
         if path.exists() and self._confirm_callback is not None:

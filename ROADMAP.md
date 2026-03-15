@@ -1365,14 +1365,14 @@ ddmin(input_components):
 
 | # | Task | Status | Est. | Impact |
 |---|------|--------|------|--------|
-| 253 | [MCP stdio transport — ядро](#253-mcp-stdio) | 🔲 TODO | 4d | подключение локальных MCP серверов (Browser, Playwright, etc.) |
-| 254 | [MCP tool injection в агенты](#254-mcp-tool-injection) | 🔲 TODO | 2d | MCP-инструменты автоматически доступны всем агентам |
-| 255 | [MCP HTTP/SSE transport](#255-mcp-http) | 🔲 TODO | 3d | удалённые MCP серверы (Linear, Slack, GitHub, Notion) |
-| 256 | [/mcp команда — интерактивный UI](#256-mcp-command) | 🔲 TODO | 1d | list/add/remove/status MCP серверов в сессии |
-| 257 | [Per-project mcp.json конфиг](#257-mcp-config) | 🔲 TODO | 1d | .lidco/mcp.json + ~/.lidco/mcp.json с приоритетами |
-| 258 | [OAuth auth flow для HTTP MCP](#258-mcp-oauth) | 🔲 TODO | 2d | авторизация в GitHub, Linear, Notion через браузер |
-| 259 | [LIDCO как MCP сервер](#259-lidco-as-mcp) | 🔲 TODO | 2d | expose собственных инструментов LIDCO для внешних агентов |
-| 260 | [MCP hot-reload](#260-mcp-hotreload) | 🔲 TODO | 1d | изменение mcp.json без рестарта сессии |
+| 253 | [MCP stdio transport — ядро](#253-mcp-stdio) | ✅ DONE | 4d | подключение локальных MCP серверов (Browser, Playwright, etc.) |
+| 254 | [MCP tool injection в агенты](#254-mcp-tool-injection) | ✅ DONE | 2d | MCP-инструменты автоматически доступны всем агентам |
+| 255 | [MCP HTTP/SSE transport](#255-mcp-http) | ✅ DONE | 3d | удалённые MCP серверы (Linear, Slack, GitHub, Notion) |
+| 256 | [/mcp команда — интерактивный UI](#256-mcp-command) | ✅ DONE | 1d | list/add/remove/status MCP серверов в сессии |
+| 257 | [Per-project mcp.json конфиг](#257-mcp-config) | ✅ DONE | 1d | .lidco/mcp.json + ~/.lidco/mcp.json с приоритетами |
+| 258 | [OAuth auth flow для HTTP MCP](#258-mcp-oauth) | ✅ DONE | 2d | авторизация в GitHub, Linear, Notion через браузер |
+| 259 | [LIDCO как MCP сервер](#259-lidco-as-mcp) | ✅ DONE | 2d | expose собственных инструментов LIDCO для внешних агентов |
+| 260 | [MCP hot-reload](#260-mcp-hotreload) | ✅ DONE | 1d | изменение mcp.json без рестарта сессии |
 
 ---
 
@@ -1382,13 +1382,13 @@ ddmin(input_components):
 
 | # | Task | Status | Est. | Impact |
 |---|------|--------|------|--------|
-| 261 | [lidco exec — headless режим](#261-lidco-exec) | 🔲 TODO | 3d | неинтерактивное выполнение: lidco exec "fix all tests" |
-| 262 | [JSON output mode (--json)](#262-json-output) | 🔲 TODO | 1d | машиночитаемый вывод всех действий и результатов |
-| 263 | [Правильные exit codes](#263-exit-codes) | 🔲 TODO | 0.5d | 0=success, 1=task_failed, 2=config_error, 3=permission_denied |
-| 264 | [GitHub Actions интеграция](#264-github-actions) | 🔲 TODO | 2d | lidco-action: установка, proxy, lidco exec в CI |
-| 265 | [Pre-commit hook режим](#265-precommit-hook) | 🔲 TODO | 1d | code review и security scan перед каждым коммитом |
-| 266 | [GitLab CI/CD поддержка](#266-gitlab-ci) | 🔲 TODO | 1d | unified diff как .patch + git apply --check |
-| 267 | [Pipe-friendly stdin/stdout](#267-pipe-mode) | 🔲 TODO | 1d | echo "fix tests" | lidco exec, composable CLI |
+| 261 | [lidco exec — headless режим](#261-lidco-exec) | ✅ DONE | 3d | неинтерактивное выполнение: lidco exec "fix all tests" |
+| 262 | [JSON output mode (--json)](#262-json-output) | ✅ DONE | 1d | машиночитаемый вывод всех действий и результатов |
+| 263 | [Правильные exit codes](#263-exit-codes) | ✅ DONE | 0.5d | 0=success, 1=task_failed, 2=config_error, 3=permission_denied |
+| 264 | [GitHub Actions интеграция](#264-github-actions) | ✅ DONE | 2d | lidco-action: установка, proxy, lidco exec в CI |
+| 265 | [Pre-commit hook режим](#265-precommit-hook) | ✅ DONE | 1d | code review и security scan перед каждым коммитом |
+| 266 | [GitLab CI/CD поддержка](#266-gitlab-ci) | ✅ DONE | 1d | unified diff как .patch + git apply --check |
+| 267 | [Pipe-friendly stdin/stdout](#267-pipe-mode) | ✅ DONE | 1d | echo "fix tests" | lidco exec, composable CLI |
 
 ---
 
@@ -1398,14 +1398,14 @@ ddmin(input_components):
 
 | # | Task | Status | Est. | Impact |
 |---|------|--------|------|--------|
-| 268 | [YAML-агенты (.lidco/agents/)](#268-yaml-agents) | 🔲 TODO | 4d | создание агентов через Markdown+YAML frontmatter |
-| 269 | [Git worktree isolation](#269-worktree-isolation) | 🔲 TODO | 3d | каждый параллельный агент в отдельном git worktree |
-| 270 | [Background agent execution](#270-background-agents) | 🔲 TODO | 2d | Ctrl+B переводит агента в фон, уведомление по завершению |
-| 271 | [/agents команда](#271-agents-command) | 🔲 TODO | 1d | list/inspect/stop агентов, просмотр running threads |
-| 272 | [Agent memory dirs](#272-agent-memory) | 🔲 TODO | 1d | персистентная память на агента (.lidco/memory/{agent_name}/) |
-| 273 | [Tool allowlist/denylist в YAML](#273-agent-tools) | 🔲 TODO | 1d | tools: [read, grep, bash] + disallowed_tools: [file_write] |
-| 274 | [Per-agent permission mode](#274-agent-permissions) | 🔲 TODO | 1d | permission_mode: plan для read-only аналитических агентов |
-| 275 | [Agent forking через Task tool](#275-agent-forking) | 🔲 TODO | 2d | агент создаёт субагентов по имени через Task(subagent_type=name) |
+| 268 | [YAML-агенты (.lidco/agents/)](#268-yaml-agents) | ✅ Done | 4d | создание агентов через Markdown+YAML frontmatter |
+| 269 | [Git worktree isolation](#269-worktree-isolation) | ✅ Done | 3d | каждый параллельный агент в отдельном git worktree |
+| 270 | [Background agent execution](#270-background-agents) | ✅ Done | 2d | Ctrl+B переводит агента в фон, уведомление по завершению |
+| 271 | [/agents команда](#271-agents-command) | ✅ Done | 1d | list/inspect/stop агентов, просмотр running threads |
+| 272 | [Agent memory dirs](#272-agent-memory) | ✅ Done | 1d | персистентная память на агента (.lidco/memory/{agent_name}/) |
+| 273 | [Tool allowlist/denylist в YAML](#273-agent-tools) | ✅ Done | 1d | tools: [read, grep, bash] + disallowed_tools: [file_write] |
+| 274 | [Per-agent permission mode](#274-agent-permissions) | ✅ Done | 1d | permission_mode: plan для read-only аналитических агентов |
+| 275 | [Agent forking через Task tool](#275-agent-forking) | ✅ Done | 2d | агент создаёт субагентов по имени через Task(subagent_type=name) |
 
 ---
 
@@ -1415,16 +1415,16 @@ ddmin(input_components):
 
 | # | Task | Status | Est. | Impact |
 |---|------|--------|------|--------|
-| 276 | [/compact [focus]](#276-compact-command) | 🔲 TODO | 1d | явная LLM-компрессия истории с указанием что сохранить |
-| 277 | [/context — визуальный gauge](#277-context-gauge) | 🔲 TODO | 1d | цветовая шкала + % + разбивка токенов по слоям |
-| 278 | [/mention — добавить файлы в контекст](#278-mention-command) | 🔲 TODO | 1d | /mention src/foo.py инжектирует файл в следующий turn |
-| 279 | [/model — смена модели в сессии](#279-model-switch) | 🔲 TODO | 0.5d | без рестарта, немедленный эффект для следующего запроса |
-| 280 | [/theme — выбор цветовой темы](#280-theme-command) | 🔲 TODO | 1d | preview + сохранение: dark/light/solarized/nord/monokai |
-| 281 | [/add-dir — расширить доступные директории](#281-adddir-command) | 🔲 TODO | 1d | добавить внешние папки к сессии (--add-dir ../backend) |
-| 282 | [@-mentions файлов в промпте](#282-at-mentions) | 🔲 TODO | 2d | @src/foo.py в тексте автоматически читает и инжектирует файл |
-| 283 | [Checkpoint-based undo](#283-checkpoints) | 🔲 TODO | 2d | снапшот перед каждым file-write → /undo N шагов назад |
-| 284 | [Interactive diff approval](#284-diff-approval) | 🔲 TODO | 2d | approve/reject/edit каждого file-write до реальной записи |
-| 285 | [Session resume после crash](#285-session-resume) | 🔲 TODO | 2d | автосохранение состояния сессии → lidco --resume SESSION_ID |
+| 276 | [/compact [focus]](#276-compact-command) | ✅ Done | 1d | явная LLM-компрессия истории с указанием что сохранить |
+| 277 | [/context — визуальный gauge](#277-context-gauge) | ✅ Done | 1d | цветовая шкала + % + разбивка токенов по слоям |
+| 278 | [/mention — добавить файлы в контекст](#278-mention-command) | ✅ Done | 1d | /mention src/foo.py инжектирует файл в следующий turn |
+| 279 | [/model — смена модели в сессии](#279-model-switch) | ✅ Done | 0.5d | без рестарта, немедленный эффект для следующего запроса |
+| 280 | [/theme — выбор цветовой темы](#280-theme-command) | ✅ Done | 1d | preview + сохранение: dark/light/solarized/nord/monokai |
+| 281 | [/add-dir — расширить доступные директории](#281-adddir-command) | ✅ Done | 1d | добавить внешние папки к сессии (--add-dir ../backend) |
+| 282 | [@-mentions файлов в промпте](#282-at-mentions) | ✅ Done | 2d | @src/foo.py в тексте автоматически читает и инжектирует файл |
+| 283 | [Checkpoint-based undo](#283-checkpoints) | ✅ Done | 2d | снапшот перед каждым file-write → /undo N шагов назад |
+| 284 | [Interactive diff approval](#284-diff-approval) | ✅ Done | 2d | approve/reject/edit каждого file-write до реальной записи |
+| 285 | [Session resume после crash](#285-session-resume) | ✅ Done | 2d | автосохранение состояния сессии → lidco --resume SESSION_ID |
 
 ---
 
@@ -1434,13 +1434,13 @@ ddmin(input_components):
 
 | # | Task | Status | Est. | Impact |
 |---|------|--------|------|--------|
-| 286 | [Native TDD pipeline](#286-tdd-pipeline) | 🔲 TODO | 4d | spec-writer → tester (RED) → coder (GREEN) → verify loop |
-| 287 | [/spec — specification mode](#287-spec-mode) | 🔲 TODO | 2d | генерация детальной спецификации перед реализацией |
-| 288 | [/batch — параллельная декомпозиция](#288-batch-command) | 🔲 TODO | 4d | задача разбивается на 5-30 единиц, каждая в своём worktree |
-| 289 | [/simplify — параллельный code review](#289-simplify-command) | 🔲 TODO | 2d | 3 параллельных reviewer → объединение и исправление замечаний |
-| 290 | [Best-of-N code generation](#290-best-of-n) | 🔲 TODO | 2d | --attempts N → N вариантов решения → выбор лучшего по тестам |
-| 291 | [Test-first enforcement](#291-test-first) | 🔲 TODO | 1d | предупреждение/блокировка если coder пишет без тестов |
-| 292 | [Auto-coverage gap closure](#292-coverage-closure) | 🔲 TODO | 2d | tester агент автодописывает тесты для непокрытых строк |
+| 286 | [Native TDD pipeline](#286-tdd-pipeline) | ✅ Done | 4d | spec-writer → tester (RED) → coder (GREEN) → verify loop |
+| 287 | [/spec — specification mode](#287-spec-mode) | ✅ Done | 2d | генерация детальной спецификации перед реализацией |
+| 288 | [/batch — параллельная декомпозиция](#288-batch-command) | ✅ Done | 4d | задача разбивается на 5-30 единиц, каждая в своём worktree |
+| 289 | [/simplify — параллельный code review](#289-simplify-command) | ✅ Done | 2d | 3 параллельных reviewer → объединение и исправление замечаний |
+| 290 | [Best-of-N code generation](#290-best-of-n) | ✅ Done | 2d | --attempts N → N вариантов решения → выбор лучшего по тестам |
+| 291 | [Test-first enforcement](#291-test-first) | ✅ Done | 1d | предупреждение/блокировка если coder пишет без тестов |
+| 292 | [Auto-coverage gap closure](#292-coverage-closure) | ✅ Done | 2d | tester агент автодописывает тесты для непокрытых строк |
 
 ---
 
@@ -1450,13 +1450,13 @@ ddmin(input_components):
 
 | # | Task | Status | Est. | Impact |
 |---|------|--------|------|--------|
-| 293 | [Skills система (.lidco/skills/)](#293-skills-system) | 🔲 TODO | 3d | SKILL.md с YAML frontmatter (name, desc, prompt, context, scripts) |
-| 294 | [Skill discovery → slash-команды](#294-skill-discovery) | 🔲 TODO | 1d | авто-обнаружение из .lidco/skills/ и ~/.lidco/skills/ |
-| 295 | [Skill chaining (pipeline)](#295-skill-chaining) | 🔲 TODO | 2d | /skill1 | /skill2 — результат одного передаётся следующему |
-| 296 | [Custom slash commands (commands.yaml)](#296-custom-commands) | 🔲 TODO | 1d | .lidco/commands.yaml: name: /review, prompt: "review {args}" |
-| 297 | [Global skill library (~/.lidco/skills/)](#297-global-skills) | 🔲 TODO | 1d | персональные skills, доступные во всех проектах |
-| 298 | [/skills команда + popup](#298-skills-command) | 🔲 TODO | 1d | list/describe/run/edit; popup при вводе / в REPL |
-| 299 | [Skill версионирование и зависимости](#299-skill-versioning) | 🔲 TODO | 1d | version: 1.2, requires: [git, pytest], авто-проверка |
+| 293 | [Skills система (.lidco/skills/)](#293-skills-system) | ✅ Done | 3d | SKILL.md с YAML frontmatter (name, desc, prompt, context, scripts) |
+| 294 | [Skill discovery → slash-команды](#294-skill-discovery) | ✅ Done | 1d | авто-обнаружение из .lidco/skills/ и ~/.lidco/skills/ |
+| 295 | [Skill chaining (pipeline)](#295-skill-chaining) | ✅ Done | 2d | /skill1 | /skill2 — результат одного передаётся следующему |
+| 296 | [Custom slash commands (commands.yaml)](#296-custom-commands) | ✅ Done | 1d | .lidco/commands.yaml: name: /review, prompt: "review {args}" |
+| 297 | [Global skill library (~/.lidco/skills/)](#297-global-skills) | ✅ Done | 1d | персональные skills, доступные во всех проектах |
+| 298 | [/skills команда + popup](#298-skills-command) | ✅ Done | 1d | list/describe/run/edit; popup при вводе / в REPL |
+| 299 | [Skill версионирование и зависимости](#299-skill-versioning) | ✅ Done | 1d | version: 1.2, requires: [git, pytest], авто-проверка |
 
 ---
 
@@ -1466,13 +1466,13 @@ ddmin(input_components):
 
 | # | Task | Status | Est. | Impact |
 |---|------|--------|------|--------|
-| 300 | [lidco server — JSON-RPC API](#300-api-server) | 🔲 TODO | 4d | HTTP+WebSocket сервер для IDE-коннекторов и внешних клиентов |
-| 301 | [WebSocket streaming API](#301-ws-streaming) | 🔲 TODO | 2d | real-time стриминг ответов и статусов агента в IDE |
-| 302 | [REST API для tool execution](#302-rest-api) | 🔲 TODO | 2d | POST /execute, GET /status, GET /history, GET /tools |
-| 303 | [VS Code extension (MVP)](#303-vscode-extension) | 🔲 TODO | 5d | chat panel + diff viewer + inline suggestions через lidco server |
-| 304 | [LSP bridge](#304-lsp-bridge) | 🔲 TODO | 3d | Language Server Protocol адаптер — поддержка любого LSP редактора |
-| 305 | [Remote session (HTTPS tunnel)](#305-remote-session) | 🔲 TODO | 3d | подключение к lidco server с другой машины через токен |
-| 306 | [Multi-session management](#306-multi-session) | 🔲 TODO | 2d | несколько параллельных сессий, /sessions для переключения |
+| 300 | [lidco server — JSON-RPC API](#300-api-server) | ✅ Done | 4d | HTTP+WebSocket сервер для IDE-коннекторов и внешних клиентов |
+| 301 | [WebSocket streaming API](#301-ws-streaming) | ✅ Done | 2d | real-time стриминг ответов и статусов агента в IDE |
+| 302 | [REST API для tool execution](#302-rest-api) | ✅ Done | 2d | POST /execute, GET /status, GET /history, GET /tools |
+| 303 | [VS Code extension (MVP)](#303-vscode-extension) | ✅ Done | 5d | chat panel + diff viewer + inline suggestions через lidco server |
+| 304 | [LSP bridge](#304-lsp-bridge) | ✅ Done | 3d | Language Server Protocol адаптер — поддержка любого LSP редактора |
+| 305 | [Remote session (HTTPS tunnel)](#305-remote-session) | ✅ Done | 3d | подключение к lidco server с другой машины через токен |
+| 306 | [Multi-session management](#306-multi-session) | ✅ Done | 2d | несколько параллельных сессий, /sessions для переключения |
 
 ---
 
@@ -1482,13 +1482,13 @@ ddmin(input_components):
 
 | # | Task | Status | Est. | Impact |
 |---|------|--------|------|--------|
-| 307 | [Adaptive context paging](#307-context-paging) | 🔲 TODO | 4d | динамическое ранжирование что включать — "OS for context" |
-| 308 | [Path-scoped rule loading](#308-path-scoped-loading) | 🔲 TODO | 2d | rules/ грузятся только при работе с matching файлами — экономия токенов |
-| 309 | [Multi-level memory hierarchy](#309-memory-hierarchy) | 🔲 TODO | 2d | session > project > user > org; конкретное перекрывает общее |
-| 310 | [Memory search и browse](#310-memory-search) | 🔲 TODO | 1d | /memory search <query> по всем memory файлам с ранжированием |
-| 311 | [Team/org shared memory](#311-shared-memory) | 🔲 TODO | 3d | .lidco/team-memory.md — общая база знаний команды в репо |
-| 312 | [Context layers visualization](#312-context-layers) | 🔲 TODO | 1d | /context детально: LIDCO.md N tok, memory N tok, RAG N tok, history N tok |
-| 313 | [Memory auto-compression](#313-memory-compression) | 🔲 TODO | 2d | при росте MEMORY.md > 500 строк — LLM сжимает старые записи |
+| 307 | [Adaptive context paging](#307-context-paging) | ✅ Done | 4d | динамическое ранжирование что включать — "OS for context" |
+| 308 | [Path-scoped rule loading](#308-path-scoped-loading) | ✅ Done | 2d | rules/ грузятся только при работе с matching файлами — экономия токенов |
+| 309 | [Multi-level memory hierarchy](#309-memory-hierarchy) | ✅ Done | 2d | session > project > user > org; конкретное перекрывает общее |
+| 310 | [Memory search и browse](#310-memory-search) | ✅ Done | 1d | /memory search <query> по всем memory файлам с ранжированием |
+| 311 | [Team/org shared memory](#311-shared-memory) | ✅ Done | 3d | .lidco/team-memory.md — общая база знаний команды в репо |
+| 312 | [Context layers visualization](#312-context-layers) | ✅ Done | 1d | /context детально: LIDCO.md N tok, memory N tok, RAG N tok, history N tok |
+| 313 | [Memory auto-compression](#313-memory-compression) | ✅ Done | 2d | при росте MEMORY.md > 500 строк — LLM сжимает старые записи |
 
 ---
 
@@ -1498,13 +1498,13 @@ ddmin(input_components):
 
 | # | Task | Status | Est. | Impact |
 |---|------|--------|------|--------|
-| 314 | [Multi-model sampling (best-of-N)](#314-multimodel-sampling) | 🔲 TODO | 3d | N параллельных LLM-вызовов → выбор лучшего по critic |
-| 315 | [/think — режим глубокого мышления](#315-think-mode) | 🔲 TODO | 1d | расширенный token budget на reasoning, extended thinking API |
-| 316 | [Speculative tool pre-fetch](#316-speculative-prefetch) | 🔲 TODO | 3d | предсказать следующий tool call и начать выполнение заранее |
-| 317 | [MPC-inspired adaptive planning](#317-mpc-planning) | 🔲 TODO | 4d | после каждого шага пересчитывать оптимальную траекторию плана |
-| 318 | [Confidence-weighted routing](#318-confidence-routing) | 🔲 TODO | 2d | роутер выдаёт confidence score → re-route при низкой уверенности |
-| 319 | [Plan rollback on failure](#319-plan-rollback) | 🔲 TODO | 2d | автоматический rollback на checkpoint при провале шага плана |
-| 320 | [Self-consistency checking](#320-self-consistency) | 🔲 TODO | 2d | N независимых ответов → выбор наиболее консистентного |
+| 314 | [Multi-model sampling (best-of-N)](#314-multimodel-sampling) | ✅ Done | 3d | N параллельных LLM-вызовов → выбор лучшего по critic |
+| 315 | [/think — режим глубокого мышления](#315-think-mode) | ✅ Done | 1d | расширенный token budget на reasoning, extended thinking API |
+| 316 | [Speculative tool pre-fetch](#316-speculative-prefetch) | ✅ Done | 3d | предсказать следующий tool call и начать выполнение заранее |
+| 317 | [MPC-inspired adaptive planning](#317-mpc-planning) | ✅ Done | 4d | после каждого шага пересчитывать оптимальную траекторию плана |
+| 318 | [Confidence-weighted routing](#318-confidence-routing) | ✅ Done | 2d | роутер выдаёт confidence score → re-route при низкой уверенности |
+| 319 | [Plan rollback on failure](#319-plan-rollback) | ✅ Done | 2d | автоматический rollback на checkpoint при провале шага плана |
+| 320 | [Self-consistency checking](#320-self-consistency) | ✅ Done | 2d | N независимых ответов → выбор наиболее консистентного |
 
 ---
 
@@ -1514,13 +1514,13 @@ ddmin(input_components):
 
 | # | Task | Status | Est. | Impact |
 |---|------|--------|------|--------|
-| 321 | [AI Shield — pre-commit анализ](#321-ai-shield) | 🔲 TODO | 3d | LLM-анализ диффа перед коммитом: уязвимости, баги, секреты |
-| 322 | [Full audit trail](#322-audit-trail) | 🔲 TODO | 2d | каждое действие агента логируется с reasoning в SQLite |
-| 323 | [Session replay](#323-session-replay) | 🔲 TODO | 2d | воспроизведение прошлой сессии пошагово для отладки |
-| 324 | [Secret detection (pre-commit)](#324-secret-detection) | 🔲 TODO | 1d | обнаружение API-ключей и паролей в изменённых файлах |
-| 325 | [Role-based access control (RBAC)](#325-rbac) | 🔲 TODO | 3d | роли: viewer/editor/admin — ограничения tool access per role |
-| 326 | [Usage analytics dashboard](#326-analytics) | 🔲 TODO | 2d | /analytics: top commands, cost по дням, agent usage, LLM calls |
-| 327 | [Compliance reporting](#327-compliance) | 🔲 TODO | 2d | экспорт audit log в JSON/CSV для compliance и security отчётов |
+| 321 | [AI Shield — pre-commit анализ](#321-ai-shield) | ✅ Done | 3d | LLM-анализ диффа перед коммитом: уязвимости, баги, секреты |
+| 322 | [Full audit trail](#322-audit-trail) | ✅ Done | 2d | каждое действие агента логируется с reasoning в SQLite |
+| 323 | [Session replay](#323-session-replay) | ✅ Done | 2d | воспроизведение прошлой сессии пошагово для отладки |
+| 324 | [Secret detection (pre-commit)](#324-secret-detection) | ✅ Done | 1d | обнаружение API-ключей и паролей в изменённых файлах |
+| 325 | [Role-based access control (RBAC)](#325-rbac) | ✅ Done | 3d | роли: viewer/editor/admin — ограничения tool access per role |
+| 326 | [Usage analytics dashboard](#326-analytics) | ✅ Done | 2d | /analytics: top commands, cost по дням, agent usage, LLM calls |
+| 327 | [Compliance reporting](#327-compliance) | ✅ Done | 2d | экспорт audit log в JSON/CSV для compliance и security отчётов |
 
 ---
 
@@ -1530,13 +1530,1270 @@ ddmin(input_components):
 
 | # | Task | Status | Est. | Impact |
 |---|------|--------|------|--------|
-| 328 | [Async task queue](#328-cloud-tasks) | 🔲 TODO | 5d | lidco exec --async → задача в очереди, lidco task status ID |
-| 329 | [Session persistence (resume)](#329-session-persistence) | 🔲 TODO | 3d | сессия сохраняется при выходе → lidco --resume SESSION_ID |
-| 330 | [Multi-repo support](#330-multi-repo) | 🔲 TODO | 2d | --add-repo ../backend — работа с несколькими репозиториями |
-| 331 | [Task notification system](#331-notifications) | 🔲 TODO | 1d | desktop/webhook уведомления по завершению долгих задач |
-| 332 | [Task result apply](#332-task-apply) | 🔲 TODO | 2d | lidco task apply TASK_ID — применение изменений из async задачи |
-| 333 | [Parallel task management](#333-parallel-tasks) | 🔲 TODO | 2d | /tasks — список активных задач, cancel/pause/resume |
-| 334 | [Best-of-N async runs](#334-best-of-n-async) | 🔲 TODO | 2d | --attempts 3 → 3 параллельных запуска, выбор лучшего по тестам |
+| 328 | [Async task queue](#328-cloud-tasks) | ✅ Done | 5d | lidco exec --async → задача в очереди, lidco task status ID |
+| 329 | [Session persistence (resume)](#329-session-persistence) | ✅ Done | 3d | сессия сохраняется при выходе → lidco --resume SESSION_ID |
+| 330 | [Multi-repo support](#330-multi-repo) | ✅ Done | 2d | --add-repo ../backend — работа с несколькими репозиториями |
+| 331 | [Task notification system](#331-notifications) | ✅ Done | 1d | desktop/webhook уведомления по завершению долгих задач |
+| 332 | [Task result apply](#332-task-apply) | ✅ Done | 2d | lidco task apply TASK_ID — применение изменений из async задачи |
+| 333 | [Parallel task management](#333-parallel-tasks) | ✅ Done | 2d | /tasks — список активных задач, cancel/pause/resume |
+| 334 | [Best-of-N async runs](#334-best-of-n-async) | ✅ Done | 2d | --attempts 3 → 3 параллельных запуска, выбор лучшего по тестам |
+
+---
+
+## Q49 — Code Quality & Static Analysis
+
+**Цель:** автономные модули анализа кода — сложность, дубли, мёртвый код, покрытие типами, возможности рефакторинга.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 335 | [CommitAnalyzer](#335-commit-analyzer) | ✅ Done | 1d | анализ истории коммитов: авторы, churn-файлы, качество сообщений |
+| 336 | [DiffSummarizer](#336-diff-summarizer) | ✅ Done | 1d | парсинг unified diff → структурированная сводка по файлам |
+| 337 | [ComplexityAnalyzer](#337-complexity) | ✅ Done | 2d | цикломатическая и когнитивная сложность на уровне функций (AST) |
+| 338 | [DuplicateDetector](#338-duplicates) | ✅ Done | 2d | поиск дублированных блоков кода по хешу скользящего окна |
+| 339 | [DeadCodeDetector](#339-dead-code) | ✅ Done | 2d | поиск неиспользуемых символов в файле через AST |
+| 340 | [TypeCoverageChecker](#340-type-coverage) | ✅ Done | 1d | покрытие аннотациями типов: параметры и возвращаемые значения |
+| 341 | [RefactorScanner](#341-refactor) | ✅ Done | 2d | поиск возможностей рефакторинга: длинные функции, глубокое вложение, магические числа |
+
+---
+
+## Q50 — Code Intelligence & Analysis
+
+**Цель:** расширение анализа кода: lint-агрегация, граф зависимостей, индекс символов, анализ влияния изменений, покрытие документацией, проверка именования.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 342 | [LintRunner](#342-lint-runner) | ✅ Done | 1d | парсинг ruff/flake8/mypy → единый LintReport с deduplicated merge |
+| 343 | [DependencyGraph](#343-dep-graph) | ✅ Done | 2d | граф зависимостей модулей, поиск циклов, транзитивные deps |
+| 344 | [SymbolIndex](#344-symbol-index) | ✅ Done | 2d | кросс-файловый индекс символов: функции, классы, методы, импорты |
+| 345 | [ChangeImpactAnalyzer](#345-impact) | ✅ Done | 2d | анализ влияния изменений через reversed dependency graph |
+| 346 | [DocCoverageChecker](#346-doc-coverage) | ✅ Done | 1d | покрытие docstrings: функции + классы, AST-based |
+| 347 | [NamingChecker](#347-naming) | ✅ Done | 1d | проверка соглашений об именах: snake_case/PascalCase/UPPER_CASE |
+
+---
+
+## Q51 — Deep Code Intelligence
+
+**Цель:** продвинутый анализ безопасности, маппинг тестов на источники, API-экстракция, метрики проекта.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 348 | [SecurityScanner](#348-security-scanner) | ✅ Done | 2d | AST-детекция eval/exec/pickle/yaml.load/os.system/weak hashes + assert |
+| 349 | [TestCoverageMapper](#349-test-map) | ✅ Done | 1d | маппинг test_X.py → X.py, извлечение тест-функций и Referenced символов |
+| 350 | [ApiExtractor](#350-api-extractor) | ✅ Done | 2d | извлечение публичного API: сигнатуры, аннотации, docstrings, async |
+| 351 | [CodeMetricsCollector](#351-metrics) | ✅ Done | 1d | LOC, blank/comment lines, функции, классы, avg/max длина функций; ProjectMetrics |
+
+---
+
+## Q52 — Advanced Code Analysis
+
+**Цель:** детекция паттернов проектирования, анализ миграций API, оптимизация импортов, качество обработки исключений.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 352 | [MigrationDetector](#352-migration) | ✅ Done | 2d | сравнение API двух версий: удалённые/переименованные символы, изменения сигнатур |
+| 353 | [PatternMatcher](#353-patterns) | ✅ Done | 2d | детекция Singleton/Factory/Observer/ContextManager/Iterator/Decorator |
+| 354 | [ImportOptimizer](#354-imports) | ✅ Done | 1d | неиспользуемые/дублированные/star-импорты с рекомендациями |
+| 355 | [ExceptionAnalyzer](#355-exceptions) | ✅ Done | 1d | bare except, broad except, swallowed exceptions, reraise from None |
+
+---
+
+## Q53 — Extended Code Analysis
+
+**Цель:** расширение аналитической подсистемы — трекинг переменных, анализ классов, поток управления, унифицированный отчёт.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 356 | [StringAnalyzer](#356-strings) | ✅ Done | 1d | hardcoded URLs/IPs/paths, long strings, TODO in literals |
+| 357 | [VariableTracker](#357-variables) | ✅ Done | 1d | unused variables, shadowing, global misuse |
+| 358 | [ClassAnalyzer](#358-classes) | ✅ Done | 1d | inheritance depth, god class, missing docstrings |
+| 359 | [FlowAnalyzer](#359-flow) | ✅ Done | 1d | unreachable code, missing return, inconsistent return, infinite loop |
+| 360 | [ReportBuilder](#360-report) | ✅ Done | 1d | унифицированный агрегатор всех анализов с severity mapping |
+
+---
+
+## Q54 — Bug Fixes & Stability
+
+**Цель:** устранение найденных багов во взаимодействии компонентов, утечек памяти, гонок потоков.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 361 | [Reminder pop index bug](#361-reminder-pop) | ✅ Done | 0.5d | crash при >1 напоминании в одном turn |
+| 362 | [disallowed_tools enforcement](#362-disallowed-tools) | ✅ Done | 0.5d | безопасность: запрет инструментов действительно работает |
+| 363 | [ConfigReloader thread-safety lock](#363-config-reloader-lock) | ✅ Done | 0.5d | гонка потоков при обновлении mtimes |
+| 364 | [ConfigReloader asyncio.set_event_loop](#364-config-reloader-loop) | ✅ Done | 0.5d | корректный event loop при MCP hot-reload |
+| 365 | [Agent tool schema cache versioning](#365-schema-cache-version) | ✅ Done | 1d | агенты видят новые MCP tools без рестарта |
+| 366 | [Bounded collections in CommandRegistry](#366-bounded-collections) | ✅ Done | 0.5d | нет утечки памяти при длинных сессиях |
+| 367 | [Error ledger warning on persistent failure](#367-ledger-warning) | ✅ Done | 0.5d | пользователь видит если DB недоступна |
+
+---
+
+## Q55 — Interactive UX Improvements
+
+**Цель:** удобство работы в REPL — внешний редактор, автодополнение, уведомления, экспорт сессии.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 368 | [External editor for long input](#368-editor-popup) | ✅ Done | 1d | открыть $EDITOR для многострочного ввода |
+| 369 | [Fuzzy slash-command completion](#369-fuzzy-complete) | ✅ Done | 2d | Tab-дополнение с fuzzy-поиском по командам |
+| 370 | [@mention file auto-complete](#370-mention-complete) | ✅ Done | 1d | Tab после @ — fuzzy выбор файлов из проекта |
+| 371 | [Hunk-level diff approval](#371-hunk-approve) | ✅ Done | 2d | accept/reject/edit каждый hunk по отдельности |
+| 372 | [Desktop notifications](#372-notifications) | ✅ Done | 1d | системное уведомление когда агент завершил задачу |
+| 373 | [Session export](#373-session-export) | ✅ Done | 1d | /export → markdown/HTML с подсветкой кода |
+| 374 | [Context window meter](#374-context-meter) | ✅ Done | 1d | статус-бар: [████░░] 65% context используется |
+
+---
+
+## Q56 — Git Superpowers
+
+**Цель:** полноценная работа с git из REPL — конфликты, PR, bisect, ветки, stash.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 375 | [AI conflict resolver](#375-conflict-resolver) | ✅ Done | 2d | /conflict — AI разрешает merge-конфликты с объяснением |
+| 376 | [git bisect integration](#376-bisect) | ✅ Done | 2d | /bisect — AI находит коммит-виновник регрессии |
+| 377 | [Branch management commands](#377-branch) | ✅ Done | 1d | /branch, /checkout, /stash list|pop|push из REPL |
+| 378 | [Auto PR creation](#378-auto-pr) | ✅ Done | 2d | /pr-create — AI генерирует описание PR и создаёт через gh/API |
+| 379 | [PR review mode](#379-pr-review) | ✅ Done | 2d | /pr-review <number> — загружает diff PR, AI комментирует |
+| 380 | [--from-pr session start](#380-from-pr) | ✅ Done | 1d | lidco --from-pr 123 — стартовать сессию из контекста PR |
+| 381 | [Commit message templates](#381-commit-templates) | ✅ Done | 1d | шаблоны commit message в .lidco/commit-template.md |
+
+---
+
+## Q57 — Session & Workspace Management
+
+**Цель:** ветвление сессий, профили рабочих пространств, визуализация контекста.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 382 | [Session forking](#382-session-fork) | ✅ Done | 2d | /fork — разветвить текущий разговор, вернуться к ветке |
+| 383 | [Named sessions with description](#383-named-sessions) | ✅ Done | 1d | lidco --session my-feature — именованные сессии |
+| 384 | [Session search and filter](#384-session-search) | ✅ Done | 1d | /session list --query "auth" — поиск по истории сессий |
+| 385 | [Workspace profiles](#385-workspace-profiles) | ✅ Done | 2d | профили (frontend/backend/data) с разными моделями и агентами |
+| 386 | [Session replay](#386-session-replay) | ✅ Done | 2d | /replay — воспроизвести команды из сессии в новом контексте |
+| 387 | [Context visualizer](#387-context-visual) | ✅ Done | 2d | /context tree — дерево что именно в контексте и сколько токенов |
+| 388 | [Multi-repo support](#388-multi-repo) | ✅ Done | 2d | работа с несколькими репозиториями в одной сессии |
+
+---
+
+## Q58 — Multi-Agent Orchestration 2.0
+
+**Цель:** сравнение агентов, pipeline builder, broadcast, human-in-the-loop.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 389 | [Agent comparison mode](#389-agent-compare) | 🔲 Todo | 3d | запустить задачу на N агентах параллельно, показать diff результатов |
+| 390 | [Agent pipeline builder (YAML)](#390-pipeline-yaml) | 🔲 Todo | 3d | декларативное описание pipeline агентов в YAML с условиями |
+| 391 | [Broadcast mode](#391-broadcast) | 🔲 Todo | 2d | /broadcast — разослать задачу всем агентам, агрегировать ответы |
+| 392 | [Agent performance leaderboard](#392-leaderboard) | 🔲 Todo | 2d | /agents stats — рейтинг агентов по скорости/качеству/цене |
+| 393 | [Human-in-the-loop checkpoints](#393-hitl) | 🔲 Todo | 2d | точки одобрения в pipeline: агент ждёт подтверждения |
+| 394 | [Agent delegation with context](#394-delegation) | 🔲 Todo | 2d | агент передаёт задачу другому агенту с контекстом и ожидает результат |
+| 395 | [Cross-session agent memory](#395-agent-memory) | 🔲 Todo | 2d | агент помнит решения из прошлых сессий через MemoryStore |
+
+---
+
+## Q59 — Code Execution & Runtime
+
+**Цель:** выполнение кода прямо в REPL, дебаггер, sandbox, управление venv.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 396 | [In-REPL code execution](#396-repl-exec) | 🔲 Todo | 2d | /run python/js — выполнить сниппет с выводом + ошибками |
+| 397 | [Interactive debugger (pdb)](#397-pdb) | 🔲 Todo | 3d | /debug run <file> — запустить с pdb, AI анализирует стек |
+| 398 | [Test runner from REPL](#398-test-run) | 🔲 Todo | 1d | /test path/to/test.py::func — запустить конкретный тест |
+| 399 | [Docker execution sandbox](#399-docker) | 🔲 Todo | 3d | выполнять bash команды в изолированном Docker-контейнере |
+| 400 | [Virtual env manager](#400-venv) | 🔲 Todo | 2d | /venv create|activate|list — управление venv из REPL |
+| 401 | [Dependency installer](#401-deps) | 🔲 Todo | 1d | /install pkg — установить зависимость с объяснением зачем она нужна |
+| 402 | [Code output differ](#402-output-diff) | 🔲 Todo | 2d | сравнить вывод до и после изменений автоматически |
+
+---
+
+## Q60 — External Integrations
+
+**Цель:** интеграция с GitHub Issues, CI/CD, Slack, OpenAPI.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 403 | [GitHub Issues integration](#403-gh-issues) | ✅ Done | 2d | /issue list|view|create|close — Issues прямо из REPL |
+| 404 | [CI/CD pipeline status](#404-ci-status) | ✅ Done | 2d | /ci — статус GitHub Actions/GitLab CI для текущей ветки |
+| 405 | [Slack notification integration](#405-slack) | ✅ Done | 1d | отправить результат задачи в Slack webhook |
+| 406 | [Linear/Jira ticket integration](#406-tickets) | ✅ Done | 2d | /ticket view|update — задачи из Linear/Jira в контексте агента |
+| 407 | [OpenAPI client generator](#407-openapi) | ✅ Done | 2d | импорт openapi.yaml — AI генерирует typed клиент на Python/TS |
+| 408 | [API test runner](#408-api-test) | ✅ Done | 2d | /http METHOD /path — выполнить HTTP запрос и проанализировать ответ |
+| 409 | [Web browser automation (basic)](#409-browser) | ✅ Done | 3d | playwright-based browser tool для AI: click/fill/screenshot |
+
+---
+
+## Q61 — Smart Proactive Assistance
+
+**Цель:** проактивная помощь — детекция багов на лету, авторефакторинг, предложения следующего шага.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 410 | [Proactive bug detector (Bugbot)](#410-bugbot) | ✅ Done | 3d | при save файла — фоновая проверка, уведомление о багах |
+| 411 | [Regression detector on save](#411-regression) | ✅ Done | 2d | запустить связанные тесты при сохранении, показать регрессии |
+| 412 | [Smart auto-fix](#412-auto-fix) | ✅ Done | 2d | /fix — автоматически исправить простые lint/type ошибки |
+| 413 | [Next-action suggestions](#413-suggestions) | ✅ Done | 2d | после ответа агента — 3 предложения следующего шага |
+| 414 | [Security scan on save](#414-sec-scan) | ✅ Done | 2d | при сохранении файла — фоновая проверка секретов и OWASP |
+| 415 | [Performance hint injection](#415-perf-hints) | ✅ Done | 2d | при edit — AI замечает N+1 запросы, ненужные циклы, подсказывает |
+| 416 | [Code smell auto-refactor](#416-smell-refactor) | ✅ Done | 2d | /refactor suggest — показать code smells с preview рефакторинга |
+
+---
+
+## Q62 — Voice & Multimodal
+
+**Цель:** голосовой ввод, анализ изображений, генерация диаграмм.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 417 | [Voice input (speech-to-text)](#417-voice) | ✅ Done | 3d | /voice — записать речь, конвертировать в промпт через Whisper |
+| 418 | [Image/screenshot analysis](#418-image) | ✅ Done | 2d | /image path.png — AI анализирует скриншот ошибки или UI |
+| 419 | [Diagram generation](#419-diagrams) | ✅ Done | 2d | /diagram — AI генерирует Mermaid/PlantUML диаграмму из кода |
+| 420 | [Visual diff output](#420-visual-diff) | ✅ Done | 2d | side-by-side diff с inline Rich-рендерингом изменений |
+| 421 | [PDF/document reader](#421-pdf) | ✅ Done | 1d | читать PDF/docx как контекст для агента |
+| 422 | [Screen capture integration](#422-screen) | ✅ Done | 2d | /screenshot — захват экрана, отправка в vision-модель |
+
+---
+
+## Q63 — Cost & Model Optimization
+
+**Цель:** расширенное мышление, адаптивный бюджет токенов, local LLM, сравнение моделей.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 423 | [Extended thinking support](#423-thinking) | ✅ Done | 2d | claude-3-7/claude-sonnet thinking budget для сложных задач |
+| 424 | [Adaptive token budgeting](#424-adaptive-budget) | ✅ Done | 2d | автоматически увеличивать/уменьшать бюджет по сложности задачи |
+| 425 | [Cache warming strategies](#425-cache-warm) | ✅ Done | 2d | предзагрузка системного промпта до первого запроса пользователя |
+| 426 | [Model cost comparison tool](#426-cost-compare) | ✅ Done | 1d | /compare-models — одна задача → несколько моделей, сравнить цену/качество |
+| 427 | [Local model support (Ollama)](#427-ollama) | ✅ Done | 3d | подключить Ollama для offline режима и дешёвых задач |
+| 428 | [Batched parallel LLM calls](#428-batch-llm) | ✅ Done | 2d | объединять одновременные LLM-вызовы в batch API запросы |
+| 429 | [Cost budget alerts](#429-budget-alerts) | ✅ Done | 1d | предупреждение при приближении к суточному/месячному лимиту |
+
+---
+
+## Q64 — Developer Experience & IDE
+
+**Цель:** VS Code extension, LSP, настройка REPL, wizard инициализации.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 430 | [VS Code extension (basic)](#430-vscode) | ✅ Done | 5d | sidebar panel, встроенный чат, diff preview в editor |
+| 431 | [LSP bridge improvements](#431-lsp) | ✅ Done | 3d | hover definitions, go-to-definition через lidco LSP server |
+| 432 | [Keybinding customization](#432-keybindings) | ✅ Done | 1d | ~/.lidco/keybindings.json — переназначить горячие клавиши в REPL |
+| 433 | [REPL theme improvements](#433-themes) | ✅ Done | 1d | 8 встроенных тем + поддержка custom theme через YAML |
+| 434 | [Plugin/extension API](#434-plugin-api) | ✅ Done | 3d | стабильный public API для написания плагинов на Python |
+| 435 | [Project setup wizard](#435-wizard) | ✅ Done | 2d | lidco init — интерактивный wizard: язык, фреймворк, агенты, конфиг |
+| 436 | [Inline code actions](#436-inline-actions) | ✅ Done | 2d | нажать Ctrl+. на ошибке — меню быстрых действий AI |
+
+---
+
+## Q65 — Observability & Analytics
+
+**Цель:** дашборд затрат, аналитика агентов, экспорт метрик, health check.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 437 | [Real-time cost dashboard](#437-cost-dashboard) | ✅ Done | 2d | /dashboard — TUI с графиками токенов/стоимости в реальном времени |
+| 438 | [Agent performance analytics](#438-agent-analytics) | ✅ Done | 2d | /agents analytics — среднее время, успешность, стоимость по агентам |
+| 439 | [Token usage heatmap](#439-heatmap) | ✅ Done | 2d | какие файлы/функции потребляют больше всего токенов контекста |
+| 440 | [Coverage trend tracker](#440-coverage-trend) | ✅ Done | 1d | история изменений покрытия по коммитам, предупреждение о деградации |
+| 441 | [Session analytics export](#441-analytics-export) | ✅ Done | 1d | /analytics export → JSON/CSV со всеми метриками сессии |
+| 442 | [Health check command](#442-health) | ✅ Done | 1d | lidco health — проверить API ключи, модели, tools, RAG, DB |
+| 443 | [Error pattern visualization](#443-error-viz) | ✅ Done | 2d | /errors viz — ASCII граф частоты ошибок по времени и типу |
+
+---
+
+## Task Details (Q54+)
+
+### 361. Reminder pop index bug
+**Файл:** `src/lidco/cli/app.py`
+**Цель:** исправить краш `IndexError` при срабатывании нескольких напоминаний одновременно.
+**Проблема:** после сбора индексов в `_fired: list[int]` и `reversed()` pop, первый `pop(0)` сдвигает список, следующие индексы становятся невалидными.
+**Исправление:**
+```python
+# Заменить pop-цикл на list comprehension:
+fired_set = set(_fired)
+commands._reminders = [r for i, r in enumerate(commands._reminders) if i not in fired_set]
+```
+**Тесты:** 3 теста в `test_q54/test_reminder_pop.py`: один reminder, два одновременно, три одновременно.
+
+---
+
+### 362. disallowed_tools enforcement
+**Файл:** `src/lidco/agents/base.py`
+**Цель:** поле `AgentConfig.disallowed_tools` должно реально блокировать инструменты.
+**Проблема:** `_get_tools()` только фильтрует по allowlist (`tools`), игнорируя `disallowed_tools`.
+**Исправление:**
+```python
+def _get_tools(self) -> list[BaseTool]:
+    tools = self._tool_registry.list_tools()
+    if self._config.tools:
+        tools = [t for t in tools if t.name in self._config.tools]
+    if self._config.disallowed_tools:
+        tools = [t for t in tools if t.name not in self._config.disallowed_tools]
+    return tools
+```
+**Тесты:** 4 теста: allowlist only, denylist only, both, empty config.
+
+---
+
+### 363. ConfigReloader thread-safety lock
+**Файл:** `src/lidco/core/config_reloader.py`
+**Цель:** защитить `_mtimes` и `_agent_mtimes` от гонки потоков.
+**Исправление:** добавить `self._lock = threading.Lock()` в `__init__`, оборачивать `_check()` в `with self._lock`.
+**Тесты:** 2 теста: concurrent read+write не вызывает RuntimeError.
+
+---
+
+### 364. ConfigReloader asyncio.set_event_loop
+**Файл:** `src/lidco/core/config_reloader.py`
+**Цель:** при MCP hot-reload в background thread корректно задать event loop.
+**Исправление:**
+```python
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+try:
+    loop.run_until_complete(_apply_mcp())
+finally:
+    loop.close()
+    asyncio.set_event_loop(None)
+```
+**Тесты:** 1 тест: горячая перезагрузка MCP в thread не выбрасывает RuntimeError.
+
+---
+
+### 365. Agent tool schema cache versioning
+**Файл:** `src/lidco/agents/base.py`
+**Цель:** агенты замечают инжекцию новых MCP tools и инвалидируют свой кэш схем.
+**Исправление:** добавить `_schema_cache_version: int = -1` в `BaseAgent.__init__()`. В `_get_tool_schemas()` проверять `registry.schema_version != self._schema_cache_version` и пересчитывать при несовпадении.
+**Тесты:** 2 теста: кэш инвалидируется после `inject_mcp_tools()`, не инвалидируется без изменений.
+
+---
+
+### 366. Bounded collections in CommandRegistry
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** предотвратить неограниченный рост списков за длинную сессию.
+**Исправление:** заменить `list` на `collections.deque` с maxlen:
+- `_turn_times`: `deque(maxlen=500)`
+- `_edited_files`: `deque(maxlen=200)`
+**Тесты:** 2 теста: после N+1 записей длина не превышает maxlen.
+
+---
+
+### 367. Error ledger warning on persistent failure
+**Файл:** `src/lidco/core/session.py`
+**Цель:** пользователь видит предупреждение если ErrorLedger недоступен более 3 раз.
+**Исправление:** счётчик `_ledger_failures: int`, при `>= 3` — `renderer.warning("ErrorLedger недоступен, история ошибок не сохраняется")`.
+**Тесты:** 2 теста: одна ошибка — без предупреждения, три ошибки — предупреждение.
+
+---
+
+### 368. External editor for long input
+**Файл:** `src/lidco/cli/app.py`
+**Цель:** нажать Alt+E или ввести `\\edit` → открыть `$EDITOR` для редактирования промпта.
+**Подход:**
+- Записать текущий ввод во временный файл
+- Запустить `os.environ.get("EDITOR", "nano")` через `subprocess.run()`
+- После закрытия прочитать файл и использовать как промпт
+- Показать `[N lines loaded from editor]` в статус-баре
+**Тесты:** 3 теста в `test_q55/test_editor_popup.py`.
+
+---
+
+### 369. Fuzzy slash-command completion
+**Файл:** `src/lidco/cli/app.py`, `src/lidco/cli/completer.py` (новый)
+**Цель:** нажать Tab при вводе `/co` → показать `/commit`, `/compact`, `/cost`.
+**Подход:**
+- `LidcoCompleter(Completer)` для prompt_toolkit
+- При вводе `/` — предложить все команды с fuzzy-matching (rapidfuzz или stdlib SequenceMatcher)
+- При вводе `@` — предложить файлы из проекта (Glob `**/*.py`)
+- Показывать описание команды справа от подсказки
+**Тесты:** 4 теста в `test_q55/test_completer.py`.
+
+---
+
+### 370. @mention file auto-complete
+**Файл:** `src/lidco/cli/completer.py`
+**Цель:** после `@src/` — показать файлы директории с fuzzy-matching.
+**Подход:** расширить `LidcoCompleter` — при `word_before_cursor.startswith("@")` сканировать файловую систему от CWD, показывать совпадения.
+**Тесты:** 3 теста.
+
+---
+
+### 371. Hunk-level diff approval
+**Файл:** `src/lidco/cli/diff_viewer.py`, `src/lidco/cli/app.py`
+**Цель:** пользователь может принять/отклонить каждый hunk изменений отдельно.
+**Подход:**
+- Парсить unified diff на hunks (`@@` секции)
+- Показывать каждый hunk с кнопками `[a]ccept / [s]kip / [e]dit`
+- Применять только одобренные hunks через `FileWriteTool`
+**Тесты:** 4 теста в `test_q55/test_hunk_approve.py`.
+
+---
+
+### 372. Desktop notifications
+**Файл:** `src/lidco/cli/notifier.py` (новый)
+**Цель:** системное уведомление когда агент завершил долгую задачу (>30 сек).
+**Подход:**
+- Windows: `win10toast` или `winotify` через subprocess `powershell.exe -Command ...`
+- macOS: `osascript -e 'display notification ...'`
+- Linux: `notify-send`
+- Graceful fallback если ни одно не работает
+- Конфиг `notifications.enabled: bool`, `notifications.min_task_seconds: int = 30`
+**Тесты:** 3 теста в `test_q55/test_notifier.py`.
+
+---
+
+### 373. Session export
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/cli/session_exporter.py` (новый)
+**Цель:** `/export [--format md|html|json] [filename]` — экспорт разговора.
+**Подход:**
+- Markdown: заголовок + turn-by-turn с code blocks
+- HTML: самодостаточный файл с подсветкой (Pygments inline CSS)
+- JSON: структурированный вывод с метаданными
+- Открыть файл в браузере для HTML через `webbrowser.open()`
+**Тесты:** 4 теста в `test_q55/test_session_export.py`.
+
+---
+
+### 374. Context window meter
+**Файл:** `src/lidco/cli/stream_display.py`
+**Цель:** в статус-баре показывать процент использования context window.
+**Подход:**
+- `_StatusBar.set_context_usage(used_tokens, max_tokens)`
+- Прогресс-бар: `[████░░░░] 48%` — зелёный <70%, жёлтый 70-85%, красный >85%
+- Обновлять после каждого LLM-ответа через token callback
+**Тесты:** 3 теста в `test_q55/test_context_meter.py`.
+
+---
+
+### 375. AI conflict resolver
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/tools/conflict_resolver.py` (новый)
+**Цель:** `/conflict [file]` — AI анализирует merge-конфликты и предлагает разрешение.
+**Подход:**
+- Найти файлы с маркерами `<<<<<<< / ======= / >>>>>>>`
+- Для каждого конфликта вызвать LLM с обеими версиями + контекстом файла
+- Показать предложение + объяснение, запросить подтверждение
+- Применить выбранные разрешения
+**Тесты:** 5 тестов в `test_q56/test_conflict_resolver.py`.
+
+---
+
+### 376. git bisect integration
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/bisect <failing-test>` — AI автоматизирует bisect для поиска регрессии.
+**Подход:**
+- Запустить `git bisect start`
+- Автоматически запускать тест и отмечать good/bad
+- AI анализирует найденный коммит и объясняет причину регрессии
+**Тесты:** 3 теста в `test_q56/test_bisect.py`.
+
+---
+
+### 377. Branch management commands
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/branch [list|create|delete|rename]`, `/checkout <branch>`, `/stash [list|push|pop]`.
+**Подход:** тонкие обёртки над git subprocess с Rich-форматированием вывода + AI-подсказки.
+**Тесты:** 5 тестов в `test_q56/test_branch_commands.py`.
+
+---
+
+### 378. Auto PR creation
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/tools/gh_tool.py` (новый)
+**Цель:** `/pr [--draft] [--base main]` — AI генерирует title + body PR, создаёт через `gh pr create`.
+**Подход:**
+- `git log main..HEAD --oneline` + `git diff main...HEAD --stat` → LLM
+- Показать preview title+body, запросить подтверждение
+- Запустить `gh pr create --title ... --body ...`
+**Тесты:** 4 теста в `test_q56/test_auto_pr.py`.
+
+---
+
+### 379. PR review mode
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/pr-review <number>` — загрузить diff PR в контекст, AI пишет review комментарии.
+**Подход:**
+- `gh pr diff <number>` → распарсить на файлы и hunks
+- Вызвать security+coder агентов с каждым файлом
+- Форматировать как GitHub review comments (line-level)
+- Опция `/pr-review submit` — отправить комментарии через `gh pr review`
+**Тесты:** 4 теста в `test_q56/test_pr_review.py`.
+
+---
+
+### 380. --from-pr session start
+**Файл:** `src/lidco/__main__.py`, `src/lidco/cli/app.py`
+**Цель:** `lidco --from-pr 123` — стартовать сессию с контекстом PR #123.
+**Подход:**
+- Получить `gh pr view 123 --json title,body,files,diff`
+- Инжектировать в начальный контекст сессии
+- Установить initial prompt: "Review and help with PR #123: {title}"
+**Тесты:** 3 теста в `test_q56/test_from_pr.py`.
+
+---
+
+### 381. Commit message templates
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `.lidco/commit-template.md` — шаблон для генерации commit messages.
+**Подход:**
+- Файл содержит примеры конвенций и запрещённые паттерны
+- Инжектировать в prompt при вызове `/commit`
+- Fallback на стандартный Conventional Commits если шаблона нет
+**Тесты:** 2 теста в `test_q56/test_commit_templates.py`.
+
+---
+
+### 382. Session forking
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/cli/session_store.py`
+**Цель:** `/fork [name]` — создать новую сессию-ответвление от текущей точки.
+**Подход:**
+- Сохранить текущую историю как `parent_session_id`
+- Создать новую сессию с той же историей + метадатой `fork_of`
+- `/session list` показывает дерево fork-ов
+- `/fork back` — вернуться к родительской сессии
+**Тесты:** 5 тестов в `test_q57/test_session_fork.py`.
+
+---
+
+### 383. Named sessions with description
+**Файл:** `src/lidco/__main__.py`, `src/lidco/cli/session_store.py`
+**Цель:** `lidco --session my-feature` — именованная сессия с автосохранением.
+**Подход:**
+- `--session <name>` загружает существующую или создаёт новую с этим именем
+- `SessionStore` индексирует по имени + дата последнего изменения
+- `/session rename <new-name>` переименовать текущую
+**Тесты:** 4 теста в `test_q57/test_named_sessions.py`.
+
+---
+
+### 384. Session search and filter
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/session list --query "auth" --since 7d` — поиск по истории сессий.
+**Подход:**
+- Полнотекстовый поиск по JSON истории (ripgrep или stdlib)
+- Фильтры: `--since`, `--agent`, `--has-files`, `--min-turns`
+- Результат в Rich-таблице с превью первого сообщения
+**Тесты:** 4 теста в `test_q57/test_session_search.py`.
+
+---
+
+### 385. Workspace profiles
+**Файл:** `src/lidco/core/config.py`, `src/lidco/__main__.py`
+**Цель:** `lidco --profile frontend` — набор настроек (модель, агенты, tools) для типа проекта.
+**Подход:**
+- `~/.lidco/profiles/frontend.yaml` — переопределяет config поверх базового
+- Встроенные профили: `frontend`, `backend`, `data`, `devops`, `security`
+- `/profile list|use|save|delete` — управление профилями
+**Тесты:** 5 тестов в `test_q57/test_workspace_profiles.py`.
+
+---
+
+### 386. Session replay
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/replay [session-id] [--dry-run]` — воспроизвести все пользовательские сообщения.
+**Подход:**
+- Извлечь из `SessionStore` все user-сообщения
+- Повторно отправить каждое в текущий контекст
+- `--dry-run` — только показать что будет выполнено
+- Полезно для регрессионного тестирования поведения агентов
+**Тесты:** 3 теста в `test_q57/test_session_replay.py`.
+
+---
+
+### 387. Context visualizer
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/core/session.py`
+**Цель:** `/context tree` — дерево из чего состоит текущий контекст с размерами.
+**Подход:**
+- Разбить context string на секции (## заголовки)
+- Подсчитать токены каждой секции (cl100k estimate)
+- Отобразить Rich Tree с `[N tok]` у каждого узла
+- Суммарный счётчик и процент от лимита
+**Тесты:** 4 теста в `test_q57/test_context_viz.py`.
+
+---
+
+### 388. Multi-repo support
+**Файл:** `src/lidco/core/session.py`, `src/lidco/core/config.py`
+**Цель:** работать с несколькими репозиториями одновременно.
+**Подход:**
+- `config.repos: list[str]` — дополнительные директории
+- `MultiRepoContext` — объединяет контексты нескольких репо
+- `/repos add <path>` — добавить репо в сессию
+- Инструменты понимают `repo:<name>/path/file.py` синтаксис
+**Тесты:** 4 теста в `test_q57/test_multi_repo.py`.
+
+---
+
+### 389. Agent comparison mode
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/agents/comparison.py` (новый)
+**Цель:** `/compare <task>` — запустить задачу на N агентах параллельно, показать diff ответов.
+**Подход:**
+- `AgentComparator.run(task, agents: list[str])` — asyncio.gather
+- Показать ответы side-by-side в Rich Columns
+- Diff между ответами через difflib
+- Пользователь выбирает лучший вариант
+**Тесты:** 4 теста в `test_q58/test_agent_compare.py`.
+
+---
+
+### 390. Agent pipeline builder (YAML)
+**Файл:** `src/lidco/agents/pipeline.py` (новый)
+**Цель:** декларативное описание pipeline в YAML с условиями и ветвлением.
+**Схема:**
+```yaml
+name: review-and-fix
+steps:
+  - agent: security
+    output: security_report
+  - agent: coder
+    condition: "security_report contains CRITICAL"
+    input: security_report
+  - agent: tester
+    parallel: true
+  - agent: reviewer
+    parallel: true
+```
+**Тесты:** 5 тестов в `test_q58/test_pipeline_yaml.py`.
+
+---
+
+### 391. Broadcast mode
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/broadcast <message>` — отправить одно сообщение всем зарегистрированным агентам.
+**Подход:**
+- Запустить все агенты параллельно с одним промптом
+- Агрегировать ответы в единый отчёт: уникальные находки от каждого
+- Дедупликация совпадающих выводов
+**Тесты:** 3 теста в `test_q58/test_broadcast.py`.
+
+---
+
+### 392. Agent performance leaderboard
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/agents stats [--period 7d]` — рейтинг агентов по ключевым метрикам.
+**Метрики:** среднее время ответа, токены/задача, успешность (нет ERROR в ответе), стоимость.
+**Подход:** агрегировать из `ErrorHistory` + token callback + timing из `_agent_stats`.
+**Тесты:** 3 теста в `test_q58/test_agent_leaderboard.py`.
+
+---
+
+### 393. Human-in-the-loop checkpoints
+**Файл:** `src/lidco/agents/pipeline.py`, `src/lidco/cli/approval.py`
+**Цель:** в pipeline добавить точки `type: checkpoint` — агент останавливается и ждёт одобрения.
+**Подход:**
+- `type: checkpoint` в YAML step → вызвать `approval.ask()`
+- Показать что было сделано до этой точки
+- Пользователь выбирает: continue / abort / modify
+**Тесты:** 3 теста в `test_q58/test_hitl.py`.
+
+---
+
+### 394. Agent delegation with context
+**Файл:** `src/lidco/tools/subagent.py`
+**Цель:** агент A делегирует задачу агенту B, ждёт результат, продолжает.
+**Подход:** расширить `SubagentTool` — добавить `wait=True` параметр, который блокирует до завершения subagent и возвращает его output как tool result.
+**Тесты:** 3 теста в `test_q58/test_delegation.py`.
+
+---
+
+### 395. Cross-session agent memory
+**Файл:** `src/lidco/core/memory.py`, `src/lidco/agents/base.py`
+**Цель:** агент при старте загружает решения из прошлых сессий через MemoryStore.
+**Подход:**
+- При инициализации агента загрузить top-3 релевантных записи из `MemoryStore` по имени агента
+- Инжектировать как `## Past decisions` в system prompt
+- Автоматически сохранять ключевые решения после успешного выполнения
+**Тесты:** 4 теста в `test_q58/test_agent_memory.py`.
+
+---
+
+### 396. In-REPL code execution
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/tools/code_runner.py` (новый)
+**Цель:** `/run [python|js|bash] [code]` или блок кода в backticks → выполнить и показать вывод.
+**Подход:**
+- Python: через `exec()` в изолированном namespace (без доступа к globals)
+- Bash: subprocess с timeout=30s и stdout/stderr capture
+- JS: `node -e "..."` если доступен
+- Показать stdout, stderr, return code в Rich Panel
+**Тесты:** 4 теста в `test_q59/test_code_runner.py`.
+
+---
+
+### 397. Interactive debugger (pdb)
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/tools/debugger_tool.py` (новый)
+**Цель:** `/debug run <file> [args]` — запустить файл с pdb, AI анализирует трейсбек.
+**Подход:**
+- Запустить `python -m pdb <file>` с перехватом traceback при crash
+- AI получает traceback + локальные переменные, предлагает исправление
+- Опция `--auto-fix` — применить предложение без вопросов
+**Тесты:** 3 теста в `test_q59/test_debugger_tool.py`.
+
+---
+
+### 398. Test runner from REPL
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/test [path] [--watch]` — запустить тесты с Rich-выводом прямо из REPL.
+**Подход:**
+- `pytest <path> -v --tb=short` через subprocess
+- Парсить JSON output (`--json-report`)
+- `--watch` режим: перезапускать при изменении файлов
+- При fail — автоматически показать контекст ошибки агенту
+**Тесты:** 4 теста в `test_q59/test_test_runner.py`.
+
+---
+
+### 399. Docker execution sandbox
+**Файл:** `src/lidco/tools/docker_sandbox.py` (новый)
+**Цель:** выполнять bash-команды в изолированном Docker-контейнере.
+**Подход:**
+- `DockerSandbox(image="python:3.12-slim")` — запустить контейнер с tmpfs mount
+- `exec(command, timeout=60)` — выполнить команду, вернуть stdout/stderr
+- Автоматически удалять контейнер после выполнения
+- Конфиг `sandbox.enabled: bool`, `sandbox.image: str`
+**Тесты:** 3 теста в `test_q59/test_docker_sandbox.py`.
+
+---
+
+### 400. Virtual env manager
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/tools/venv_manager.py` (новый)
+**Цель:** `/venv [create|activate|list|delete] [name]` — управление venv из REPL.
+**Подход:**
+- `create`: `python -m venv .lidco/venvs/<name>`
+- `activate`: обновить `VIRTUAL_ENV` env var для subprocess-вызовов
+- `list`: показать все venv с размером и датой создания
+- При activate — показать `(name)` в prompt
+**Тесты:** 4 теста в `test_q59/test_venv_manager.py`.
+
+---
+
+### 401. Dependency installer
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/install <package>` — установить с AI-объяснением зачем нужен пакет.
+**Подход:**
+- AI сначала объясняет что делает пакет и нужен ли он
+- Проверить нет ли уже похожего пакета в requirements
+- Запросить подтверждение, затем `pip install <package>`
+- Автоматически обновить `requirements.txt` / `pyproject.toml`
+**Тесты:** 3 теста в `test_q59/test_dependency_installer.py`.
+
+---
+
+### 402. Code output differ
+**Файл:** `src/lidco/tools/output_differ.py` (новый)
+**Цель:** сравнить вывод программы до и после изменений автоматически.
+**Подход:**
+- `OutputDiffer.capture_before()` — запустить и сохранить stdout/stderr
+- Сделать изменения
+- `OutputDiffer.capture_after()` — запустить снова
+- `diff()` — unified diff выводов с highlight
+**Тесты:** 3 теста в `test_q59/test_output_differ.py`.
+
+---
+
+### 403. GitHub Issues integration
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/tools/gh_tool.py`
+**Цель:** `/issue [list|view N|create|close N|comment N]` — работа с Issues из REPL.
+**Подход:**
+- Через `gh issue ...` subprocess + JSON output
+- `/issue create` — AI генерирует title+body из описания
+- Rich-форматирование с лейблами, статусом, ассигни
+- Инжектировать открытые issues в контекст агента при `/issue focus N`
+**Тесты:** 5 тестов в `test_q60/test_gh_issues.py`.
+
+---
+
+### 404. CI/CD pipeline status
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/ci [--watch]` — статус GitHub Actions для текущей ветки.
+**Подход:**
+- `gh run list --branch $(git rev-parse --abbrev-ref HEAD) --json`
+- Показать последние runs с иконками ✅❌🔄
+- `--watch` — обновлять каждые 30 сек пока не завершится
+- При fail — загрузить logs и предложить AI-анализ ошибки
+**Тесты:** 3 теста в `test_q60/test_ci_status.py`.
+
+---
+
+### 405. Slack notification integration
+**Файл:** `src/lidco/cli/notifier.py`, `src/lidco/core/config.py`
+**Цель:** отправить результат задачи в Slack webhook при завершении.
+**Подход:**
+- `config.notifications.slack_webhook: str`
+- Отправлять если задача заняла >60 сек и завершилась успешно
+- Сообщение: task description + summary + ссылка на сессию
+**Тесты:** 2 теста в `test_q60/test_slack_notifier.py`.
+
+---
+
+### 406. Linear/Jira ticket integration
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/tools/ticket_tool.py` (новый)
+**Цель:** `/ticket [list|view ID|update ID]` — задачи из Linear/Jira в контексте.
+**Подход:**
+- Linear: GraphQL API через `config.linear.api_key`
+- Jira: REST API через `config.jira.url + token`
+- `/ticket focus ID` — инжектировать описание задачи в контекст агента
+- При завершении — автоматически обновить статус тикета
+**Тесты:** 4 теста в `test_q60/test_ticket_tool.py`.
+
+---
+
+### 407. OpenAPI client generator
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/tools/openapi_tool.py` (новый)
+**Цель:** `/openapi <spec.yaml>` — AI генерирует typed client на Python/TypeScript.
+**Подход:**
+- Прочитать OpenAPI 3.x spec
+- AI генерирует: dataclasses/Pydantic models + typed client с методами
+- Сохранить в `src/<project>/api_client/`
+- Поддержка async (httpx) и sync (requests)
+**Тесты:** 4 теста в `test_q60/test_openapi_tool.py`.
+
+---
+
+### 408. API test runner
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/api <METHOD> <url> [--json body]` — выполнить HTTP запрос и проанализировать.
+**Подход:**
+- Использовать `httpx` для выполнения запросов
+- Форматировать ответ: status, headers, body (pretty JSON)
+- AI анализирует ответ при аномалиях (5xx, неожиданная схема)
+- `/api mock <spec>` — запустить mock server из OpenAPI spec
+**Тесты:** 3 теста в `test_q60/test_api_runner.py`.
+
+---
+
+### 409. Web browser automation
+**Файл:** `src/lidco/tools/browser_tool.py` (новый)
+**Цель:** `browser_tool` — Playwright-based браузер для AI: navigate/click/fill/screenshot.
+**Подход:**
+- `BrowserTool(BaseTool)` — permission=ASK, lazy Playwright init
+- Методы: `goto(url)`, `click(selector)`, `fill(selector, text)`, `screenshot()`, `get_text()`
+- Screenshot → base64 → vision model анализирует
+- Конфиг `browser.headless: bool = True`
+**Тесты:** 4 теста в `test_q60/test_browser_tool.py` (mock playwright).
+
+---
+
+### 410. Proactive bug detector (Bugbot)
+**Файл:** `src/lidco/cli/app.py`, `src/lidco/analysis/bugbot.py` (новый)
+**Цель:** при сохранении файла — фоновая проверка на баги, уведомление.
+**Подход:**
+- `BugBot` подписывается на `FileWriteTool` callback
+- Запускает `CheckAstBugsTool` + `SecurityScanner` асинхронно
+- Если находит CRITICAL/HIGH — показывает предупреждение в статус-баре
+- Не блокирует основной поток
+**Тесты:** 4 теста в `test_q61/test_bugbot.py`.
+
+---
+
+### 411. Regression detector on save
+**Файл:** `src/lidco/cli/app.py`, `src/lidco/analysis/regression_watcher.py` (новый)
+**Цель:** при сохранении файла — запустить связанные тесты, показать регрессии.
+**Подход:**
+- Использовать `TestCoverageMapper` для нахождения test_X.py по X.py
+- Запустить pytest в фоне с timeout=60s
+- При fail — показать diff упавших тестов с прошлым прогоном
+- Конфиг `regression.enabled: bool = True`
+**Тесты:** 4 теста в `test_q61/test_regression_watcher.py`.
+
+---
+
+### 412. Smart auto-fix
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/analysis/auto_fixer.py` (новый)
+**Цель:** `/fix [file]` — автоматически исправить lint/type ошибки.
+**Подход:**
+- Запустить `ruff --fix` + `mypy` для сбора ошибок
+- Для сложных ошибок вызвать coder агента
+- Показать diff всех исправлений, запросить подтверждение
+- Опция `--auto` — применить без вопросов
+**Тесты:** 4 теста в `test_q61/test_auto_fixer.py`.
+
+---
+
+### 413. Next-action suggestions
+**Файл:** `src/lidco/cli/app.py`, `src/lidco/cli/suggestions.py` (новый)
+**Цель:** после ответа агента — показать 3 предложения следующего шага.
+**Подход:**
+- `SuggestionEngine.generate(last_response, context)` — LLM с `role="routing"` и дешёвой моделью
+- Показать как кликабельные [1] [2] [3] варианты
+- Пользователь нажимает цифру → отправить соответствующее сообщение
+- Конфиг `suggestions.enabled: bool = True`, `suggestions.count: int = 3`
+**Тесты:** 3 теста в `test_q61/test_suggestions.py`.
+
+---
+
+### 414. Security scan on save
+**Файл:** `src/lidco/cli/app.py`
+**Цель:** при FileWrite — фоновая проверка на секреты (API ключи, пароли).
+**Подход:**
+- Regex-паттерны: `sk-[A-Za-z0-9]{48}`, `ghp_[A-Za-z0-9]{36}`, `password\s*=\s*"[^"]+"` и т.д.
+- Немедленное предупреждение в статус-баре если найдено
+- Предложить использовать env var вместо hardcode
+**Тесты:** 3 теста в `test_q61/test_security_scan.py`.
+
+---
+
+### 415. Performance hint injection
+**Файл:** `src/lidco/agents/graph.py`, `src/lidco/analysis/perf_analyzer.py` (новый)
+**Цель:** при редактировании — AI замечает N+1 запросы и неэффективные паттерны.
+**Подход:**
+- `PerfAnalyzer.analyze(diff)` — паттерны: цикл с DB-запросом, повторные импорты, O(n²) алгоритмы
+- Инжектировать hints в pre-planning context для planning агентов
+- Не блокировать, показывать как suggestion
+**Тесты:** 3 теста в `test_q61/test_perf_analyzer.py`.
+
+---
+
+### 416. Code smell auto-refactor
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/refactor suggest [file]` — показать code smells с preview рефакторинга.
+**Подход:**
+- Использовать `RefactorScanner` (уже есть в Q49)
+- Для каждого candidate — refactor агент генерирует исправление
+- Показать side-by-side diff
+- Пользователь выбирает что применить
+**Тесты:** 3 теста в `test_q61/test_smell_refactor.py`.
+
+---
+
+### 417. Voice input (speech-to-text)
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/cli/voice_input.py` (новый)
+**Цель:** `/voice` — записать речь, конвертировать в промпт через Whisper API.
+**Подход:**
+- `pyaudio` для записи (3 сек тишины = конец записи)
+- Отправить WAV в OpenAI Whisper API (`openai.audio.transcriptions.create`)
+- Показать транскрипцию для подтверждения перед отправкой
+- Fallback: если `pyaudio` не установлен — показать инструкцию по установке
+**Тесты:** 3 теста в `test_q62/test_voice_input.py` (mock pyaudio + mock API).
+
+---
+
+### 418. Image/screenshot analysis
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/tools/image_tool.py` (новый)
+**Цель:** `/image <path>` или вставить путь к PNG/JPG — AI анализирует.
+**Подход:**
+- Прочитать изображение, конвертировать в base64
+- Отправить в vision-capable модель (claude-3-5-sonnet / gpt-4o)
+- Если это скриншот ошибки — автоматически предложить fix
+- Если это UI — описать компоненты и предложить реализацию
+**Тесты:** 3 теста в `test_q62/test_image_tool.py`.
+
+---
+
+### 419. Diagram generation
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/tools/diagram_tool.py` (новый)
+**Цель:** `/diagram [--type flow|class|sequence|er] [file|module]` — генерация диаграммы.
+**Подход:**
+- AI анализирует код и генерирует Mermaid markdown
+- Вывести в консоль + сохранить в `.lidco/diagrams/`
+- `--type class` для UML-диаграммы классов
+- `--type sequence` для flow вызовов функций
+**Тесты:** 4 теста в `test_q62/test_diagram_tool.py`.
+
+---
+
+### 420. Visual diff output
+**Файл:** `src/lidco/cli/diff_viewer.py`
+**Цель:** side-by-side diff с Rich рендерингом изменений.
+**Подход:**
+- Парсить unified diff на hunks
+- `rich.columns.Columns` — левая колонка (до), правая (после)
+- Подсветка: красный фон для удалённых строк, зелёный для добавленных
+- `/diff --side-by-side` флаг
+**Тесты:** 3 теста в `test_q62/test_visual_diff.py`.
+
+---
+
+### 421. PDF/document reader
+**Файл:** `src/lidco/tools/doc_reader.py` (новый)
+**Цель:** читать PDF/docx/txt как контекст для агента.
+**Подход:**
+- PDF: `pdfplumber` (если установлен) или `pypdf` fallback
+- DOCX: `python-docx` (если установлен)
+- TXT/MD: прямое чтение
+- Разбить на chunks если > 10000 символов
+- Зарегистрировать как `DocReaderTool` в registry
+**Тесты:** 3 теста в `test_q62/test_doc_reader.py`.
+
+---
+
+### 422. Screen capture integration
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/screenshot [--region]` — захват экрана, отправка в vision-модель.
+**Подход:**
+- `PIL.ImageGrab.grab()` или `mss` для захвата
+- Сохранить во временный файл
+- Автоматически вызвать `ImageTool.analyze()`
+- `--region x,y,w,h` для захвата части экрана
+**Тесты:** 2 теста в `test_q62/test_screenshot.py` (mock PIL).
+
+---
+
+### 423. Extended thinking support
+**Файл:** `src/lidco/llm/litellm_provider.py`, `src/lidco/core/config.py`
+**Цель:** использовать thinking budget для сложных задач (claude-3-7-sonnet и выше).
+**Подход:**
+- `config.llm.thinking_budget_tokens: int = 0` — 0 = выключено
+- При `thinking_budget > 0` добавить `thinking: {"type": "enabled", "budget_tokens": N}`
+- Автоматически включать для `role="planning"` при сложных задачах
+- Показывать thinking в stream display (свёрнуто по умолчанию)
+**Тесты:** 4 теста в `test_q63/test_thinking.py`.
+
+---
+
+### 424. Adaptive token budgeting
+**Файл:** `src/lidco/core/token_budget.py`, `src/lidco/agents/graph.py`
+**Цель:** автоматически регулировать max_tokens по сложности задачи.
+**Подход:**
+- Анализировать количество файлов в задаче, количество ошибок, длину plan
+- `_compute_dynamic_budget(task, agent_name)` → `max_tokens`
+- Диапазон: `config.llm.min_tokens` (256) — `config.llm.max_tokens` (8192)
+- Логировать выбранный бюджет в `/status`
+**Тесты:** 4 теста в `test_q63/test_adaptive_budget.py`.
+
+---
+
+### 425. Cache warming strategies
+**Файл:** `src/lidco/core/session.py`, `src/lidco/llm/litellm_provider.py`
+**Цель:** предзагрузка системного промпта в кэш Anthropic до первого запроса.
+**Подход:**
+- При старте сессии отправить dummy запрос с системным промптом + `max_tokens=1`
+- Это прогревает кэш Anthropic (cache_creation_input_tokens)
+- Опция `config.llm.warm_cache_on_start: bool = False`
+- Логировать время прогрева
+**Тесты:** 3 теста в `test_q63/test_cache_warm.py`.
+
+---
+
+### 426. Model cost comparison tool
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/llm/cost_compare.py` (новый)
+**Цель:** `/compare-models <task>` — запустить задачу на нескольких моделях, показать цену/качество.
+**Подход:**
+- Запустить на 3 моделях параллельно (cheap, medium, best)
+- Сравнить: токены, стоимость, время, длина ответа
+- AI оценивает качество ответов по 10-балльной шкале
+- Rich таблица с рекомендацией
+**Тесты:** 3 теста в `test_q63/test_cost_compare.py`.
+
+---
+
+### 427. Local model support (Ollama)
+**Файл:** `src/lidco/llm/ollama_provider.py` (новый), `src/lidco/core/config.py`
+**Цель:** использовать Ollama для offline режима и дешёвых задач.
+**Подход:**
+- `OllamaProvider` реализующий `BaseLLMProvider`
+- Auto-detect если `http://localhost:11434` доступен
+- Использовать для `role="routing"` и `role="memory"` задач
+- `/models local` — показать доступные Ollama модели
+**Тесты:** 4 теста в `test_q63/test_ollama.py` (mock HTTP).
+
+---
+
+### 428. Batched parallel LLM calls
+**Файл:** `src/lidco/llm/batch_client.py` (новый)
+**Цель:** объединять одновременные LLM-вызовы через Anthropic Batch API.
+**Подход:**
+- `BatchLLMClient` собирает запросы в очередь 100мс
+- Отправляет batch через `/v1/messages/batches`
+- Раздаёт ответы ожидающим корутинам
+- Fallback на обычные запросы при batch < 2
+**Тесты:** 3 теста в `test_q63/test_batch_llm.py`.
+
+---
+
+### 429. Cost budget alerts
+**Файл:** `src/lidco/cli/app.py`, `src/lidco/core/token_budget.py`
+**Цель:** предупреждение при достижении дневного/месячного лимита расходов.
+**Подход:**
+- `config.budget.daily_limit_usd: float = 0` (0 = выключено)
+- `config.budget.monthly_limit_usd: float = 0`
+- Хранить расходы в `.lidco/costs.json` с датами
+- При 80% лимита — warning, при 100% — error с блокировкой
+**Тесты:** 4 теста в `test_q63/test_budget_alerts.py`.
+
+---
+
+### 430. VS Code extension (basic)
+**Файл:** `vscode/` (новая директория)
+**Цель:** базовый VS Code extension с sidebar chat и diff preview.
+**Структура:**
+```
+vscode/
+  package.json        — extension manifest
+  src/extension.ts    — activation + commands
+  src/chatPanel.ts    — WebviewPanel с chat UI
+  src/diffDecorator.ts — inline diff highlights
+  media/              — CSS + JS для webview
+```
+**Функции:**
+- Cmd+Shift+L открывает Lidco sidebar
+- Inline diff decorations после изменений агента
+- Status bar с текущим агентом и токенами
+- Коммуникация через JSON-RPC с `lidco server`
+**Тесты:** 5 тестов в `test_q64/test_vscode_ext.py` (mock vscode API).
+
+---
+
+### 431. LSP bridge improvements
+**Файл:** `src/lidco/server/lsp_bridge.py`
+**Цель:** hover definitions и go-to-definition через lidco LSP server.
+**Подход:**
+- Обработать `textDocument/hover` — вернуть AI-объяснение символа
+- `textDocument/definition` — использовать `SymbolIndex` для перехода к определению
+- `textDocument/codeAction` — предлагать quick fixes через AI
+**Тесты:** 4 теста в `test_q64/test_lsp_bridge.py`.
+
+---
+
+### 432. Keybinding customization
+**Файл:** `src/lidco/cli/app.py`, `src/lidco/cli/keybindings.py` (новый)
+**Цель:** `~/.lidco/keybindings.json` — переназначить горячие клавиши в REPL.
+**Схема:**
+```json
+{
+  "submit": "ctrl+enter",
+  "editor": "alt+e",
+  "history_prev": "ctrl+p",
+  "clear": "ctrl+l",
+  "abort": "ctrl+c"
+}
+```
+**Подход:** загрузить при старте, применить к prompt_toolkit KeyBindings.
+**Тесты:** 3 теста в `test_q64/test_keybindings.py`.
+
+---
+
+### 433. REPL theme improvements
+**Файл:** `src/lidco/cli/renderer.py`, `src/lidco/cli/themes.py` (новый)
+**Цель:** 8 встроенных тем + поддержка custom theme через YAML.
+**Встроенные темы:** dark, light, solarized, nord, monokai, dracula, gruvbox, catppuccin.
+**Схема custom theme:**
+```yaml
+name: my-theme
+panel_border: bright_blue
+code_theme: github-dark
+agent_colors:
+  coder: cyan
+  security: red
+```
+**Тесты:** 4 теста в `test_q64/test_themes.py`.
+
+---
+
+### 434. Plugin/extension API
+**Файл:** `src/lidco/plugins/` (новая директория), `src/lidco/plugins/api.py`
+**Цель:** стабильный public API для написания плагинов на Python.
+**API:**
+```python
+class LidcoPlugin:
+    def on_tool_call(self, tool_name, args, result): ...
+    def on_agent_response(self, agent, response): ...
+    def register_tool(self, tool: BaseTool): ...
+    def register_command(self, cmd: SlashCommand): ...
+```
+**Загрузка:** `~/.lidco/plugins/*.py` + `.lidco/plugins/*.py`
+**Тесты:** 5 тестов в `test_q64/test_plugin_api.py`.
+
+---
+
+### 435. Project setup wizard
+**Файл:** `src/lidco/__main__.py`, `src/lidco/cli/wizard.py` (новый)
+**Цель:** `lidco init` — интерактивный wizard настройки нового проекта.
+**Шаги:**
+1. Определить язык/фреймворк (анализ файлов)
+2. Выбрать модель (показать цены)
+3. Настроить разрешения
+4. Создать `.lidco/` структуру
+5. Сгенерировать `LIDCO.md` через AI
+**Тесты:** 4 теста в `test_q64/test_wizard.py`.
+
+---
+
+### 436. Inline code actions
+**Файл:** `src/lidco/cli/app.py`, `src/lidco/cli/code_actions.py` (новый)
+**Цель:** при показе ошибки в выводе — кнопки быстрых действий AI.
+**Подход:**
+- Распознать error patterns в выводе (traceback, lint errors)
+- Показать `[F]ix  [E]xplain  [I]gnore` после ошибки
+- F → запустить auto-fix, E → запустить explain агента
+- Работает и для test failures
+**Тесты:** 3 теста в `test_q64/test_code_actions.py`.
+
+---
+
+### 437. Real-time cost dashboard
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/cli/dashboard.py` (новый)
+**Цель:** `/dashboard` — TUI с графиками токенов и стоимости.
+**Подход:**
+- Rich Live layout: токены/тёрн (bar chart), накопленная стоимость (line), топ агентов по цене
+- Обновляется в реальном времени через callback
+- Выход по `q` или `Ctrl+C`
+**Тесты:** 3 теста в `test_q65/test_dashboard.py`.
+
+---
+
+### 438. Agent performance analytics
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/agents analytics [--period 7d]` — детальная статистика по агентам.
+**Метрики:** среднее время отклика, медиана токенов, % задач завершённых без ошибок, средняя стоимость.
+**Подход:** агрегировать из `ErrorLedger` (SQLite) + in-memory `_agent_stats`.
+**Тесты:** 3 теста в `test_q65/test_agent_analytics.py`.
+
+---
+
+### 439. Token usage heatmap
+**Файл:** `src/lidco/cli/commands.py`, `src/lidco/analysis/token_heatmap.py` (новый)
+**Цель:** `/heatmap` — какие файлы/функции потребляют больше всего токенов.
+**Подход:**
+- Логировать в каком контексте использовались токены (по секциям)
+- `TokenHeatmap` — агрегирует по файлам за сессию
+- Rich Heatmap: файл → цвет от зелёного (мало) до красного (много)
+**Тесты:** 3 теста в `test_q65/test_token_heatmap.py`.
+
+---
+
+### 440. Coverage trend tracker
+**Файл:** `src/lidco/analysis/coverage_trend.py` (новый)
+**Цель:** история изменений покрытия по коммитам.
+**Подход:**
+- При каждом `/test` — сохранять coverage % в `.lidco/coverage-history.json`
+- `/coverage trend` — ASCII график изменения покрытия по времени
+- Предупреждение если покрытие упало >2% за последний коммит
+**Тесты:** 3 теста в `test_q65/test_coverage_trend.py`.
+
+---
+
+### 441. Session analytics export
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/analytics export [--format json|csv]` — экспорт метрик сессии.
+**Данные:** turns, tokens_per_turn, cost_per_turn, agents_used, tools_called, files_edited, errors.
+**Подход:** собрать из `_turn_times`, `_agent_stats`, `_edited_files`, token callback.
+**Тесты:** 2 теста в `test_q65/test_analytics_export.py`.
+
+---
+
+### 442. Health check command
+**Файл:** `src/lidco/__main__.py`, `src/lidco/cli/health.py` (новый)
+**Цель:** `lidco health` — проверить все системы перед началом работы.
+**Проверки:**
+- API ключи (Anthropic, OpenAI) — валидность
+- Доступность моделей (test call max_tokens=1)
+- RAG/ChromaDB — статус
+- SQLite index — целостность
+- Watchdog — работает ли
+- MCP серверы — ping
+**Вывод:** Rich table со статусом каждой проверки (✅/❌/⚠️).
+**Тесты:** 5 тестов в `test_q65/test_health.py`.
+
+---
+
+### 443. Error pattern visualization
+**Файл:** `src/lidco/cli/commands.py`
+**Цель:** `/errors viz` — ASCII визуализация ошибок по времени и типу.
+**Подход:**
+- Загрузить из `ErrorLedger` (SQLite) все записи за N дней
+- ASCII-гистограмма по часам: высота = кол-во ошибок
+- Top-5 типов ошибок с процентами
+- Тренд: растёт/снижается
+**Тесты:** 3 теста в `test_q65/test_error_viz.py`.
 
 ---
 

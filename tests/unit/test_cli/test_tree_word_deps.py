@@ -138,11 +138,16 @@ class TestWordCommand:
 
     def test_top_flag_limits_results(self, tmp_path):
         f = tmp_path / "big.txt"
-        words = " ".join(f"word{i}" * (20 - i) for i in range(20))
-        f.write_text(words)
+        # Use purely alphabetic words so the regex \b[a-zA-Z]{3,}\b matches them
+        alpha = "abcdefghijklmnopqrst"
+        word_list = []
+        for i in range(20):
+            word = "word" + alpha[i]  # worda, wordb, ... wordt
+            word_list.extend([word] * (20 - i))
+        f.write_text(" ".join(word_list))
         reg = _make_registry()
         result = _run(reg.get("word").handler(arg=f"{f} --top 3"))
-        # Should only show 3 words
+        # Should only show 3 words — "Топ 3 слов:" contains "3"
         assert "3" in result
 
     def test_shows_total_and_unique_counts(self):

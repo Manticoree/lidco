@@ -84,6 +84,7 @@ class LLMConfig(BaseModel):
     fallback_models: list[str] = Field(default_factory=lambda: ["openai/glm-4.7"])
     session_token_limit: int = 0  # 0 = unlimited
     retry: RetryConfig = Field(default_factory=RetryConfig)
+    ollama_base_url: str = "http://localhost:11434"  # Q63: local Ollama endpoint
 
 
 class CLIConfig(BaseModel):
@@ -176,6 +177,14 @@ class AgentsConfig(BaseModel):
     sbfl_inject: bool = True  # inject Ochiai SBFL suspicious-line ranking into debugger context
     web_context_inject: bool = False  # inject live web search results into pre-planning context (opt-in: network calls)
     web_auto_route: bool = True  # auto-route research-intent messages to researcher agent
+    regression_on_save: bool = False  # run related tests when a file is saved
+    suggestions_enabled: bool = False  # show next-action suggestions after each agent response
+    security_scan_on_save: bool = False  # run security scanner when a file is saved
+    # Q63 — Cost & Model Optimization
+    extended_thinking: bool = False  # enable Anthropic extended thinking blocks
+    thinking_budget: int = 10000  # max thinking tokens when extended_thinking is on
+    adaptive_budget: bool = False  # dynamically adjust max_tokens per prompt complexity
+    auto_warm: bool = False  # pre-warm Anthropic prompt cache on session start
 
 
 class MemoryConfig(BaseModel):
@@ -211,6 +220,13 @@ class IndexConfig(BaseModel):
     auto_watch: bool = False  # auto-reindex on file changes
 
 
+class MultimodalConfig(BaseModel):
+    """Multimodal (voice, image, diagram) configuration."""
+
+    voice_model: str = "base"      # Whisper model name (local) or "api"
+    voice_timeout: int = 10        # recording duration in seconds
+
+
 class LidcoConfig(BaseModel):
     """Root configuration model."""
 
@@ -224,6 +240,10 @@ class LidcoConfig(BaseModel):
     rag: RAGConfig = Field(default_factory=RAGConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     index: IndexConfig = Field(default_factory=IndexConfig)
+    multimodal: MultimodalConfig = Field(default_factory=MultimodalConfig)
+    # MCP server connections — loaded separately from .lidco/mcp.json
+    # Not part of the main config file; field kept here for session wiring.
+    mcp_enabled: bool = True  # global switch to enable/disable MCP integration
 
 
 class EnvSettings(BaseSettings):

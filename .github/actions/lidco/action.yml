@@ -1,0 +1,104 @@
+name: LIDCO AI Task
+description: Run a LIDCO AI task in CI/CD using lidco exec.
+
+inputs:
+  task:
+    description: The task to run (e.g. "review PR changes for bugs")
+    required: true
+  agent:
+    description: Agent to use (coder, reviewer, security, tester, etc.)
+    required: false
+    default: ""
+  model:
+    description: LLM model override (e.g. openai/gpt-4o)
+    required: false
+    default: ""
+  permission-mode:
+    description: Permission mode — bypass, plan, or default
+    required: false
+    default: plan
+  max-turns:
+    description: Maximum agent iterations
+    required: false
+    default: "30"
+  no-plan:
+    description: Skip pre-task planning step
+    required: false
+    default: "false"
+  no-review:
+    description: Skip post-task review step
+    required: false
+    default: "false"
+  python-version:
+    description: Python version to use
+    required: false
+    default: "3.11"
+  lidco-version:
+    description: LIDCO version to install (pip specifier, e.g. ">=0.2.0")
+    required: false
+    default: ""
+
+outputs:
+  result:
+    description: JSON result from lidco exec --json
+    value: ${{ steps.run-lidco.outputs.result }}
+  exit-code:
+    description: Exit code from lidco exec (0=success, 1=failed, 3=permission_denied)
+    value: ${{ steps.run-lidco.outputs.exit_code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install LIDCO
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.lidco-version }}" ]; then
+          pip install "lidco${{ inputs.lidco-version }}" --quiet
+        else
+          pip install lidco --quiet
+        fi
+
+    - name: Run LIDCO task
+      id: run-lidco
+      shell: bash
+      env:
+        LIDCO_EXEC_TASK: ${{ inputs.task }}
+        LIDCO_EXEC_AGENT: ${{ inputs.agent }}
+        LIDCO_EXEC_MODEL: ${{ inputs.model }}
+        LIDCO_EXEC_PERMISSION_MODE: ${{ inputs.permission-mode }}
+        LIDCO_EXEC_MAX_TURNS: ${{ inputs.max-turns }}
+        LIDCO_EXEC_NO_PLAN: ${{ inputs.no-plan }}
+        LIDCO_EXEC_NO_REVIEW: ${{ inputs.no-review }}
+      run: |
+        ARGS="--json --permission-mode $LIDCO_EXEC_PERMISSION_MODE"
+        ARGS="$ARGS --max-turns $LIDCO_EXEC_MAX_TURNS"
+
+        if [ -n "$LIDCO_EXEC_AGENT" ]; then
+          ARGS="$ARGS --agent $LIDCO_EXEC_AGENT"
+        fi
+        if [ -n "$LIDCO_EXEC_MODEL" ]; then
+          ARGS="$ARGS --model $LIDCO_EXEC_MODEL"
+        fi
+        if [ "$LIDCO_EXEC_NO_PLAN" = "true" ]; then
+          ARGS="$ARGS --no-plan"
+        fi
+        if [ "$LIDCO_EXEC_NO_REVIEW" = "true" ]; then
+          ARGS="$ARGS --no-review"
+        fi
+
+        # Capture JSON result and exit code
+        RESULT=$(lidco exec $ARGS "$LIDCO_EXEC_TASK" 2>&1)
+        EXIT_CODE=$?
+
+        echo "result=$RESULT" >> $GITHUB_OUTPUT
+        echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+        # Echo result for logs
+        echo "$RESULT"
+
+        exit $EXIT_CODE

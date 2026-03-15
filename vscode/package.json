@@ -1,0 +1,123 @@
+{
+  "name": "lidco-vscode",
+  "displayName": "LIDCO",
+  "description": "LLM-Integrated Development COmpanion — AI-powered coding assistant",
+  "version": "0.1.0",
+  "publisher": "lidco",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["AI", "Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "lidco.openChat",
+        "title": "LIDCO: Open Chat",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "lidco.reviewFile",
+        "title": "LIDCO: Review Current File"
+      },
+      {
+        "command": "lidco.explainSelection",
+        "title": "LIDCO: Explain Selection"
+      },
+      {
+        "command": "lidco.reviewSelection",
+        "title": "LIDCO: Review Selection"
+      },
+      {
+        "command": "lidco.chat",
+        "title": "LIDCO: Chat",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "lidco.runOnSelection",
+        "title": "LIDCO: Run on Selection"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "lidco.openChat",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l"
+      }
+    ],
+    "configuration": {
+      "title": "LIDCO",
+      "properties": {
+        "lidco.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:7777",
+          "description": "URL of the running LIDCO server"
+        },
+        "lidco.apiToken": {
+          "type": "string",
+          "default": "",
+          "description": "Optional API token for authentication (matches LIDCO_API_TOKEN)"
+        },
+        "lidco.defaultAgent": {
+          "type": "string",
+          "default": "",
+          "description": "Default agent for chat (leave empty for auto-routing)"
+        },
+        "lidco.enableInlineCompletions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable AI-powered inline code completions"
+        },
+        "lidco.enableHover": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable AI-powered hover explanations"
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "lidco.explainSelection",
+          "when": "editorHasSelection",
+          "group": "lidco@1"
+        },
+        {
+          "command": "lidco.reviewSelection",
+          "when": "editorHasSelection",
+          "group": "lidco@2"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "lidco-sidebar",
+          "title": "LIDCO",
+          "icon": "$(robot)"
+        }
+      ]
+    },
+    "views": {
+      "lidco-sidebar": [
+        {
+          "type": "webview",
+          "id": "lidco.chatView",
+          "name": "Chat"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -42,6 +42,15 @@ class ToolRegistry:
         """List all tool names."""
         return list(self._tools.keys())
 
+    def unregister(self, name: str) -> bool:
+        """Remove a tool from the registry. Returns True if found and removed."""
+        if name in self._tools:
+            del self._tools[name]
+            self._schema_cache = None
+            self._schema_version += 1
+            return True
+        return False
+
     def get_openai_schemas(self, tool_names: list[str] | None = None) -> list[dict[str, Any]]:
         """Get OpenAI function schemas for specified tools (or all).
 
@@ -61,7 +70,9 @@ class ToolRegistry:
     def create_default_registry() -> ToolRegistry:
         """Create a registry with all built-in tools."""
         from lidco.tools.arch_diagram import ArchDiagramTool
+        from lidco.tools.code_runner import CodeRunnerTool
         from lidco.tools.coverage_guard import CoverageGuardTool
+        from lidco.tools.docker_sandbox import DockerSandboxTool
         from lidco.tools.flake_guard import FlakeGuardTool
         from lidco.tools.trace_inspector import TraceInspectorTool
         from lidco.tools.ask_user import AskUserTool
@@ -125,6 +136,9 @@ class ToolRegistry:
             CoverageGuardTool(),
             # Q26 execution trace recorder
             TraceInspectorTool(),
+            # Q59 code execution & runtime
+            CodeRunnerTool(),
+            DockerSandboxTool(),
         ]:
             registry.register(tool)
         return registry

@@ -39,6 +39,9 @@ class _StatusBar:
         self._phase_elapsed: dict[str, float] = {}  # name → elapsed seconds when done
         self._current_step: int = 0
         self._max_step: int = 0
+        # Q55/374: context window usage meter
+        self._ctx_used: int = 0
+        self._ctx_max: int = 0
 
     @property
     def label(self) -> str:
@@ -68,6 +71,11 @@ class _StatusBar:
         """Update the iteration counter shown in the status bar."""
         self._current_step = current
         self._max_step = maximum
+
+    def set_context_usage(self, used_tokens: int, max_tokens: int) -> None:
+        """Q55/374 — Update the context window usage shown in the status bar."""
+        self._ctx_used = max(0, used_tokens)
+        self._ctx_max = max(1, max_tokens)
 
     def set_phase(self, name: str, status: str) -> None:
         """Update or append a named phase step.
@@ -119,6 +127,18 @@ class _StatusBar:
             text.append(f" · {tokens_str} tokens", style="dim")
         if self._total_cost_usd > 0:
             text.append(f" · ${self._total_cost_usd:.4f}", style="dim")
+        # Q55/374: context window meter
+        if self._ctx_max > 0 and self._ctx_used > 0:
+            pct = min(100, int(self._ctx_used * 100 / self._ctx_max))
+            filled = pct // 10
+            bar = "█" * filled + "░" * (10 - filled)
+            if pct >= 85:
+                bar_style = "bold red"
+            elif pct >= 70:
+                bar_style = "bold yellow"
+            else:
+                bar_style = "dim green"
+            text.append(f" · [{bar}] {pct}%", style=bar_style)
         if self._phase_steps:
             text.append("  ", style="dim")
             for j, (pname, pstatus) in enumerate(self._phase_steps):
@@ -516,6 +536,10 @@ class StreamDisplay:
         """Update the token count and cost displayed in the status bar."""
         self._status_bar.total_tokens = total
         self._status_bar.total_cost_usd = total_cost_usd
+
+    def update_context_usage(self, used_tokens: int, max_tokens: int) -> None:
+        """Q55/374 — Update context window meter in the status bar."""
+        self._status_bar.set_context_usage(used_tokens, max_tokens)
 
     def finish(self) -> None:
         """Stop the status bar and finalize output."""

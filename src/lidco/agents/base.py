@@ -60,6 +60,12 @@ class AgentConfig:
     fallback_model: str | None = None
     context_window: int = 128_000  # tokens; override per model if known
     routing_keywords: list[str] = field(default_factory=list)
+    # Q40 — YAML Agents & Worktrees
+    disallowed_tools: list[str] = field(default_factory=list)   # Task 273: explicit tool denylist
+    permission_mode: str | None = None   # Task 274: per-agent permission mode override
+    memory: str = "project"              # Task 272: "project" | "agent" | "none"
+    isolation: str = "none"              # Task 269: "none" | "worktree"
+    hooks: dict[str, str] = field(default_factory=dict)  # Task 268: post_response etc.
 
 
 @dataclass
@@ -120,10 +126,13 @@ class BaseAgent(ABC):
         self._stream_callback: Callable[[str], None] | None = None
         self._tool_event_callback: Callable[[str, str, dict, ToolResult | None], None] | None = None
         self._error_callback: Callable[..., None] | None = None
-        # Cache tool schemas once — tools don't change between runs
+        # Cache tool schemas; invalidated when registry.schema_version changes (Q54/365)
         self._tool_schemas_cache: list[dict[str, Any]] | None = None
+        self._schema_cache_version: int = -1
         # Per-run context injection — consumed once by build_system_prompt
         self._pending_context: list[str] = []
+        # Q58 Task 395: cross-session memory
+        self._cross_session_memory: list[str] = []
 
     def set_status_callback(self, callback: Any) -> None:
         """Set a callback to report status updates."""
@@ -175,6 +184,42 @@ class BaseAgent(ABC):
             tool_registry=self._tool_registry,
         )
 
+    def load_cross_session_memory(self, memory_store: Any) -> None:
+        """Query *memory_store* for the top-3 entries saved by this agent and
+        cache them in ``_cross_session_memory`` for injection into the next
+        system prompt.
+
+        Uses ``MemoryStore.search()`` with ``category=f"agent_{self.name}"``
+        to find entries saved by :meth:`save_cross_session_decision`.
+        """
+        try:
+            category = f"agent_{self._config.name}"
+            entries = memory_store.search("", category=category, limit=3)
+            self._cross_session_memory = [e.content for e in entries]
+        except Exception:
+            self._cross_session_memory = []
+
+    def save_cross_session_decision(self, memory_store: Any, decision: str) -> None:
+        """Persist *decision* to *memory_store* under this agent's category.
+
+        The category is ``f"agent_{self.name}"`` so :meth:`load_cross_session_memory`
+        can retrieve it in future sessions.
+        """
+        import uuid as _uuid
+        from datetime import datetime as _dt, timezone as _tz
+
+        category = f"agent_{self._config.name}"
+        key = f"{self._config.name}_{_uuid.uuid4().hex[:8]}"
+        try:
+            memory_store.add(
+                key=key,
+                content=decision,
+                category=category,
+                source=self._config.name,
+            )
+        except Exception:
+            pass
+
     def prepend_system_context(self, text: str) -> None:
         """Inject *text* at the top of the context block for the next run only.
 
@@ -214,17 +259,27 @@ class BaseAgent(ABC):
 
     def _get_tools(self) -> list[BaseTool]:
         """Get the tools this agent can use."""
-        if not self._config.tools:
-            return self._tool_registry.list_tools()
-        return [
-            t for t in self._tool_registry.list_tools()
-            if t.name in self._config.tools
-        ]
+        # Q54/362: honour both allowlist (tools) and denylist (disallowed_tools)
+        tools = self._tool_registry.list_tools()
+        if self._config.tools:
+            tools = [t for t in tools if t.name in self._config.tools]
+        if self._config.disallowed_tools:
+            denied = set(self._config.disallowed_tools)
+            tools = [t for t in tools if t.name not in denied]
+        return tools
 
     def _get_tool_schemas(self) -> list[dict[str, Any]]:
-        """Get OpenAI-format tool schemas for this agent's tools (cached)."""
-        if self._tool_schemas_cache is None:
+        """Get OpenAI-format tool schemas for this agent's tools (cached).
+
+        Q54/365: invalidates when registry.schema_version changes (e.g. MCP injection).
+        """
+        current_version = self._tool_registry.schema_version
+        if (
+            self._tool_schemas_cache is None
+            or self._schema_cache_version != current_version
+        ):
             self._tool_schemas_cache = [t.to_openai_schema() for t in self._get_tools()]
+            self._schema_cache_version = current_version
         return self._tool_schemas_cache
 
     async def _stream_complete(
@@ -653,6 +708,11 @@ class BaseAgent(ABC):
         # injected before the debugger runs).
         pending = self._pending_context
         self._pending_context = []
+
+        # Q58 Task 395: inject cross-session memories as Past Decisions section
+        if self._cross_session_memory:
+            decisions = "\n".join(f"- {m}" for m in self._cross_session_memory)
+            prompt += f"\n\n## Past Decisions\n{decisions}"
 
         context_parts: list[str] = []
         if pending:

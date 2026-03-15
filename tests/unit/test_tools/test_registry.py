@@ -44,7 +44,10 @@ class TestToolRegistry:
         assert "coverage_guard" in names
         # Q26 execution trace recorder
         assert "capture_execution_trace" in names
-        assert len(names) == 29
+        # Q59 code execution & runtime
+        assert "code_runner" in names
+        assert "docker_sandbox" in names
+        assert len(names) == 31
 
     def test_get_tool(self):
         registry = ToolRegistry.create_default_registry()
@@ -59,7 +62,7 @@ class TestToolRegistry:
     def test_openai_schemas(self):
         registry = ToolRegistry.create_default_registry()
         schemas = registry.get_openai_schemas()
-        assert len(schemas) == 29
+        assert len(schemas) == 31
         for schema in schemas:
             assert schema["type"] == "function"
             assert "name" in schema["function"]
