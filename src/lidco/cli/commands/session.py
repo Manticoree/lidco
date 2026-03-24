@@ -1867,3 +1867,89 @@ def register(registry: Any) -> None:
         reload_handler,
     ))
 
+    # ── Q66 Task 444: /sessions — list saved sessions ─────────────────────
+
+    async def sessions_handler(arg: str = "", **_: Any) -> str:
+        """List saved sessions from the SessionStore."""
+        from lidco.cli.session_store import SessionStore
+
+        store = getattr(registry, "_session_store", None)
+        if store is None:
+            store = SessionStore()
+
+        sessions = store.list_sessions()
+        if not sessions:
+            return "No saved sessions."
+
+        lines = ["## Saved Sessions", ""]
+        for s in sessions[:20]:
+            sid = s.get("session_id", "?")[:8]
+            name = s.get("metadata", {}).get("name") or "unnamed"
+            msg_count = s.get("message_count", 0)
+            saved_at = s.get("saved_at", "")[:19]
+            lines.append(f"  {sid}  {name}  ({msg_count} msgs)  {saved_at}")
+        if len(sessions) > 20:
+            lines.append(f"  ... and {len(sessions) - 20} more")
+        return "\n".join(lines)
+
+    registry.register(SlashCommand(
+        "sessions",
+        "List saved sessions",
+        sessions_handler,
+    ))
+
+    # ── Q67 Task 452: /memory — persistent agent memory ──────────────────
+
+    memory_handler = _memory_handler_factory()
+    registry.register(SlashCommand(
+        "memory",
+        "Manage persistent agent memories across sessions",
+        memory_handler,
+    ))
+
+
+def _memory_handler_factory(db_path: Path | str | None = None):
+    """Create a /memory handler, optionally with a custom db_path (for testing)."""
+
+    async def memory_handler(args: str = "", **_: Any) -> str:
+        from lidco.memory.agent_memory import AgentMemoryStore
+
+        store = AgentMemoryStore(db_path=db_path)
+        parts = args.strip().split(None, 1)
+        subcmd = parts[0].lower() if parts else "list"
+        rest = parts[1] if len(parts) > 1 else ""
+
+        if subcmd == "list":
+            memories = store.list(20)
+            if not memories:
+                return "No memories stored."
+            lines = [
+                f"  {m.id}  {m.content[:60]}{'...' if len(m.content) > 60 else ''}"
+                for m in memories
+            ]
+            return f"Memories ({len(memories)}):\n" + "\n".join(lines)
+        elif subcmd == "add":
+            if not rest.strip():
+                return "Usage: /memory add <text>"
+            m = store.add(rest.strip())
+            return f"Memory saved: [{m.id}] {m.content[:60]}"
+        elif subcmd == "delete":
+            if not rest.strip():
+                return "Usage: /memory delete <id>"
+            ok = store.delete(rest.strip())
+            return "Deleted." if ok else f"Memory '{rest.strip()}' not found."
+        elif subcmd == "search":
+            if not rest.strip():
+                return "Usage: /memory search <query>"
+            results = store.search(rest.strip(), limit=10)
+            if not results:
+                return "No memories match."
+            lines = [f"  {m.id}  {m.content[:60]}" for m in results]
+            return "\n".join(lines)
+        elif subcmd == "clear":
+            n = store.clear()
+            return f"Cleared {n} memories."
+        else:
+            return "Usage: /memory [list|add <text>|delete <id>|search <query>|clear]"
+
+    return memory_handler

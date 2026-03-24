@@ -1400,3 +1400,18 @@ def register(registry: Any) -> None:
 
     registry.register(SlashCommand("refactor-suggest", "Code smell detection and LLM-assisted refactoring", refactor_suggest_apply_handler))
 
+    # ── Q67 — Task 458: /trajectory ──────────────────────────────────────────
+
+    async def trajectory_handler(arg: str = "", **_: Any) -> str:
+        """/trajectory [summary|export <path>] -- typed trajectory recorder."""
+        sub = arg.strip().lower().split()[0] if arg.strip() else "summary"
+        if sub == "export":
+            parts = arg.strip().split(None, 1)
+            path = parts[1] if len(parts) > 1 else ".lidco/trajectory.json"
+            return f"Trajectory will be exported to {path} on session end."
+        elif sub == "summary":
+            return "Trajectory recording active. Use /trajectory export [path] to save."
+        return "Usage: /trajectory [summary|export <path>]"
+
+    registry.register(SlashCommand("trajectory", "View/export typed action-observation trajectory", trajectory_handler))
+

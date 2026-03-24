@@ -85,6 +85,8 @@ class LLMConfig(BaseModel):
     session_token_limit: int = 0  # 0 = unlimited
     retry: RetryConfig = Field(default_factory=RetryConfig)
     ollama_base_url: str = "http://localhost:11434"  # Q63: local Ollama endpoint
+    architect_model: str | None = None  # T451: model for architect (planning) roles
+    editor_model: str | None = None  # T451: model for editor (code generation) roles
 
 
 class CLIConfig(BaseModel):
@@ -185,6 +187,9 @@ class AgentsConfig(BaseModel):
     thinking_budget: int = 10000  # max thinking tokens when extended_thinking is on
     adaptive_budget: bool = False  # dynamically adjust max_tokens per prompt complexity
     auto_warm: bool = False  # pre-warm Anthropic prompt cache on session start
+    # Q72 — Confidence + Next-Edit Prediction
+    clarification_threshold: float = 0.7  # confidence below this triggers a clarification ask
+    autonomy_mode: str = "supervised"  # autonomous | supervised | interactive
 
 
 class MemoryConfig(BaseModel):
@@ -244,6 +249,9 @@ class LidcoConfig(BaseModel):
     # MCP server connections — loaded separately from .lidco/mcp.json
     # Not part of the main config file; field kept here for session wiring.
     mcp_enabled: bool = True  # global switch to enable/disable MCP integration
+    git_auto_commit: bool = False  # T446: auto-commit dirty files after each agent execution
+    diff_first: bool = False  # T446: show diff before committing
+    predict_next_edit: bool = False  # T451: enable next-edit prediction
 
 
 class EnvSettings(BaseSettings):

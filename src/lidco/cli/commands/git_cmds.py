@@ -1069,4 +1069,29 @@ def register(registry: Any) -> None:
 
     registry.register(SlashCommand("agents", "List agents, view stats, manage background tasks", agents_with_stats_handler))
 
+    # ── Q67 Task 453: /review-pr — automated PR review ──────────────────
+
+    async def review_pr_handler(arg: str = "", **_: Any) -> str:
+        """/review-pr <PR_NUMBER> [--post-comments] — automated code review on a GitHub PR."""
+        from lidco.review.pr_reviewer import PRReviewer
+
+        parts = arg.strip().split()
+        if not parts:
+            return "Usage: /review-pr <PR_NUMBER> [--post-comments]"
+        try:
+            pr_num = int(parts[0])
+        except ValueError:
+            return f"Invalid PR number: {parts[0]!r}"
+        post = "--post-comments" in parts
+        reviewer = PRReviewer(post_comments=post)
+        result = reviewer.review(pr_num)
+        if result.error:
+            return f"Error: {result.error}"
+        lines = [result.summary]
+        for c in result.comments[:20]:
+            lines.append(f"  [{c.severity.upper()}] {c.path}:{c.line} -- {c.body}")
+        return "\n".join(lines)
+
+    registry.register(SlashCommand("review-pr", "Run automated code review on a GitHub PR", review_pr_handler))
+
 

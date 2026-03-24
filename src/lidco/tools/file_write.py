@@ -24,6 +24,8 @@ class FileWriteTool(BaseTool):
     _sandbox: SandboxValidator | None = None
     # Task 283: checkpoint callback — (path: str, old_content: str | None) -> None
     _checkpoint_callback: Callable[[str, "str | None"], None] | None = None
+    # Task 454: shadow workspace for dry-run mode
+    _shadow_workspace: Any | None = None
 
     def set_sandbox(self, sandbox: SandboxValidator) -> None:
         self._sandbox = sandbox
@@ -37,6 +39,10 @@ class FileWriteTool(BaseTool):
         Used by CheckpointManager to record undo snapshots.
         """
         self._checkpoint_callback = callback
+
+    def set_shadow_workspace(self, sw: Any) -> None:
+        """Set a ShadowWorkspace instance for dry-run mode (Task 454)."""
+        self._shadow_workspace = sw
 
     def set_confirm_callback(
         self,
@@ -106,6 +112,15 @@ class FileWriteTool(BaseTool):
                 return ToolResult(
                     output="", success=False, error=f"Sandbox blocked: {reason}"
                 )
+
+        # Task 454: shadow workspace intercept (dry-run mode)
+        if self._shadow_workspace is not None and self._shadow_workspace.active:
+            self._shadow_workspace.intercept(str(path), content)
+            return ToolResult(
+                output=f"[dry-run] Staged: {path}",
+                success=True,
+                metadata={"path": str(path), "dry_run": True},
+            )
 
         # Task 283: record checkpoint before write
         if self._checkpoint_callback is not None:

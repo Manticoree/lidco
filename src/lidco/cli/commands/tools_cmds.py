@@ -2669,3 +2669,79 @@ def register(registry: Any) -> None:
         "Авто-стендап из git: /standup [дней=1]",
         standup_handler,
     ))
+
+    # ── Task 454: /dry-run, /apply, /discard — shadow workspace commands ──
+
+    async def dryrun_handler(arg: str = "", **_: Any) -> str:
+        """/dry-run [on|off|status] — toggle dry-run mode (shadow workspace)."""
+        sw = getattr(registry, "_shadow_workspace", None)
+        if sw is None:
+            return "Shadow workspace not available."
+        sub = arg.strip().lower()
+        if sub in ("on", "enable"):
+            sw.enable()
+            return "[dry-run] ON -- file writes will be staged, not applied."
+        elif sub in ("off", "disable"):
+            sw.disable()
+            return "[dry-run] OFF -- file writes applied immediately."
+        else:
+            state = "ON" if sw.active else "OFF"
+            return f"[dry-run] {state}. {sw.summary()}"
+
+    registry.register(SlashCommand(
+        "dry-run",
+        "Toggle dry-run mode: /dry-run [on|off|status]",
+        dryrun_handler,
+    ))
+
+    async def apply_handler(arg: str = "", **_: Any) -> str:
+        """/apply [path ...] — apply staged dry-run changes to disk."""
+        sw = getattr(registry, "_shadow_workspace", None)
+        if sw is None:
+            return "Shadow workspace not available."
+        paths = arg.strip().split() if arg.strip() else None
+        if not sw.pending_paths():
+            return "No pending changes to apply."
+        diff_text = sw.get_diff()
+        result = sw.apply(paths)
+        lines = []
+        if diff_text:
+            lines.append("**Applied diff:**\n```diff\n" + diff_text + "\n```\n")
+        if result.applied:
+            lines.append(f"Applied {len(result.applied)} file(s): " + ", ".join(result.applied))
+        if result.skipped:
+            lines.append(f"Skipped {len(result.skipped)} file(s): " + ", ".join(result.skipped))
+        if result.errors:
+            for p, err in result.errors.items():
+                lines.append(f"Error writing {p}: {err}")
+        remaining = len(sw.pending_paths())
+        if remaining:
+            lines.append(f"{remaining} file(s) still pending.")
+        return "\n".join(lines) if lines else "Nothing applied."
+
+    registry.register(SlashCommand(
+        "apply",
+        "Apply staged dry-run changes: /apply [path ...]",
+        apply_handler,
+    ))
+
+    async def discard_handler(arg: str = "", **_: Any) -> str:
+        """/discard [path ...] — discard staged dry-run changes."""
+        sw = getattr(registry, "_shadow_workspace", None)
+        if sw is None:
+            return "Shadow workspace not available."
+        paths = arg.strip().split() if arg.strip() else None
+        if not sw.pending_paths():
+            return "No pending changes to discard."
+        count = sw.discard(paths)
+        remaining = len(sw.pending_paths())
+        msg = f"Discarded {count} file(s)."
+        if remaining:
+            msg += f" {remaining} file(s) still pending."
+        return msg
+
+    registry.register(SlashCommand(
+        "discard",
+        "Discard staged dry-run changes: /discard [path ...]",
+        discard_handler,
+    ))

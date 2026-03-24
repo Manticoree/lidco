@@ -45,6 +45,8 @@ def register(registry: Any) -> None:
     # ── /ask ──────────────────────────────────────────────────────────────────
 
     async def ask_handler(arg: str = "", **_: Any) -> str:
+        if not registry._session:
+            return "Сессия не инициализирована."
         question = arg.strip()
         if not question:
             return (
@@ -54,11 +56,12 @@ def register(registry: Any) -> None:
                 "- `/ask how is the session managed?`\n"
                 "- `/ask where are tools registered?`\n"
             )
-        return _ask_question(question, Path.cwd())
+        project_dir = getattr(registry._session, "project_dir", Path.cwd()) or Path.cwd()
+        return _ask_question(question, Path(project_dir))
 
     registry.register(SlashCommand(
-        "ask",
-        "Ask a question about the codebase",
+        "codebase-ask",
+        "Ask a question about the codebase (semantic search)",
         ask_handler,
     ))
 

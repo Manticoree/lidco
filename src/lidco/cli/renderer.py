@@ -130,8 +130,23 @@ class Renderer:
         self.console.print(Text(message, style="bold green"))
 
     def warning(self, message: str) -> None:
-        """Display a warning."""
-        self.console.print(Text(f"Предупреждение: {message}", style="yellow"))
+        """Display a compact warning (single line, no verbose prefix)."""
+        self.console.print(Text(f"[!] {message}", style="yellow"))
+
+    def status(self, message: str, style: str = "cyan") -> None:
+        """Show current action as a clean one-liner."""
+        line = Text()
+        line.append("-> ", style=style)
+        line.append(message)
+        self.console.print(line)
+
+    def phase_status(self, phase: str, detail: str = "") -> None:
+        """Show current phase/action in a compact one-liner."""
+        line = Text()
+        line.append(phase, style="bold cyan")
+        if detail:
+            line.append(f"  {detail}", style="dim")
+        self.console.print(line)
 
     def user_prompt(self) -> None:
         """Print the user prompt indicator."""

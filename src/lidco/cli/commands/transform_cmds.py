@@ -12,7 +12,8 @@ if TYPE_CHECKING:
 def register_transform_commands(registry: "CommandRegistry") -> None:
     """Register /rename, /multi-edit, /testgen, /health commands."""
 
-    async def rename_handler(args: str) -> str:
+    async def rename_handler(args: str = "", arg: str = "", **_) -> str:
+        args = args or arg
         parts = args.strip().split(None, 1)
         if len(parts) < 2:
             return "Usage: /rename <old_name> <new_name> [--dry-run]"
@@ -42,7 +43,8 @@ def register_transform_commands(registry: "CommandRegistry") -> None:
         except Exception as e:
             return f"/rename failed: {e}"
 
-    async def multi_edit_handler(args: str) -> str:
+    async def multi_edit_handler(args: str = "", arg: str = "", **_) -> str:
+        args = args or arg
         spec_path = args.strip()
         if not spec_path:
             return "Usage: /multi-edit <spec.yaml>"
@@ -71,7 +73,8 @@ def register_transform_commands(registry: "CommandRegistry") -> None:
         except Exception as e:
             return f"/multi-edit failed: {e}"
 
-    async def testgen_handler(args: str) -> str:
+    async def testgen_handler(args: str = "", arg: str = "", **_) -> str:
+        args = args or arg
         parts = args.strip().split()
         if not parts:
             return "Usage: /testgen <source_path> [--write]"
@@ -94,7 +97,8 @@ def register_transform_commands(registry: "CommandRegistry") -> None:
         except Exception as e:
             return f"/testgen failed: {e}"
 
-    async def health_handler(args: str) -> str:
+    async def health_handler(args: str = "", arg: str = "", **_) -> str:
+        args = args or arg
         try:
             from lidco.analytics.health_dashboard import ProjectHealthDashboard
             dash = ProjectHealthDashboard(".")

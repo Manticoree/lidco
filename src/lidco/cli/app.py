@@ -6,7 +6,11 @@ import asyncio
 import logging
 import sys
 import time
+import warnings
 from typing import TYPE_CHECKING, Any
+
+# Suppress DeprecationWarning and other noisy Python internal warnings
+warnings.filterwarnings("ignore")
 
 if TYPE_CHECKING:
     from lidco.__main__ import CLIFlags
@@ -256,8 +260,21 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                     lidco_session.active_pr_context = "\n".join(_pr_ctx_parts)
             except Exception:
                 pass  # Non-fatal — proceed without PR context
+    # Task 454: shadow workspace (dry-run mode)
+    from lidco.shadow.workspace import ShadowWorkspace
+
+    _shadow_ws = ShadowWorkspace()
+    if flags is not None and getattr(flags, "dry_run", False):
+        _shadow_ws.enable()
+    # Inject into file tools
+    for _tool_name in ("file_write", "file_edit"):
+        _t = lidco_session.tool_registry.get(_tool_name)
+        if _t is not None and hasattr(_t, "set_shadow_workspace"):
+            _t.set_shadow_workspace(_shadow_ws)
+
     commands = CommandRegistry()
     commands.set_session(lidco_session)
+    commands._shadow_workspace = _shadow_ws  # expose for /dry-run command
     permissions = PermissionManager(config.permissions, console)
     active_live: list[Live | None] = [None]  # mutable container for closure
 
@@ -367,6 +384,31 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                 _sorch._conversation_history = _sdata.get("history", [])
             commands._current_session_id = _sdata.get("session_id")
             logger.info("Loaded named session '%s' (%s)", _sname, commands._current_session_id)
+
+    # Task 444: --continue / --resume — session continuity
+    if flags is not None:
+        _resume_data: dict | None = None
+        if getattr(flags, "resume_id", None):
+            _resume_data = commands._session_store.load(flags.resume_id)
+            if _resume_data is None:
+                _resume_data = commands._session_store.find_by_name(flags.resume_id)
+            if _resume_data is None:
+                console.print(f"[yellow]Session '{flags.resume_id}' not found. Starting fresh.[/yellow]")
+        elif getattr(flags, "continue_session", False):
+            _cont_sessions = commands._session_store.list_sessions()
+            if _cont_sessions:
+                _resume_data = commands._session_store.load(_cont_sessions[0]["session_id"])
+
+        if _resume_data is not None:
+            _resume_orch = getattr(lidco_session, "orchestrator", None)
+            if _resume_orch is not None:
+                _resume_orch.restore_history(_resume_data.get("history", []))
+            commands._current_session_id = _resume_data.get("session_id")
+            _resume_name = _resume_data.get("metadata", {}).get("name", "unnamed")
+            _resume_msgs = len(_resume_data.get("history", []))
+            console.print(
+                f"[green]Resumed session: {_resume_name} ({_resume_msgs} messages)[/green]"
+            )
 
     # Task 385: --profile <name> — apply workspace profile on startup
     if flags is not None and getattr(flags, "profile_name", None):
@@ -588,6 +630,7 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
     _git_branch: str = _get_git_branch()
 
     # Session-level cumulative statistics
+    _last_ctx_warn_bucket: int = -1  # tracks last context-warning bucket (per 10%) shown
     session_tokens: int = 0
     session_prompt_tokens: int = 0
     session_completion_tokens: int = 0
@@ -638,13 +681,15 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                 branch=_git_branch,
             )
 
-            # Task 138: context window warning at 80%
+            # Task 138: context window warning at 80% — shown once per 10% bucket
             try:
                 _budget_limit = int(lidco_session.token_budget.session_limit or 0)
                 _ctx_limit = _budget_limit if _budget_limit > 0 else int(config.agents.context_window)
                 if _ctx_limit > 0 and session_tokens > 0:
                     _ctx_pct = int(session_tokens / _ctx_limit * 100)
-                    if _ctx_pct >= 80:
+                    _ctx_bucket = (_ctx_pct // 10) * 10
+                    if _ctx_pct >= 80 and _ctx_bucket != _last_ctx_warn_bucket:
+                        _last_ctx_warn_bucket = _ctx_bucket
                         renderer.context_warning(_ctx_pct)
             except (TypeError, ValueError, AttributeError):
                 pass
@@ -777,6 +822,7 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                     # reasoning text + tool events scroll above it.
                     stream_display = StreamDisplay(console)
                     stream_display.set_debug_mode(lidco_session.debug_mode)
+                    stream_display.set_agent_name(forced_agent or "auto")
                     active_live[0] = stream_display.live
 
                     def on_status_stream(status: str) -> None:
@@ -1007,6 +1053,19 @@ async def run_repl(flags: "CLIFlags | None" = None) -> None:
                 )
         except Exception:
             pass  # Non-fatal
+
+    # Task 444: auto-save session on exit (with git branch as name)
+    try:
+        _exit_orch_444 = getattr(lidco_session, "orchestrator", None)
+        _exit_history_444 = getattr(_exit_orch_444, "_conversation_history", []) if _exit_orch_444 else []
+        if _exit_history_444:
+            _exit_branch = _get_git_branch() or "unnamed"
+            commands._session_store.save(
+                _exit_history_444,
+                metadata={"name": _exit_branch, "auto_saved": True},
+            )
+    except Exception:
+        pass  # Non-fatal — auto-save must not crash
 
     _show_session_summary(
         console,

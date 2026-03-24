@@ -29,6 +29,7 @@ Usage: lidco [OPTIONS]
        lidco index [--incremental] [--codemap] [--dir <path>]
        lidco serve [--host <host>] [--port <port>]
        lidco mcp-server
+       lidco review-pr <PR_NUMBER> [--post-comments] [--repo <owner/repo>]
 
 REPL options:
   --agent <name>     Start with a specific agent (e.g. coder, reviewer, planner)
@@ -37,6 +38,9 @@ REPL options:
   --no-plan          Disable automatic pre-task planning
   --no-streaming     Disable token streaming (show response all at once)
   --timeout <secs>   Agent timeout in seconds (default: 600, 0 = no timeout)
+  --dry-run          Start in dry-run mode (file writes staged, not applied)
+  --continue         Resume the most recent session
+  --resume <ID>      Resume a specific session by ID or name
   --help, -h         Show this help message and exit
 
 exec options (headless CI/CD mode):
@@ -81,6 +85,9 @@ class CLIFlags:
     from_pr: int | None = None  # Task 380: --from-pr <number>
     session_name: str | None = None  # Task 383: --session <name>
     profile_name: str | None = None  # Task 385: --profile <name>
+    continue_session: bool = False   # Task 444: --continue (resume most recent session)
+    resume_id: str | None = None     # Task 444: --resume <ID|name>
+    dry_run: bool = False            # Task 454: --dry-run (shadow workspace mode)
 
 
 def main() -> None:
@@ -97,6 +104,8 @@ def main() -> None:
         _run_precommit(args[1:])
     elif args and args[0] == "mcp-server":
         _run_mcp_server(args[1:])
+    elif args and args[0] == "review-pr":
+        _run_review_pr(args[1:])
     else:
         if "--help" in args or "-h" in args:
             print(_REPL_HELP)
@@ -146,6 +155,15 @@ def _parse_repl_flags(args: list[str]) -> CLIFlags:
             i += 2
         elif arg == "--profile" and i + 1 < len(args):
             flags.profile_name = args[i + 1]
+            i += 2
+        elif arg == "--dry-run":
+            flags.dry_run = True
+            i += 1
+        elif arg == "--continue":
+            flags.continue_session = True
+            i += 1
+        elif arg == "--resume" and i + 1 < len(args):
+            flags.resume_id = args[i + 1]
             i += 2
         else:
             print(f"Unknown argument: {arg}")
@@ -359,6 +377,41 @@ def _run_mcp_server(args: list[str]) -> None:
         asyncio.run(_serve())
     except KeyboardInterrupt:
         pass
+
+
+def _run_review_pr(args: list[str]) -> None:
+    """Run automated PR review — Task 453."""
+    if not args or "--help" in args:
+        print("Usage: lidco review-pr <PR_NUMBER> [--post-comments] [--repo <owner/repo>]")
+        return
+    try:
+        pr_num = int(args[0])
+    except ValueError:
+        print(f"Error: invalid PR number {args[0]!r}")
+        return
+    repo = None
+    post = False
+    i = 1
+    while i < len(args):
+        if args[i] == "--repo" and i + 1 < len(args):
+            repo = args[i + 1]
+            i += 2
+        elif args[i] == "--post-comments":
+            post = True
+            i += 1
+        else:
+            i += 1
+
+    from lidco.review.pr_reviewer import PRReviewer
+
+    reviewer = PRReviewer(post_comments=post)
+    result = reviewer.review(pr_num, repo=repo)
+    if result.error:
+        print(f"Error: {result.error}")
+        return
+    print(result.summary)
+    for c in result.comments:
+        print(f"  [{c.severity.upper()}] {c.path}:{c.line} -- {c.body}")
 
 
 if __name__ == "__main__":

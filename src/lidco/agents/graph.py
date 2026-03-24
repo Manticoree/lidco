@@ -888,6 +888,22 @@ class GraphOrchestrator(BaseOrchestrator):
         if self._phase_callback is not None:
             self._phase_callback(name, phase_status)
 
+    def _propagate_callbacks(self, agent: Any) -> None:
+        """Wire all orchestrator callbacks onto *agent* in a single call.
+
+        Extracted to eliminate the 8-line copy-paste present in
+        _execute_agent_node, _execute_planner_node, _run_step, and
+        _auto_review_node (P2-06 audit fix).
+        """
+        agent.set_status_callback(self._status_callback)
+        agent.set_permission_handler(self._permission_handler)
+        agent.set_token_callback(self._token_callback)
+        agent.set_continue_handler(self._continue_handler)
+        agent.set_clarification_handler(self._clarification_handler)
+        agent.set_stream_callback(self._stream_callback)
+        agent.set_tool_event_callback(self._tool_event_callback)
+        agent.set_error_callback(self._error_callback)
+
     def _get_router_prompt(self) -> str:
         """Return the formatted router prompt, building it once and caching.
 
@@ -1258,14 +1274,7 @@ class GraphOrchestrator(BaseOrchestrator):
             context = f"{critical_text}\n\n{advisory_text}" if critical_text else advisory_text
 
         logger.info("Executing agent: %s (review_iter=%d)", agent_name, review_iter)
-        agent.set_status_callback(self._status_callback)
-        agent.set_permission_handler(self._permission_handler)
-        agent.set_token_callback(self._token_callback)
-        agent.set_continue_handler(self._continue_handler)
-        agent.set_clarification_handler(self._clarification_handler)
-        agent.set_stream_callback(self._stream_callback)
-        agent.set_tool_event_callback(self._tool_event_callback)
-        agent.set_error_callback(self._error_callback)
+        self._propagate_callbacks(agent)
 
         # Inject failure-site snippets into the debugger's context so it can
         # see the failing code without needing an extra file_read tool call.
@@ -1481,14 +1490,7 @@ class GraphOrchestrator(BaseOrchestrator):
             async with semaphore:
                 # Create a fresh agent instance to avoid shared _conversation state
                 fresh = template_agent.clone()
-                fresh.set_status_callback(self._status_callback)
-                fresh.set_permission_handler(self._permission_handler)
-                fresh.set_token_callback(self._token_callback)
-                fresh.set_continue_handler(self._continue_handler)
-                fresh.set_clarification_handler(self._clarification_handler)
-                fresh.set_stream_callback(self._stream_callback)
-                fresh.set_tool_event_callback(self._tool_event_callback)
-                fresh.set_error_callback(self._error_callback)
+                self._propagate_callbacks(fresh)
 
                 # Mirror debug context injection from _execute_agent_node
                 if fresh.config.name == "debugger" and self._error_context_builder is not None:
@@ -1651,14 +1653,7 @@ class GraphOrchestrator(BaseOrchestrator):
             return {**state, "plan_response": None}
 
         # Propagate callbacks
-        planner.set_status_callback(self._status_callback)
-        planner.set_permission_handler(self._permission_handler)
-        planner.set_token_callback(self._token_callback)
-        planner.set_continue_handler(self._continue_handler)
-        planner.set_clarification_handler(self._clarification_handler)
-        planner.set_stream_callback(self._stream_callback)
-        planner.set_tool_event_callback(self._tool_event_callback)
-        planner.set_error_callback(self._error_callback)
+        self._propagate_callbacks(planner)
 
         context = state.get("context", "")
         user_message = state["user_message"]
@@ -3230,14 +3225,7 @@ class GraphOrchestrator(BaseOrchestrator):
         if not reviewer:
             return {**state, "review_iteration": review_iter}
 
-        reviewer.set_status_callback(self._status_callback)
-        reviewer.set_permission_handler(self._permission_handler)
-        reviewer.set_token_callback(self._token_callback)
-        reviewer.set_continue_handler(self._continue_handler)
-        reviewer.set_tool_event_callback(self._tool_event_callback)
-        reviewer.set_clarification_handler(self._clarification_handler)
-        reviewer.set_stream_callback(self._stream_callback)
-        reviewer.set_error_callback(self._error_callback)
+        self._propagate_callbacks(reviewer)
 
         agent_response = state.get("agent_response")
         if not agent_response:

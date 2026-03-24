@@ -69,6 +69,8 @@ class CommandRegistry:
             agents_cmds,
             git_cmds,
             runtime_cmds,
+            spec_cmds,
+            wiki_cmds,
         )
         core.register(self)
         session.register(self)
@@ -78,6 +80,24 @@ class CommandRegistry:
         agents_cmds.register(self)
         git_cmds.register(self)
         runtime_cmds.register(self)
+        spec_cmds.register(self)  # Q68 — overrides Q42 /spec with full pipeline
+        wiki_cmds.register(self)  # Q69 — /wiki and /ask
+        from lidco.cli.commands import transform_cmds
+        transform_cmds.register_transform_commands(self)
+        from lidco.cli.commands import intelligence_cmds
+        intelligence_cmds.register_intelligence_commands(self)
+        from lidco.cli.commands import learning_cmds
+        learning_cmds.register_learning_commands(self)
+        from lidco.cli.commands import platform_cmds
+        platform_cmds.register_platform_commands(self)
+        from lidco.cli.commands import nav_cmds
+        nav_cmds.register_nav_commands(self)
+        from lidco.cli.commands import graph_cmds
+        graph_cmds.register_graph_commands(self)
+        from lidco.cli.commands import browser_cmds
+        browser_cmds.register_browser_commands(self)
+        from lidco.cli.commands import turbo_cmds
+        turbo_cmds.register_turbo_commands(self)
         self._load_skill_commands()
 
     def _load_skill_commands(self) -> None:

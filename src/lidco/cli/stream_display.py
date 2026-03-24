@@ -42,6 +42,8 @@ class _StatusBar:
         # Q55/374: context window usage meter
         self._ctx_used: int = 0
         self._ctx_max: int = 0
+        # Current agent name shown in status bar
+        self._agent_name: str = ""
 
     @property
     def label(self) -> str:
@@ -66,6 +68,14 @@ class _StatusBar:
     @total_cost_usd.setter
     def total_cost_usd(self, value: float) -> None:
         self._total_cost_usd = value
+
+    @property
+    def agent_name(self) -> str:
+        return self._agent_name
+
+    @agent_name.setter
+    def agent_name(self, value: str) -> None:
+        self._agent_name = value
 
     def set_step(self, current: int, maximum: int) -> None:
         """Update the iteration counter shown in the status bar."""
@@ -119,6 +129,8 @@ class _StatusBar:
 
         text = Text()
         text.append(f"  {char} ", style="bold magenta")
+        if self._agent_name:
+            text.append(f"{self._agent_name} ", style="bold cyan")
         text.append(self._label, style="bold")
         if self._current_step > 0 and self._max_step > 0:
             text.append(f" [{self._current_step}/{self._max_step}]", style="cyan")
@@ -540,6 +552,10 @@ class StreamDisplay:
     def update_context_usage(self, used_tokens: int, max_tokens: int) -> None:
         """Q55/374 — Update context window meter in the status bar."""
         self._status_bar.set_context_usage(used_tokens, max_tokens)
+
+    def set_agent_name(self, name: str) -> None:
+        """Update the agent name shown prominently in the status bar."""
+        self._status_bar.agent_name = name
 
     def finish(self) -> None:
         """Stop the status bar and finalize output."""

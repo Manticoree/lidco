@@ -11,6 +11,13 @@ from lidco.tools.base import BaseTool, ToolParameter, ToolPermission, ToolResult
 class FileEditTool(BaseTool):
     """Edit a file by replacing exact string matches."""
 
+    # Task 454: shadow workspace for dry-run mode
+    _shadow_workspace: object | None = None
+
+    def set_shadow_workspace(self, sw: object) -> None:
+        """Set a ShadowWorkspace instance for dry-run mode (Task 454)."""
+        self._shadow_workspace = sw
+
     @property
     def name(self) -> str:
         return "file_edit"
@@ -108,6 +115,20 @@ class FileEditTool(BaseTool):
             new_content = content.replace(old_string, new_string)
         else:
             new_content = content.replace(old_string, new_string, 1)
+
+        # Task 454: shadow workspace intercept (dry-run mode)
+        _sw = self._shadow_workspace
+        if _sw is not None and getattr(_sw, "active", False):
+            _sw.intercept(str(path), new_content)  # type: ignore[union-attr]
+            return ToolResult(
+                output=f"[dry-run] Staged edit: {path}",
+                success=True,
+                metadata={
+                    "path": str(path),
+                    "dry_run": True,
+                    "replacements": count if replace_all else 1,
+                },
+            )
 
         path.write_text(new_content, encoding="utf-8")
 
