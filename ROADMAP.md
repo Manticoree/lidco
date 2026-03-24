@@ -3388,3 +3388,1821 @@ lidco task cancel task_abc123
 - Background worker через `asyncio` + `multiprocessing`
 - Статус: queued / running / done / failed / cancelled
 - Результат: сохраняются file patches для последующего apply
+
+---
+
+## Q66 — Competitive Edge
+
+**Goal:** close critical feature gaps vs Claude Code, Cursor, Windsurf, Aider, Continue — session continuity, autonomous flows, auto-commit, custom context, diff-first editing, workspace snapshots, next-edit prediction, architect-editor split.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 444 | [Session continuity (--continue / --resume)](#444-session-continuity) | ✅ Done | 2d | resume any past session from CLI flag — parity with Claude Code |
+| 445 | [Autonomous task flows with checkpoints](#445-task-flows) | ✅ Done | 3d | multi-step autonomous execution with checkpoint + rollback — parity with Windsurf Flows |
+| 446 | [Auto-commit mode](#446-auto-commit) | ✅ Done | 1d | git commit after each agent execution with descriptive message — parity with Aider |
+| 447 | [Custom context providers](#447-context-providers) | ✅ Done | 2d | user-defined context sources via plugin protocol — parity with Continue |
+| 448 | [Diff-first editing with selective apply](#448-diff-first) | ✅ Done | 2d | preview diff before applying, accept/reject per hunk — parity with Cursor inline diff |
+| 449 | [Workspace snapshots](#449-workspace-snapshots) | ✅ Done | 2d | snapshot + restore full workspace: files, git stash, session state |
+| 450 | [Inline next-edit prediction](#450-next-edit) | ✅ Done | 2d | predict likely next code edit without full conversation turn — parity with Cursor tab |
+| 451 | [Architect-editor split model](#451-architect-editor) | ✅ Done | 1d | separate architect LLM (planning) from editor LLM (code gen) — parity with Aider |
+
+---
+
+### 444. Session continuity (--continue / --resume)
+
+**Files:** `src/lidco/__main__.py`, `src/lidco/cli/app.py`, `src/lidco/cli/session_store.py`, `src/lidco/cli/commands/session.py`
+
+**Goal:** Add `lidco --continue` (resume most-recent session) and `lidco --resume <ID|name>` CLI flags. On resume, load history from SessionStore, inject into orchestrator via `restore_history()`, and display a summary. On normal exit, auto-save session to SessionStore.
+
+**Acceptance criteria:**
+- `CLIFlags` gains `continue_session: bool = False` and `resume_id: str | None = None`
+- `__main__.main()` parses `--continue` and `--resume <ID>` from argv
+- `run_repl()` loads and restores history from SessionStore at startup when flag is set
+- On REPL exit, auto-saves conversation history with `metadata.name` = current git branch
+- `/sessions` lists available sessions with IDs, timestamps, message counts, and names
+- 8+ tests in `tests/unit/test_q66/test_session_continuity.py`
+
+---
+
+### 445. Autonomous task flows with checkpoints
+
+**Files:** `src/lidco/flows/__init__.py`, `src/lidco/flows/engine.py`, `src/lidco/flows/checkpoint.py`, `src/lidco/flows/rollback.py`, `src/lidco/cli/commands/runtime_cmds.py`
+
+**Goal:** Windsurf-style autonomous multi-step task flows. A "flow" decomposes a user goal into ordered steps, each executed with a file-level checkpoint before execution. User can pause, rollback, or skip steps.
+
+**Acceptance criteria:**
+- `FlowEngine.plan(goal) -> Flow` decomposes goal into steps via LLM
+- `FlowEngine.execute(flow) -> FlowResult` runs steps sequentially
+- `FlowCheckpointManager.save()` snapshots all modified files before each step
+- `FlowCheckpointManager.rollback(checkpoint_id)` restores files to named checkpoint
+- Commands: `/flow start <goal>`, `/flow pause`, `/flow resume`, `/flow rollback [step_n]`, `/flow status`
+- On step failure: auto-pause, show error, offer rollback or skip
+- 12+ tests in `tests/unit/test_q66/test_task_flows.py`
+
+---
+
+### 446. Auto-commit mode
+
+**Files:** `src/lidco/git/auto_commit.py` (new), `src/lidco/cli/commands/git_cmds.py`, `src/lidco/core/config.py`
+
+**Goal:** After each agent execution that modifies files, automatically stage and commit with a descriptive message. Toggle via `/autocommit on|off` or `git.auto_commit: bool` config.
+
+**Acceptance criteria:**
+- `AutoCommitter.commit_if_dirty(description) -> str | None` — stages, commits, returns hash or None
+- Commit message: use description directly if <=72 chars; else LLM summarize
+- `LidcoConfig.git_auto_commit: bool = False` config field
+- `/autocommit` slash command: on / off / no args toggles
+- Wired in `app.py` after each `orchestrator.handle()` response
+- 8+ tests in `tests/unit/test_q66/test_auto_commit.py`
+
+---
+
+### 447. Custom context providers
+
+**Files:** `src/lidco/context/providers/__init__.py`, `base.py`, `file_provider.py`, `url_provider.py`, `command_provider.py`, `loader.py`
+
+**Goal:** Users define custom context sources in `.lidco/context_providers.yaml`. Built-in types: `file` (glob), `url` (fetch with cache), `command` (shell output). All inject data into system prompt.
+
+**Acceptance criteria:**
+- `ContextProvider` abstract base: `name`, `async fetch() -> str`, `priority`, `max_tokens`
+- `FileContextProvider`, `URLContextProvider`, `CommandContextProvider` implementations
+- YAML config: `providers: [{type: file, name: docs, pattern: "docs/*.md"}, ...]`
+- `ContextProviderRegistry.collect(budget_tokens) -> str` — all providers sorted by priority
+- Wired in `session.py` if `.lidco/context_providers.yaml` exists
+- `/context-providers list` and `/context-providers reload` commands
+- 10+ tests in `tests/unit/test_q66/test_context_providers.py`
+
+---
+
+### 448. Diff-first editing with selective apply
+
+**Files:** `src/lidco/editing/diff_engine.py` (new), `src/lidco/editing/hunk.py` (new), `src/lidco/tools/file_write.py`
+
+**Goal:** Instead of writing files directly, show a unified diff preview first. Accept all, reject all, or accept/reject individual hunks. Only accepted hunks are applied.
+
+**Acceptance criteria:**
+- `DiffEngine.preview(path, new_content) -> DiffPreview` splits unified diff into `Hunk` objects
+- `DiffPreview.apply(accepted_indices: set[int]) -> str` returns merged content
+- `LidcoConfig.diff_first: bool = False`
+- When enabled, `file_write` intercepts writes and emits preview
+- `/diff-apply [all | none | 1,3,5]` and `/diff-mode on|off` commands
+- 10+ tests in `tests/unit/test_q66/test_diff_first.py`
+
+---
+
+### 449. Workspace snapshots
+
+**Files:** `src/lidco/workspace/snapshot.py` (new), `src/lidco/workspace/__init__.py` (new), `src/lidco/cli/commands/session.py`
+
+**Goal:** Snapshot + restore full workspace: modified files, git stash ref, HEAD ref, and conversation history. Extends existing checkpoint infrastructure to full-workspace scope.
+
+**Acceptance criteria:**
+- `WorkspaceSnapshot` dataclass: `id`, `name`, `timestamp`, `files: dict[str, str]`, `git_ref`, `git_stash_ref`, `history`, `metadata`
+- `WorkspaceSnapshotManager.save(name, history) -> WorkspaceSnapshot`
+- `WorkspaceSnapshotManager.restore(name_or_id) -> RestoreResult`
+- Storage: `.lidco/workspace_snapshots/<id>.json`, capped at 10MB total
+- Commands: `/workspace save <name>`, `/workspace restore <name>`, `/workspace list`, `/workspace delete <name>`
+- 10+ tests in `tests/unit/test_q66/test_workspace_snapshots.py`
+
+---
+
+### 450. Inline next-edit prediction
+
+**Files:** `src/lidco/prediction/next_edit.py` (new), `src/lidco/prediction/__init__.py` (new)
+
+**Goal:** After agent makes an edit, predict the most likely next edit location and content. Displayed as a ghost suggestion the user can accept or dismiss.
+
+**Acceptance criteria:**
+- `NextEditPredictor.predict(recent_edits, context) -> EditSuggestion | None`
+- LLM call with `max_tokens=300`, `temperature=0.3`, JSON `{"file":..,"line":..,"old":..,"new":..}`
+- Triggered automatically after each file_write/file_edit tool call when enabled
+- Display: `[Tab] Accept suggested edit: {path}:{line}` or `[Esc] Dismiss`
+- `LidcoConfig.predict_next_edit: bool = False`, `/predict on|off` command
+- 5s hard timeout; async; prediction cached per edit pattern
+- 8+ tests in `tests/unit/test_q66/test_next_edit.py`
+
+---
+
+### 451. Architect-editor split model
+
+**Files:** `src/lidco/llm/architect_editor.py` (new), `src/lidco/core/config.py`, `src/lidco/agents/graph.py`
+
+**Goal:** Use a separate LLM for architecture/planning decisions vs code generation. Architect model handles planner, critique, review nodes; editor model handles execution nodes. Parity with Aider architect mode.
+
+**Acceptance criteria:**
+- `LLMConfig.architect_model: str | None = None` and `editor_model: str | None = None`
+- `ArchitectEditorRouter.get_model(role) -> str` — routes `planner/critique/review` to architect_model, `executor/code_gen` to editor_model, falls back to default
+- `GraphOrchestrator` nodes use appropriate model via router
+- Commands: `/architect <model>`, `/editor <model>`, updated `/models`
+- Cost tracking distinguishes architect vs editor tokens in session summary
+- 8+ tests in `tests/unit/test_q66/test_architect_editor.py`
+
+---
+
+## Q67 — Memory, PR Review & Shadow Workspace
+
+**Goal:** три наиболее востребованных конкурентных фичи: персистентная память агента (как Cursor Memories), автоматическое ревью PR (как Cursor BugBot), и shadow workspace / dry-run (как Cursor shadow workspace).
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 452 | [Persistent Agent Memory](#452-agent-memory) | ✅ Done | 2d | cross-session memory — parity with Cursor/Windsurf Memories |
+| 453 | [Automated PR Review CLI](#453-pr-review) | ✅ Done | 2d | `lidco review-pr` + GitHub Actions template — parity with Cursor BugBot |
+| 454 | [Shadow Workspace / dry-run mode](#454-shadow-workspace) | ✅ Done | 2d | preview all edits before apply, selective accept — parity with Cursor shadow workspace |
+| 455 | [File-watch annotation trigger](#455-watch-mode) | ✅ Done | 1d | `lidco watch` — detects `# LIDCO:` comments, runs agent — parity with Aider watch |
+| 456 | [Notepads / persistent scratchpads](#456-notepads) | ✅ Done | 1d | `/notepad` command + `@notepad` context reference — parity with Cursor Notepads |
+| 457 | [Microagent knowledge injection](#457-microagents) | ✅ Done | 1d | keyword-triggered `.md` knowledge files in `.lidco/microagents/` — parity with OpenHands |
+| 458 | [Typed Action-Observation trajectory](#458-trajectory) | ✅ Done | 1d | structured JSON log of every tool action + result — parity with OpenHands trajectory export |
+
+---
+
+### 452. Persistent Agent Memory
+
+**Files:** `src/lidco/memory/agent_memory.py` (new), `src/lidco/memory/__init__.py`, `src/lidco/core/session.py`, `src/lidco/cli/commands/context_cmds.py`
+
+**Goal:** After each session, the agent automatically saves key observations, decisions, and learned preferences to a persistent memory store. At the start of each session, relevant memories are loaded and injected into the system prompt. Parity with Cursor Memories and Windsurf Memories.
+
+**Acceptance criteria:**
+- `AgentMemory` dataclass: `id`, `content`, `tags: list[str]`, `created_at`, `last_used`, `use_count`
+- `AgentMemoryStore` (SQLite-backed in `.lidco/agent_memory.db`):
+  - `add(content, tags) -> AgentMemory`
+  - `search(query, limit=10) -> list[AgentMemory]` — BM25 keyword search
+  - `list(limit=20) -> list[AgentMemory]`
+  - `delete(id) -> bool`
+  - `auto_extract(session_summary: str) -> list[AgentMemory]` — LLM call extracts key facts
+- At session end: if session had >3 turns, call `auto_extract()` on session summary, save new memories
+- At session start: inject top-10 relevant memories into system prompt as `## Agent Memory` block
+- Commands: `/memory list`, `/memory add <text>`, `/memory delete <id>`, `/memory search <query>`, `/memory clear`
+- `@memory` context reference injects all memories into next message
+- 10+ tests in `tests/unit/test_q67/test_agent_memory.py`
+
+---
+
+### 453. Automated PR Review CLI
+
+**Files:** `src/lidco/review/pr_reviewer.py` (new), `src/lidco/review/__init__.py`, `src/lidco/cli/commands/git_cmds.py`, `.github/workflows/lidco-review.yml` (template)
+
+**Goal:** `lidco review-pr [PR_NUMBER|URL]` command that fetches the PR diff, runs LIDCO's security + code quality analysis, and posts inline review comments via GitHub API. A GitHub Actions workflow template enables CI-triggered automated review on every PR.
+
+**Acceptance criteria:**
+- `PRReviewer.review(pr_number_or_url: str) -> ReviewResult`
+  - Fetches diff via `gh pr diff <n>` subprocess
+  - Runs `SecurityScanner`, `BugBot`, and `CodeSmellDetector` on changed files
+  - Calls LLM to synthesize findings into structured review comments with file+line references
+  - Posts comments via `gh api` or GitHub REST API
+- `ReviewResult` dataclass: `pr_number`, `comments: list[ReviewComment]`, `summary: str`, `severity_counts: dict`
+- `ReviewComment`: `path`, `line`, `body`, `severity` (critical/high/medium/info)
+- `/review-pr [NUMBER]` slash command in REPL
+- `lidco review-pr <NUMBER>` top-level CLI subcommand (in `__main__.py`)
+- GitHub Actions template at `.github/workflows/lidco-review.yml.template`:
+  ```yaml
+  on: [pull_request]
+  jobs:
+    review:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - run: lidco review-pr ${{ github.event.pull_request.number }}
+  ```
+- 8+ tests in `tests/unit/test_q67/test_pr_review.py`
+
+---
+
+### 454. Shadow Workspace / dry-run mode
+
+**Files:** `src/lidco/shadow/workspace.py` (new), `src/lidco/shadow/__init__.py`, `src/lidco/tools/file_write.py`, `src/lidco/tools/file_edit.py`, `src/lidco/cli/app.py`
+
+**Goal:** `--dry-run` flag and `/dry-run on|off` command that intercepts all file write/edit tool calls, accumulates them in a shadow buffer, renders a unified diff preview, and asks for confirmation before applying any changes to disk. Parity with Cursor shadow workspace.
+
+**Acceptance criteria:**
+- `ShadowWorkspace`:
+  - `intercept(path, new_content) -> None` — stores pending write without touching disk
+  - `get_diff() -> str` — unified diff of all pending changes vs current disk state
+  - `apply(paths: list[str] | None = None) -> ApplyResult` — write accepted changes to disk
+  - `discard(paths: list[str] | None = None) -> None` — clear pending changes
+  - `pending_paths() -> list[str]` — list of files with pending changes
+- `FileWriteTool` and `FileEditTool` check `session.shadow_workspace` — if active, intercept instead of writing
+- `LidcoConfig.dry_run: bool = False`; `--dry-run` CLI flag sets it
+- After agent response in dry-run mode: show diff summary `"N files pending: foo.py, bar.py"` + prompt `[a]pply / [d]iscard / [r]eview`
+- `/dry-run on|off|status` slash command
+- `/apply` applies all pending shadow changes; `/discard` discards them; `/review` shows full diff
+- 10+ tests in `tests/unit/test_q67/test_shadow_workspace.py`
+
+---
+
+### 455. File-watch annotation trigger
+
+**Files:** `src/lidco/watch/watcher.py` (new), `src/lidco/watch/__init__.py`, `src/lidco/__main__.py`
+
+**Goal:** `lidco watch [PATH]` CLI subcommand that monitors the filesystem for files containing `# LIDCO: <instruction>` comments (or `// LIDCO:` for JS/TS). When detected, extracts the instruction, runs the agent on it, applies the result, and removes the annotation. Parity with Aider's `--watch-files` mode.
+
+**Acceptance criteria:**
+- `FileWatcher`:
+  - `start(path: str | None = None) -> None` — watches `path` or CWD recursively (excludes `.git`, `node_modules`, `__pycache__`)
+  - `scan_for_annotations(file_path: str) -> list[Annotation]` — finds `# LIDCO: ...` or `// LIDCO: ...` lines
+  - On annotation found: extract instruction, call orchestrator headlessly, write result, remove annotation from source file
+  - Supports multi-line annotations: `# LIDCO: |` starts block, ends at next non-comment line
+- `Annotation` dataclass: `file_path`, `line_number`, `instruction`, `context_lines: list[str]`
+- `lidco watch` top-level CLI subcommand
+- Status display: Rich Live table showing watched dirs, last trigger time, last action
+- Debounce: 500ms after file save before processing (handles editors that write multiple times)
+- `--once` flag: process all current annotations and exit (useful for CI)
+- 8+ tests in `tests/unit/test_q67/test_watch_mode.py`
+
+---
+
+### 456. Notepads / persistent scratchpads
+
+**Files:** `src/lidco/notepads/store.py` (new), `src/lidco/notepads/__init__.py`, `src/lidco/cli/commands/context_cmds.py`
+
+**Goal:** Named persistent scratchpads that users write to and that agents automatically incorporate as context. Reference with `@notepad:<name>` in messages. Parity with Cursor Notepads.
+
+**Acceptance criteria:**
+- `NotepadStore` (files in `.lidco/notepads/<name>.md`):
+  - `create(name, content) -> Notepad`
+  - `read(name) -> Notepad | None`
+  - `update(name, content) -> Notepad`
+  - `delete(name) -> bool`
+  - `list() -> list[Notepad]`
+- `@notepad:<name>` in user message injects the notepad content as context
+- Commands: `/notepad new <name>`, `/notepad show <name>`, `/notepad edit <name>`, `/notepad list`, `/notepad delete <name>`
+- `/notepad edit <name>` opens content in `$EDITOR` (or inline multi-line input if no editor set)
+- Agent can write to notepads via a `notepad_write` tool (when enabled)
+- 8+ tests in `tests/unit/test_q67/test_notepads.py`
+
+---
+
+### 457. Microagent knowledge injection
+
+**Files:** `src/lidco/microagents/loader.py` (new), `src/lidco/microagents/__init__.py`, `src/lidco/core/session.py`
+
+**Goal:** Small markdown knowledge files in `.lidco/microagents/` are automatically injected into the system prompt when their trigger keywords appear in the user's message. Parity with OpenHands microagents.
+
+**Acceptance criteria:**
+- Microagent file format (`.lidco/microagents/<name>.md`):
+  ```markdown
+  ---
+  triggers: [deploy, deployment, kubernetes, k8s]
+  priority: 10
+  ---
+  ## Deployment Guide
+  Always use `helm upgrade --install` ...
+  ```
+- `MicroagentLoader.load_all(project_dir) -> list[Microagent]`
+- `MicroagentMatcher.match(user_message, microagents) -> list[Microagent]` — case-insensitive keyword scan
+- Matched microagents injected into system prompt as `## Project Knowledge` blocks, sorted by priority
+- Global microagents in `~/.lidco/microagents/` (always loaded)
+- `/microagents list` — shows all available microagents and their triggers
+- `/microagents test <message>` — shows which microagents would fire for a given message
+- 8+ tests in `tests/unit/test_q67/test_microagents.py`
+
+---
+
+### 458. Typed Action-Observation trajectory
+
+**Files:** `src/lidco/trajectory/recorder.py` (new), `src/lidco/trajectory/__init__.py`, `src/lidco/core/session.py`, `src/lidco/cli/commands/session.py`
+
+**Goal:** Record every tool call and its result as a typed `(action, observation)` pair. Export as JSON for debugging, compliance audit, or LLM fine-tuning. Parity with OpenHands trajectory export.
+
+**Acceptance criteria:**
+- `Action` dataclass: `type: str`, `tool: str`, `params: dict`, `timestamp: float`, `agent: str`
+- `Observation` dataclass: `type: str`, `result: Any`, `success: bool`, `elapsed_ms: int`, `truncated: bool`
+- `TrajectoryStep`: `action: Action`, `observation: Observation`
+- `TrajectoryRecorder`:
+  - `record(action, observation) -> None`
+  - `export_json(path: str) -> None`
+  - `export_jsonl(path: str) -> None` (one JSON object per line — fine-tuning format)
+  - `summary() -> dict` — counts by action type, total elapsed, error rate
+- Wired via `tool_event_callback` in `session.py`
+- `/trajectory export [PATH]` — export current session trajectory to JSON
+- `/trajectory summary` — show action count breakdown and timing
+- `--trajectory <path>` CLI flag: auto-export on session end
+- 8+ tests in `tests/unit/test_q67/test_trajectory.py`
+
+---
+
+## Q68 — Spec-Driven Development
+
+**Goal:** Kiro (Amazon) — самый большой сдвиг парадигмы 2025-2026. Вместо "vibe coding" — формальные спецификации: requirements → design → tasks. Агент реализует по спеку, а не по свободному промпту.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 459 | [SpecWriter — NL prompt → requirements.md](#459-spec-writer) | ✅ Done | 2d | structured intent — parity with Kiro |
+| 460 | [DesignDoc generator — requirements → design.md](#460-design-doc) | ✅ Done | 2d | architecture planning layer |
+| 461 | [TaskDecomposer — design.md → tasks.md](#461-task-decomposer) | ✅ Done | 1d | ordered agent work queue |
+| 462 | [/spec slash command — orchestrates 3-stage pipeline](#462-spec-command) | ✅ Done | 1d | UX entry point |
+| 463 | [Spec-aware agent execution — reads requirements + tasks as context](#463-spec-context) | ✅ Done | 2d | closes the spec-to-code loop |
+| 464 | [Spec drift detection — alert when code diverges from spec](#464-spec-drift) | ✅ Done | 1d | maintenance value |
+
+---
+
+### 459. SpecWriter — NL prompt → requirements.md
+
+**Files:** `src/lidco/spec/writer.py` (new), `src/lidco/spec/__init__.py` (new)
+
+**Goal:** Given a natural language description of a feature or task, generate a structured `requirements.md` with EARS-notation acceptance criteria. EARS = "The system shall..." format used in Kiro.
+
+**Acceptance criteria:**
+- `SpecWriter.generate(description: str, project_dir: Path) -> SpecDocument`
+- `SpecDocument` dataclass: `title`, `overview`, `user_stories: list[str]`, `acceptance_criteria: list[str]`, `out_of_scope: list[str]`
+- LLM call with `max_tokens=2000`, structured prompt requesting EARS-notation criteria
+- Output saved to `.lidco/spec/requirements.md` (creates dir if needed)
+- Existing `requirements.md` loaded as context for incremental updates
+- 8+ tests in `tests/unit/test_q68/test_spec_writer.py`
+
+---
+
+### 460. DesignDoc generator — requirements → design.md
+
+**Files:** `src/lidco/spec/design_doc.py` (new)
+
+**Goal:** Given `requirements.md`, generate a technical design document identifying components, data models, API contracts, and implementation approach.
+
+**Acceptance criteria:**
+- `DesignDocGenerator.generate(spec_doc: SpecDocument, project_dir: Path) -> DesignDocument`
+- `DesignDocument`: `components: list[Component]`, `data_models: list[str]`, `api_contracts: list[str]`, `implementation_notes: str`
+- Uses codebase context (existing modules, patterns) to generate design consistent with current architecture
+- Saved to `.lidco/spec/design.md`
+- 8+ tests in `tests/unit/test_q68/test_design_doc.py`
+
+---
+
+### 461. TaskDecomposer — design.md → tasks.md
+
+**Files:** `src/lidco/spec/task_decomposer.py` (new)
+
+**Goal:** Decompose a design document into an ordered list of implementation tasks with file targets and acceptance criteria per task.
+
+**Acceptance criteria:**
+- `TaskDecomposer.decompose(design: DesignDocument, project_dir: Path) -> list[SpecTask]`
+- `SpecTask`: `id`, `title`, `description`, `target_files: list[str]`, `depends_on: list[str]`, `done: bool`
+- Tasks ordered by dependency (topological sort)
+- Saved to `.lidco/spec/tasks.md` in checkbox format: `- [ ] T1: ...`
+- `TaskDecomposer.mark_done(task_id, project_dir)` — toggles checkbox
+- 8+ tests in `tests/unit/test_q68/test_task_decomposer.py`
+
+---
+
+### 462. /spec slash command
+
+**Files:** `src/lidco/cli/commands/spec_cmds.py` (new)
+
+**Goal:** Single entry point that orchestrates the 3-stage spec pipeline.
+
+**Acceptance criteria:**
+- `/spec new <description>` — runs SpecWriter → DesignDocGenerator → TaskDecomposer, shows output
+- `/spec show` — prints current requirements.md + tasks.md status
+- `/spec tasks` — lists tasks with done/todo status
+- `/spec done <task_id>` — marks task as done
+- `/spec reset` — clears all spec files with confirmation
+- 8+ tests in `tests/unit/test_q68/test_spec_commands.py`
+
+---
+
+### 463. Spec-aware agent execution
+
+**Files:** `src/lidco/core/session.py`, `src/lidco/agents/graph.py`
+
+**Goal:** When `.lidco/spec/` exists, automatically inject requirements.md and current tasks.md (incomplete tasks only) into the system prompt as primary context.
+
+**Acceptance criteria:**
+- `SpecContextProvider.load(project_dir) -> str | None` — returns formatted spec block or None
+- Injected as `## Project Specification` block before other context
+- Only loads if `.lidco/spec/requirements.md` exists
+- Token budget: max 2000 tokens for spec context
+- 6+ tests in `tests/unit/test_q68/test_spec_context.py`
+
+---
+
+### 464. Spec drift detection
+
+**Files:** `src/lidco/spec/drift_detector.py` (new)
+
+**Goal:** Periodically check if implemented code still satisfies the acceptance criteria in requirements.md. Alert when drift detected.
+
+**Acceptance criteria:**
+- `DriftDetector.check(project_dir) -> DriftReport`
+- `DriftReport`: `drifted_criteria: list[str]`, `ok_criteria: list[str]`, `confidence: float`
+- Uses LLM to compare acceptance criteria text against recent git diff + test results
+- `/spec check` command triggers check and shows report
+- 6+ tests in `tests/unit/test_q68/test_drift_detector.py`
+
+---
+
+## Q69 — Codebase Wiki + Semantic Q&A
+
+**Goal:** Devin Wiki + Devin Search — living auto-generated documentation and natural language Q&A against the codebase. Builds on LIDCO's existing RAG and code analysis pipeline.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 465 | [WikiGenerator — auto-doc from code + git history](#465-wiki-generator) | ✅ Done | 2d | Devin Wiki parity |
+| 466 | [Incremental wiki updates on file change](#466-wiki-incremental) | ✅ Done | 1d | freshness |
+| 467 | [CodebaseQA — natural language Q&A against indexed code](#467-codebase-qa) | ✅ Done | 2d | Devin Search parity |
+| 468 | [/wiki command — generate and view module documentation](#468-wiki-command) | ✅ Done | 1d | CLI entry point |
+| 469 | [/ask command — semantic codebase questions](#469-ask-command) | ✅ Done | 1d | Q&A entry point |
+| 470 | [Wiki export — Markdown files per module](#470-wiki-export) | ✅ Done | 1d | portability |
+
+---
+
+### 465. WikiGenerator
+
+**Files:** `src/lidco/wiki/generator.py` (new), `src/lidco/wiki/__init__.py` (new)
+
+**Goal:** Auto-generate module/class/function documentation by combining static analysis (docstrings, signatures, type hints) with git history (who changed what, why) and LLM synthesis.
+
+**Acceptance criteria:**
+- `WikiGenerator.generate_module(path: str, project_dir: Path) -> WikiPage`
+- `WikiPage`: `module_path`, `summary`, `classes: list[ClassDoc]`, `functions: list[FuncDoc]`, `recent_changes: list[str]`, `generated_at`
+- Uses existing static analysis modules (Q49-Q53) for AST extraction
+- Git log for change history context
+- LLM call for natural language summary synthesis
+- Saved to `.lidco/wiki/<module_path>.md`
+- 8+ tests in `tests/unit/test_q69/test_wiki_generator.py`
+
+---
+
+### 466. Incremental wiki updates
+
+**Files:** `src/lidco/wiki/updater.py` (new)
+
+**Goal:** Watch for file changes and regenerate wiki pages for modified modules automatically.
+
+**Acceptance criteria:**
+- `WikiUpdater.update_on_change(changed_files: list[str], project_dir: Path) -> list[str]` — regenerates affected wiki pages
+- Debounce: only update if file changed > 30s ago
+- Hooked into existing FileWatcher (Task 455) or triggered post-tool-use
+- Returns list of updated wiki page paths
+- 6+ tests in `tests/unit/test_q69/test_wiki_updater.py`
+
+---
+
+### 467. CodebaseQA
+
+**Files:** `src/lidco/wiki/qa.py` (new)
+
+**Goal:** Answer natural language questions about the codebase using the vector index + wiki + code analysis results.
+
+**Acceptance criteria:**
+- `CodebaseQA.ask(question: str, project_dir: Path) -> QAAnswer`
+- `QAAnswer`: `answer: str`, `sources: list[str]` (file paths), `confidence: float`
+- Strategy: hybrid search (BM25 + vector) across code + wiki, then LLM synthesis
+- Cites specific files/functions in the answer
+- Falls back gracefully if index empty (runs grep-based search)
+- 8+ tests in `tests/unit/test_q69/test_codebase_qa.py`
+
+---
+
+### 468. /wiki command
+
+**Files:** `src/lidco/cli/commands/wiki_cmds.py` (new)
+
+**Acceptance criteria:**
+- `/wiki generate [path]` — generate wiki for module or entire project
+- `/wiki show <module>` — display wiki page
+- `/wiki status` — show which modules have/lack wiki pages
+- `/wiki refresh` — regenerate all stale pages (mtime-based)
+- 6+ tests in `tests/unit/test_q69/test_wiki_commands.py`
+
+---
+
+### 469. /ask command
+
+**Files:** `src/lidco/cli/commands/wiki_cmds.py`
+
+**Acceptance criteria:**
+- `/ask <question>` — answers questions about the codebase
+- Example: `/ask what does the auth flow do?` → structured answer with file citations
+- `/ask how is X tested?` → points to test files
+- Distinguishes "about the code" questions (CodebaseQA) from implementation requests (normal REPL)
+- 6+ tests in `tests/unit/test_q69/test_ask_command.py`
+
+---
+
+### 470. Wiki export
+
+**Files:** `src/lidco/wiki/exporter.py` (new)
+
+**Acceptance criteria:**
+- `WikiExporter.export(project_dir, output_dir) -> int` — writes all wiki pages as Markdown
+- Generates index page (`README.md`) with module list and links
+- Optional: export to JSON for external tools
+- `/wiki export [output_dir]` command
+- 6+ tests in `tests/unit/test_q69/test_wiki_exporter.py`
+
+---
+
+## Q70 — PR Autofix Agent + Enhanced Review
+
+**Goal:** Complete the PR review loop with automated fix proposals (Cursor BugBot Autofix). LIDCO has basic PR review (Q67 T453) but no autofix agent that writes and tests a fix.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 471 | [AutofixAgent — spawns isolated agent per review comment](#471-autofix-agent) | ✅ Done | 3d | Cursor Autofix parity |
+| 472 | [Fix verification — run tests after autofix, reject if failing](#472-fix-verify) | ✅ Done | 1d | quality gate |
+| 473 | [GitHub PR comment posting — inline + summary](#473-gh-comment) | ✅ Done | 2d | integration |
+| 474 | [Resolution tracking — mark comments resolved on re-review](#474-resolution) | ✅ Done | 1d | UX quality |
+| 475 | [/review-pr --autofix flag](#475-autofix-flag) | ✅ Done | 1d | CLI entry point |
+
+---
+
+### 471. AutofixAgent
+
+**Files:** `src/lidco/review/autofix_agent.py` (new)
+
+**Goal:** For each critical/high review comment, spawn an isolated agent in a worktree, implement the fix, run tests, and propose the diff as a patch.
+
+**Acceptance criteria:**
+- `AutofixAgent.fix(comment: ReviewComment, project_dir: Path) -> FixProposal | None`
+- `FixProposal`: `comment_id`, `patch: str` (unified diff), `test_result: str`, `confidence: float`
+- Uses existing worktree support to isolate fixes
+- Runs configured test command after fix, rejects if tests fail
+- Returns None if fix couldn't be determined
+- 10+ tests in `tests/unit/test_q70/test_autofix_agent.py`
+
+---
+
+### 472. Fix verification
+
+**Files:** `src/lidco/review/fix_verifier.py` (new)
+
+**Acceptance criteria:**
+- `FixVerifier.verify(proposal: FixProposal, project_dir: Path) -> VerifyResult`
+- Applies patch to temp copy, runs tests, checks for regressions
+- `VerifyResult`: `passed: bool`, `test_output: str`, `regression_count: int`
+- 6+ tests in `tests/unit/test_q70/test_fix_verifier.py`
+
+---
+
+### 473. GitHub PR comment posting
+
+**Files:** `src/lidco/review/gh_poster.py` (new)
+
+**Goal:** Post inline review comments and fix proposals directly to the GitHub PR using gh CLI.
+
+**Acceptance criteria:**
+- `GHPoster.post_review(pr_number, comments: list[ReviewComment], repo=None) -> PostResult`
+- Inline comments with file+line references via `gh api`
+- Summary comment with severity counts and autofix proposals
+- Deduplication: don't re-post identical comments on re-review
+- 8+ tests in `tests/unit/test_q70/test_gh_poster.py`
+
+---
+
+### 474. Resolution tracking
+
+**Files:** `src/lidco/review/resolution_store.py` (new)
+
+**Acceptance criteria:**
+- `ResolutionStore` (SQLite in `.lidco/review_resolutions.db`): track comment hash → resolved status
+- On re-review: skip comments matching resolved hashes
+- `/review-pr --show-resolved` to include previously resolved items
+- 6+ tests in `tests/unit/test_q70/test_resolution_store.py`
+
+---
+
+### 475. /review-pr --autofix flag
+
+**Acceptance criteria:**
+- `/review-pr <n> --autofix` — runs review, then spawns AutofixAgent for each critical/high comment
+- Shows progress: `Fixing 3 issues...` with spinner
+- Presents fix proposals with diff previews; user accepts/rejects each
+- Rejected fixes discarded; accepted fixes applied to working tree
+- 6+ tests in `tests/unit/test_q70/test_review_autofix_integration.py`
+
+---
+
+## Q71 — Agent-Spawning Agents + Runtime Orchestration
+
+**Goal:** Replit Agent 3's unique capability — describe a workflow in NL → LIDCO synthesizes a specialized agent at runtime and registers it for reuse. Closes the gap between static YAML agents and truly adaptive multi-agent systems.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 476 | [AgentFactory — NL description → agent spec at runtime](#476-agent-factory) | ✅ Done | 2d | Replit Agent 3 parity |
+| 477 | [Agent registry — persist and reuse synthesized agents](#477-agent-registry) | ✅ Done | 1d | persistence layer |
+| 478 | [/spawn-agent command](#478-spawn-command) | ✅ Done | 1d | CLI entry point |
+| 479 | [WorkflowAgent — recurring task scheduler](#479-workflow-agent) | ✅ Done | 2d | scheduled automation |
+| 480 | [Agent lifecycle management — pause/resume/terminate](#480-lifecycle) | ✅ Done | 1d | operations |
+
+---
+
+### 476. AgentFactory
+
+**Files:** `src/lidco/agents/factory.py` (new)
+
+**Goal:** Given a natural language description, synthesize a complete agent specification (system prompt, tool list, permissions) and register it as a named agent.
+
+**Acceptance criteria:**
+- `AgentFactory.synthesize(description: str, project_dir: Path) -> AgentConfig`
+- LLM call that produces `AgentConfig` with: `name`, `description`, `system_prompt`, `tools`, `model`, `max_iterations`
+- Validates tool names against registry
+- Writes spec to `.lidco/agents/<name>.yaml` for persistence
+- 8+ tests in `tests/unit/test_q71/test_agent_factory.py`
+
+---
+
+### 477. Agent registry (runtime)
+
+**Files:** `src/lidco/agents/runtime_registry.py` (new)
+
+**Acceptance criteria:**
+- `RuntimeAgentRegistry.register(config: AgentConfig) -> None`
+- `RuntimeAgentRegistry.get(name: str) -> AgentConfig | None`
+- `RuntimeAgentRegistry.list() -> list[AgentConfig]`
+- Backed by `.lidco/agents/` directory (loads YAML files on startup)
+- Hot-reload: new files appear without restart
+- 6+ tests in `tests/unit/test_q71/test_runtime_registry.py`
+
+---
+
+### 478. /spawn-agent command
+
+**Acceptance criteria:**
+- `/spawn-agent <description>` — synthesizes and registers a new agent
+- Example: `/spawn-agent An agent that weekly audits dependencies for outdated packages`
+- Shows generated spec before registering, asks for confirmation
+- After registration: `@<name>` syntax routes messages to it
+- 6+ tests in `tests/unit/test_q71/test_spawn_command.py`
+
+---
+
+### 479. WorkflowAgent — recurring tasks
+
+**Files:** `src/lidco/agents/workflow_agent.py` (new)
+
+**Goal:** Purpose-built agent for recurring scheduled tasks (e.g., "every Monday: audit deps, run security scan, post Slack summary").
+
+**Acceptance criteria:**
+- `WorkflowAgent`: `name`, `schedule: str` (cron), `tasks: list[str]`, `notify: list[str]`
+- Integration with existing Slack integration (Q60) for result posting
+- `/workflow add <name> <schedule> <description>` command
+- `/workflow run <name>` manual trigger
+- 8+ tests in `tests/unit/test_q71/test_workflow_agent.py`
+
+---
+
+### 480. Agent lifecycle management
+
+**Acceptance criteria:**
+- `/agents list` — show all registered agents with status (idle/running/paused)
+- `/agents pause <name>` — pause a running agent after current step
+- `/agents resume <name>` — resume paused agent
+- `/agents kill <name>` — terminate immediately
+- Status persisted in `.lidco/agent_status.json`
+- 6+ tests in `tests/unit/test_q71/test_agent_lifecycle.py`
+
+---
+
+## Q72 — Confidence-Based Clarification + Next-Edit Prediction
+
+**Goal:** Two high-impact UX features: Devin 2.0's confidence-based interruption model (stops asking unnecessary questions) and JetBrains/Copilot's next-edit prediction (predicts where to edit next).
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 481 | [ConfidenceEstimator — per-action uncertainty scoring](#481-confidence) | ✅ Done | 2d | Devin 2.0 parity |
+| 482 | [Clarification threshold — configurable ask-only-when-uncertain](#482-threshold) | ✅ Done | 1d | reduces interruptions |
+| 483 | [--autonomous / --supervised / --interactive modes](#483-modes) | ✅ Done | 1d | UX control |
+| 484 | [NextEditPredictor — predict next edit location + content](#484-next-edit) | ✅ Done | 2d | JetBrains/Copilot parity |
+| 485 | [Edit graph — symbol relationship model for prediction context](#485-edit-graph) | ✅ Done | 2d | prediction accuracy |
+| 486 | [REPL next-edit display — show prediction after each change](#486-next-edit-repl) | ✅ Done | 1d | UX integration |
+
+---
+
+### 481. ConfidenceEstimator
+
+**Files:** `src/lidco/confidence/estimator.py` (new), `src/lidco/confidence/__init__.py` (new)
+
+**Goal:** Score each agent action on a confidence scale (0–1) based on: ambiguity in task description, missing required context, risk level of the action (file delete vs read), presence of conflicting instructions.
+
+**Acceptance criteria:**
+- `ConfidenceEstimator.score(action_type: str, params: dict, context: str) -> ConfidenceScore`
+- `ConfidenceScore`: `value: float`, `factors: dict[str, float]`, `should_ask: bool`
+- Factors: `task_clarity`, `context_completeness`, `action_risk`, `conflict_detected`
+- Risk table: `file_delete=0.3`, `file_write=0.6`, `bash=0.5`, `file_read=0.9`
+- `should_ask = value < threshold` (default threshold=0.7)
+- 8+ tests in `tests/unit/test_q72/test_confidence_estimator.py`
+
+---
+
+### 482. Clarification threshold
+
+**Files:** `src/lidco/core/config.py`, `src/lidco/agents/base.py`
+
+**Acceptance criteria:**
+- `AgentsConfig.clarification_threshold: float = 0.7`
+- Agent checks confidence before each risky action; asks targeted question if below threshold
+- Clarification questions are specific: "Should I delete X or rename it?" not "What should I do?"
+- Max 1 clarification per agent turn (avoid question spam)
+- 6+ tests in `tests/unit/test_q72/test_clarification.py`
+
+---
+
+### 483. Autonomy modes
+
+**Files:** `src/lidco/__main__.py`, `src/lidco/core/config.py`
+
+**Acceptance criteria:**
+- `--autonomous`: never ask, proceed on best guess (threshold=0.0)
+- `--supervised`: ask when confidence < 0.7 (default)
+- `--interactive`: ask before every risky action (threshold=0.9)
+- `/mode autonomous|supervised|interactive` slash command
+- Mode shown in session status bar
+- 6+ tests in `tests/unit/test_q72/test_autonomy_modes.py`
+
+---
+
+### 484. NextEditPredictor
+
+**Files:** `src/lidco/prediction/next_edit.py` (already planned in Q66 T450 — implement here)
+
+**Goal:** After the agent makes an edit, predict the most likely next edit location and content based on the edit graph, conversation context, and symbol relationships.
+
+**Acceptance criteria:**
+- `NextEditPredictor.predict(recent_edits: list[EditRecord], context: str) -> EditSuggestion | None`
+- LLM call with `max_tokens=300`, `temperature=0.3`, structured JSON response
+- 5s hard timeout; fire-and-forget async
+- Prediction cached per edit pattern (don't re-call for same change)
+- `LidcoConfig.predict_next_edit: bool = False`, `/predict on|off`
+- 8+ tests in `tests/unit/test_q72/test_next_edit_predictor.py`
+
+---
+
+### 485. Edit graph
+
+**Files:** `src/lidco/prediction/edit_graph.py` (new)
+
+**Goal:** Build a lightweight symbol relationship graph used to find related edit sites: call sites, implementations, type usages, test/impl pairs.
+
+**Acceptance criteria:**
+- `EditGraph.build(project_dir: Path) -> EditGraph` — scans Python/JS/TS files for symbol references
+- `EditGraph.related_sites(symbol: str, file_path: str) -> list[EditSite]`
+- `EditSite`: `file_path`, `line`, `relationship` (call_site, test, implementation, type_usage)
+- Lightweight: in-memory, rebuilt on demand (no persistent index needed)
+- 8+ tests in `tests/unit/test_q72/test_edit_graph.py`
+
+---
+
+### 486. REPL next-edit display
+
+**Files:** `src/lidco/cli/app.py`, `src/lidco/cli/renderer.py`
+
+**Acceptance criteria:**
+- After each agent file edit, if prediction enabled: show `[Tab] Next edit: {path}:{line} — {summary}`
+- User presses Tab: apply suggestion; Esc: dismiss
+- Prediction displayed in dim style below the agent response
+- Timeout: if prediction not ready in 5s, skip silently
+- 6+ tests in `tests/unit/test_q72/test_next_edit_repl.py`
+
+---
+
+## Q73 — Ensemble Agents + Sandboxed Execution + Action Stream
+
+**Goal:** Three highest-impact competitive gaps: Cursor 2.0 ensemble (run N agents, pick best), OpenHands/Cursor sandboxed bash, Windsurf live action stream as rolling context.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 487 | [EnsembleRunner — N parallel agents, auto-select best result](#487-ensemble) | ✅ Done | 2d | Cursor 2.0 parity |
+| 488 | [Sandboxed bash execution](#488-sandbox) | ✅ Done | 2d | OpenHands/Cursor parity |
+| 489 | [Live action stream context](#489-action-stream) | ✅ Done | 2d | Windsurf Flow parity |
+| 490 | [Pre-PR security gate in agent loop](#490-security-gate) | ✅ Done | 1d | Copilot parity |
+| 491 | [Agent self-review loop before PR](#491-self-review) | ✅ Done | 1d | Copilot parity |
+
+---
+
+### 487. EnsembleRunner
+
+**Files:** `src/lidco/agents/ensemble.py` (new)
+
+**Goal:** Run N parallel agents on the same task, collect all results, automatically select the best one based on test outcomes or LLM scoring. Parity with Cursor 2.0 8-parallel-agent ensemble.
+
+**Acceptance criteria:**
+- `EnsembleRunner.run(task: str, n: int = 3) -> EnsembleResult`
+- `EnsembleResult`: `candidates: list[CandidateResult]`, `best: CandidateResult`, `selection_reason: str`
+- `CandidateResult`: `agent_id`, `output: str`, `score: float`, `test_passed: bool`
+- Selection strategy: prefer test-passing candidates; break ties by LLM quality score
+- `EnsembleRunner.score(candidate: CandidateResult) -> float`
+- 10+ tests in `tests/unit/test_q73/test_ensemble.py`
+
+---
+
+### 488. Sandboxed bash execution
+
+**Files:** `src/lidco/tools/sandbox.py` (new)
+
+**Goal:** Wrap the Bash tool with an optional subprocess-level sandbox: working directory restriction, env var allowlist, blocked command patterns, optional network disable flag.
+
+**Acceptance criteria:**
+- `ExecutionSandbox`: `allowed_dirs: list[str]`, `blocked_patterns: list[str]`, `allowed_env_vars: list[str]`, `network_disabled: bool`
+- `ExecutionSandbox.check(cmd: str, cwd: str) -> SandboxVerdict`
+- `SandboxVerdict`: `allowed: bool`, `reason: str`
+- Built-in blocked patterns: `rm -rf /`, `dd if=`, fork bomb, `mkfs`
+- `LidcoConfig.sandbox_enabled: bool = False`
+- 10+ tests in `tests/unit/test_q73/test_sandbox.py`
+
+---
+
+### 489. Live action stream context
+
+**Files:** `src/lidco/context/action_stream.py` (new)
+
+**Goal:** Maintain a rolling buffer of recent agent actions and inject as `## Recent activity` into every agent turn. Parity with Windsurf Flow awareness.
+
+**Acceptance criteria:**
+- `ActionStreamBuffer`: ring buffer of last 20 `ActionEvent` objects
+- `ActionEvent`: `type` (file_edit|test_run|git_op|shell_cmd|file_read), `target: str`, `summary: str`, `timestamp: float`
+- `ActionStreamBuffer.record(event: ActionEvent) -> None`
+- `ActionStreamBuffer.format_context(limit: int = 10) -> str`
+- `ActionStreamBuffer.clear() -> None`
+- 8+ tests in `tests/unit/test_q73/test_action_stream.py`
+
+---
+
+### 490. Pre-PR security gate in agent loop
+
+**Files:** `src/lidco/review/security_gate.py` (new)
+
+**Goal:** Before PR creation, run mandatory lightweight security scan (secrets, unsafe patterns). Block PR if critical findings.
+
+**Acceptance criteria:**
+- `SecurityGate.check(changed_files: list[str], project_dir: Path) -> GateResult`
+- `GateResult`: `passed: bool`, `findings: list[SecurityFinding]`, `blocked_reason: str | None`
+- `SecurityFinding`: `file`, `line`, `severity`, `description`
+- Checks: hardcoded secrets regex, `eval(user_input)`, SQL concatenation, `shell=True` with user input
+- `LidcoConfig.pr_security_gate: bool = True`
+- 8+ tests in `tests/unit/test_q73/test_security_gate.py`
+
+---
+
+### 491. Agent self-review loop before PR
+
+**Files:** `src/lidco/review/self_review.py` (new)
+
+**Goal:** After code-writing agent completes, spawn review sub-agent to examine diff and iterate if needed before PR submission. GitHub Copilot coding agent parity.
+
+**Acceptance criteria:**
+- `SelfReviewer.review(diff: str, context: str) -> SelfReviewResult`
+- `SelfReviewResult`: `issues: list[str]`, `score: float`, `needs_revision: bool`, `suggestions: str`
+- `score >= 0.8` means no revision needed; max 2 iterations
+- `agents.self_review_before_pr: bool = False` config flag
+- 8+ tests in `tests/unit/test_q73/test_self_review.py`
+
+---
+
+## Q74 — Memory Hierarchy + Migration Agent + Issue Trigger
+
+**Goal:** Windsurf dual-tier memory, Amazon Q migration agent, Jules issue-to-agent trigger, HTTP slash commands, mid-execution steering.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 492 | [Workspace-scoped vs. global memory hierarchy](#492-memory-hierarchy) | ✅ Done | 2d | Windsurf Memories parity |
+| 493 | [MigrationAgent — automated codebase-wide refactor](#493-migration) | ✅ Done | 2d | Amazon Q parity |
+| 494 | [GitHub Issues auto-agent trigger](#494-issue-trigger) | ✅ Done | 2d | Jules parity |
+| 495 | [HTTP-backed slash commands](#495-http-commands) | ✅ Done | 1d | Continue.dev parity |
+| 496 | [Mid-execution plan modification](#496-mid-plan) | ✅ Done | 1d | Jules parity |
+
+---
+
+### 492. Workspace-scoped vs. global memory hierarchy
+
+**Files:** `src/lidco/memory/tiered_memory.py` (new)
+
+**Acceptance criteria:**
+- `TieredMemoryStore`: `workspace_store: AgentMemoryStore`, `global_store: AgentMemoryStore`
+- `TieredMemoryStore.search(query, limit=10) -> list[AgentMemory]` — workspace results ranked above global
+- `TieredMemoryStore.add(content, tags, scope="workspace") -> AgentMemory`
+- `TieredMemoryStore.format_context() -> str`
+- 10+ tests in `tests/unit/test_q74/test_tiered_memory.py`
+
+---
+
+### 493. MigrationAgent
+
+**Files:** `src/lidco/agents/migration_agent.py` (new)
+
+**Acceptance criteria:**
+- `MigrationRule`: `name`, `description`, `find_pattern` (regex), `replace_template`, `file_glob = "**/*.py"`
+- `MigrationAgent.plan(rule, project_dir) -> MigrationPlan`
+- `MigrationPlan`: `rule`, `affected_files`, `change_count`, `preview: dict[str, str]`
+- `MigrationAgent.execute(plan) -> MigrationResult`
+- `MigrationResult`: `applied_files`, `skipped`, `test_result`, `success`
+- 10+ tests in `tests/unit/test_q74/test_migration_agent.py`
+
+---
+
+### 494. GitHub Issues auto-agent trigger
+
+**Files:** `src/lidco/integrations/issue_trigger.py` (new)
+
+**Acceptance criteria:**
+- `IssueTrigger.poll() -> list[Issue]` — returns newly assigned issues since last poll
+- `Issue`: `number`, `title`, `body`, `url`, `labels`
+- `IssueTrigger.create_branch(issue) -> str` — creates `lidco/issue-{number}` branch
+- `IssueTrigger.on_issue` callback for wiring to agent execution
+- 8+ tests in `tests/unit/test_q74/test_issue_trigger.py`
+
+---
+
+### 495. HTTP-backed slash commands
+
+**Files:** `src/lidco/cli/http_commands.py` (new)
+
+**Acceptance criteria:**
+- `HTTPSlashCommand`: `name`, `url`, `method="POST"`, `timeout=30`, `headers: dict`
+- `HTTPSlashCommand.execute(args: str) -> str`
+- Registration via `.lidco/http_commands.yaml`
+- Auto-loaded at startup
+- 8+ tests in `tests/unit/test_q74/test_http_commands.py`
+
+---
+
+### 496. Mid-execution plan modification
+
+**Files:** `src/lidco/flows/engine.py` (extend)
+
+**Acceptance criteria:**
+- `FlowEngine.inject_instruction(instruction: str) -> bool`
+- Between each step, pending instructions are applied to remaining step descriptions
+- `FlowEngine.pending_instructions: list[str]` property
+- 6+ tests in `tests/unit/test_q74/test_mid_plan.py`
+
+---
+
+## Q75 — Session Diff + Agent Teams Mailbox + Chat Mode
+
+**Goal:** Quality-of-life and architectural polish: session-wide diff review, Claude Code-style agent teams peer mailbox, memory staleness, brainstorm sub-agent.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 497 | [/review-changes — session-wide unified diff](#497-session-diff) | ✅ Done | 1d | Zed parity |
+| 498 | [Agent teams peer-to-peer mailbox](#498-mailbox) | ✅ Done | 2d | Claude Code Agent Teams parity |
+| 499 | [Memory staleness decay](#499-staleness) | ✅ Done | 1d | Claude Code memory timestamps parity |
+| 500 | [Brainstorm sub-agent before planning](#500-brainstorm) | ✅ Done | 2d | GitHub Copilot Workspace parity |
+| 501 | [Chat vs. Agent mode distinction](#501-modes) | ✅ Done | 1d | Continue.dev parity |
+
+---
+
+### 497. /review-changes — session-wide unified diff
+
+**Files:** `src/lidco/review/session_diff.py` (new)
+
+**Acceptance criteria:**
+- `SessionDiffCollector.collect(project_dir, since_ref) -> SessionDiff`
+- `SessionDiff`: `files: list[FileDiff]`, `total_additions: int`, `total_deletions: int`
+- `FileDiff`: `path`, `diff`, `additions`, `deletions`
+- Uses `git diff <since_ref>`; falls back to in-memory change log
+- 8+ tests in `tests/unit/test_q75/test_session_diff.py`
+
+---
+
+### 498. Agent teams peer-to-peer mailbox
+
+**Files:** `src/lidco/agents/mailbox.py` (new)
+
+**Acceptance criteria:**
+- `AgentMailbox`: thread-safe in-memory message queue per agent name
+- `AgentMailbox.send(to, from_, message) -> None`
+- `AgentMailbox.receive(agent_name, timeout=0) -> list[MailMessage]`
+- `MailMessage`: `from_`, `to`, `message`, `timestamp`
+- `AgentMailbox.broadcast(from_, message, recipients) -> None`
+- 8+ tests in `tests/unit/test_q75/test_mailbox.py`
+
+---
+
+### 499. Memory staleness decay
+
+**Files:** `src/lidco/memory/staleness.py` (new)
+
+**Acceptance criteria:**
+- `staleness_score(memory: AgentMemory) -> float` — `age_days / (1 + use_count)`
+- `StalenessRanker.rank(memories: list[AgentMemory]) -> list[AgentMemory]` — sort by freshness desc
+- `StalenessRanker.expire(memories, ttl_days) -> list[AgentMemory]` — filter out stale
+- 6+ tests in `tests/unit/test_q75/test_memory_staleness.py`
+
+---
+
+### 500. Brainstorm sub-agent before planning
+
+**Files:** `src/lidco/agents/brainstorm.py` (new)
+
+**Acceptance criteria:**
+- `BrainstormAgent.brainstorm(goal, context) -> BrainstormResult`
+- `BrainstormResult`: `alternatives: list[str]`, `risks: list[str]`, `clarifying_questions: list[str]`, `recommended_approach: str`
+- LLM call with `max_tokens=800`, `temperature=0.7`
+- `agents.brainstorm_before_plan: bool = False` config flag
+- 8+ tests in `tests/unit/test_q75/test_brainstorm.py`
+
+---
+
+### 501. Chat vs. Agent mode distinction
+
+**Files:** `src/lidco/cli/mode.py` (new)
+
+**Acceptance criteria:**
+- `InteractionMode` enum: `CHAT`, `AGENT`
+- `ModeController.set_mode(mode)`, `ModeController.current_mode`
+- In CHAT mode: message goes directly to LLM, no tool calls, no graph pipeline
+- In AGENT mode: full current pipeline
+- `/chat` and `/agent` commands; mode shown in status bar
+- 6+ tests in `tests/unit/test_q75/test_mode.py`
+
+---
+
+## Q76 — Code Intelligence and Context (T502–T506)
+
+**Goal:** Give the agent deep, always-fresh codebase awareness so every LLM call has optimal context. Closes Aider, Jules, Cursor, and Continue.dev gaps.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 502 | [Ranked Repo-Map (PageRank over import graph)](#502-repo-map) | ✅ Done | 2d | Aider parity |
+| 503 | [Watch Mode v2 — AI! / AI? inline comments](#503-ai-comments) | ✅ Done | 1d | Aider parity |
+| 504 | [Session Auto-Seeding from Memory](#504-session-seeder) | ✅ Done | 1d | Jules parity |
+| 505 | [Multi-Source Event Triggers (Sentry/Snyk/Slack/PagerDuty)](#505-event-triggers) | ✅ Done | 2d | Cursor Automations parity |
+| 506 | [AI Contribution Metrics](#506-ai-contribution) | ✅ Done | 1d | Continue.dev parity |
+
+---
+
+### 502. Ranked Repo-Map
+
+**Files:** src/lidco/context/repo_map.py (new)
+
+**Acceptance criteria:**
+- RepoMap(project_dir, token_budget=4096), RepoMapEntry(file, symbols, rank, token_estimate)
+- build_import_graph() — ast-based, stdlib only
+- compute_ranks(graph) — PageRank damping=0.85, max 50 iterations
+- generate(changed_files, token_budget) — changed files get 2x rank boost
+- ranked_entries() sorted by rank desc; format_for_prompt() truncated to token_budget
+- 12+ tests in tests/unit/test_q76/test_repo_map.py
+
+---
+
+### 503. Watch Mode v2 — AI Comments
+
+**Files:** src/lidco/watch/ai_comments.py (new)
+
+**Acceptance criteria:**
+- AIComment(file_path, line_number, instruction, mode, context_lines) — mode: execute or ask
+- AICommentScanner with scan_file(), scan_directory(), remove_comments(), integrate_with_watcher()
+- Pattern "# AI!" triggers execute; "# AI?" triggers ask
+- 10+ tests in tests/unit/test_q76/test_ai_comments.py
+
+---
+
+### 504. Session Auto-Seeding from Memory
+
+**Files:** src/lidco/memory/session_seeder.py (new)
+
+**Acceptance criteria:**
+- SeedContext(memories, prompt_block, token_estimate, source) — source: workspace, global, or both
+- SessionSeeder(memory_store, token_budget=2048, tags_filter) with seed(), format_memories(), should_seed()
+- Workspace memories ranked above global
+- 8+ tests in tests/unit/test_q76/test_session_seeder.py
+
+---
+
+### 505. Multi-Source Event Triggers
+
+**Files:** src/lidco/integrations/event_triggers.py (new)
+
+**Acceptance criteria:**
+- TriggerEvent(source, event_type, title, body, metadata, received_at, priority)
+- TriggerAction(event, action, instruction) — action: start_session, start_flow, or notify
+- EventTriggerRouter with register_source(), parse_event(), route(), add_rule()
+- Built-in parsers: parse_sentry(), parse_snyk(), parse_slack(), parse_pagerduty()
+- Default routing: critical/high to start_session; medium to start_flow; low to notify
+- 10+ tests in tests/unit/test_q76/test_event_triggers.py
+
+---
+
+### 506. AI Contribution Metrics
+
+**Files:** src/lidco/analytics/ai_contribution.py (new)
+
+**Acceptance criteria:**
+- ContributionRecord(file, lines_added, lines_removed, author, session_id, timestamp)
+- ModuleMetrics(file, ai_lines, human_lines, ai_ratio)
+- AIContributionTracker(db_path) with record(), module_metrics(), session_summary(), all_modules(), dashboard_data()
+- SQLite-backed; ai_ratio = ai_lines / total, 0.0 if zero
+- 8+ tests in tests/unit/test_q76/test_ai_contribution.py
+
+---
+
+## Q77 — Autonomous Pipelines (T507–T511)
+
+**Goal:** Enable LIDCO to work unattended — from issue to PR, on a schedule, with standards enforcement.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 507 | [Issue-to-PR Autonomous Pipeline](#507-issue-to-pr) | ✅ Done | 2d | Copilot/Devin parity |
+| 508 | [Scheduled Recurring Sessions (CronRunner)](#508-cron-runner) | ✅ Done | 2d | Devin parity |
+| 509 | [Standards-as-Code Enforcement](#509-standards) | ✅ Done | 2d | Continue.dev parity |
+| 510 | [AI Authorship Attribution](#510-ai-attribution) | ✅ Done | 1d | Continue.dev parity |
+| 511 | [Arena / Comparison Mode](#511-arena) | ✅ Done | 1d | Windsurf parity |
+
+---
+
+### 507. Issue-to-PR Autonomous Pipeline
+
+**Files:** src/lidco/pipelines/issue_to_pr.py (new)
+
+**Acceptance criteria:**
+- PipelineConfig(project_dir, assignee, label, test_cmd, auto_merge, require_security_gate, max_retries)
+- PipelineResult(issue_number, branch, pr_number, status, security_passed, self_review_passed, error, steps_completed)
+- IssueToPRPipeline with run(), run_step_branch(), run_step_fix(), run_step_security(), run_step_review(), run_step_pr(), poll_and_run()
+- Wires IssueTrigger + ShadowWorkspace + AutofixAgent + SecurityGate + SelfReviewer + GHPoster
+- status="blocked" if security gate fails; max_retries retries on fix failure
+- 12+ tests in tests/unit/test_q77/test_issue_to_pr.py
+
+---
+
+### 508. Scheduled Recurring Sessions (CronRunner)
+
+**Files:** src/lidco/scheduler/cron_runner.py (new)
+
+**Acceptance criteria:**
+- ScheduledTask(name, cron_expr, instruction, enabled, last_run, run_count)
+- RunResult(task_name, started_at, finished_at, success, output, error)
+- CronRunner(state_path) with add_task(), remove_task(), list_tasks(), is_due(), tick(), save_state(), load_state()
+- Simplified 5-field cron: integers and wildcard only; JSON state at .lidco/scheduler.json
+- 10+ tests in tests/unit/test_q77/test_cron_runner.py
+
+---
+
+### 509. Standards-as-Code Enforcement
+
+**Files:** src/lidco/review/standards.py (new)
+
+**Acceptance criteria:**
+- StandardRule(id, name, description, pattern, severity, file_glob, fix_hint)
+- Violation(rule_id, file, line, message, severity, fix_hint), CheckResult(passed, violations, rules_checked)
+- StandardsEnforcer(rules_path) with load_rules(), add_rule(), check_file(), check_diff(), rules(), default_rules()
+- YAML rules file; try import yaml with JSON fallback; passed=True only if zero error violations
+- 10+ tests in tests/unit/test_q77/test_standards.py
+
+---
+
+### 510. AI Authorship Attribution
+
+**Files:** src/lidco/analytics/ai_attribution.py (new)
+
+**Acceptance criteria:**
+- LineAttribution(file, line, author, session_id, timestamp, model)
+- AIAttributionStore(db_path) with record_edit(), get_file_attribution(), ai_ratio(), session_attribution(), reconcile_with_diff(), clear_file()
+- SQLite-backed; reconcile_with_diff shifts line numbers after edits
+- 8+ tests in tests/unit/test_q77/test_ai_attribution.py
+
+---
+
+### 511. Arena / Comparison Mode
+
+**Files:** src/lidco/agents/arena.py (new)
+
+**Acceptance criteria:**
+- ArenaEntry(model, output, duration, token_count, score), ArenaResult(task, entries, winner, selection_method)
+- ArenaMode(models) with run(), select_winner(), auto_select(), format_comparison(), history(), win_rates()
+- select_winner returns new ArenaResult (immutable); win_rates computed from history
+- 8+ tests in tests/unit/test_q77/test_arena.py
+
+---
+
+## Q78 — Developer Experience and Tooling (T512–T516)
+
+**Goal:** Polish DX — IaC scaffolding, swappable prediction backends, and wiring all Q76-Q77 modules into the CLI.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 512 | [Swappable Edit-Prediction Backend (Ollama/remote)](#512-prediction-backend) | ✅ Done | 1d | Zed parity |
+| 513 | [IaC Scaffolding (Terraform / Docker)](#513-iac) | ✅ Done | 2d | Amazon Q parity |
+| 514 | [Repo-Map Context Injector](#514-repo-map-injector) | ✅ Done | 1d | wires T502+T504 into LLM calls |
+| 515 | [Pipeline CLI Commands (/pipeline, /schedule)](#515-pipeline-cmds) | ✅ Done | 1d | wires T507+T508 into CLI |
+| 516 | [Standards Slash Command + Hook (/standards)](#516-standards-cmds) | ✅ Done | 1d | wires T509 into commit flow |
+
+---
+
+### 512. Swappable Edit-Prediction Backend
+
+**Files:** src/lidco/prediction/backend.py (new)
+
+**Acceptance criteria:**
+- PredictionBackendConfig(backend, ollama_model, ollama_url, remote_model, timeout)
+- PredictionBackend(config) with predict(), switch_backend(), active_backend property, call_ollama(), create_llm_fn()
+- Ollama via urllib.request (stdlib); disabled backend returns empty string
+- switch_backend replaces config immutably
+- 10+ tests in tests/unit/test_q78/test_prediction_backend.py
+
+---
+
+### 513. IaC Scaffolding
+
+**Files:** src/lidco/scaffold/iac.py (new)
+
+**Acceptance criteria:**
+- ScaffoldResult(files, description, template_used)
+- IaCScaffolder(llm_fn) with generate_dockerfile(), generate_compose(), generate_terraform(), generate_from_description()
+- Static methods: dockerfile_template(), compose_template(), terraform_template()
+- Languages: python, node, go, rust, java; providers: aws, gcp, azure
+- generate_from_description uses llm_fn if available, else keyword fallback
+- 10+ tests in tests/unit/test_q78/test_iac.py
+
+---
+
+### 514. Repo-Map Context Injector
+
+**Files:** src/lidco/context/repo_map_injector.py (new)
+
+**Acceptance criteria:**
+- RepoMapInjector(repo_map, session_seeder, enabled) with inject(), toggle(), build_context_block(), estimate_tokens()
+- inject() prepends repo-map to first system message; inserts system message if absent
+- Returns NEW messages list (immutable); disabled returns messages unchanged
+- 8+ tests in tests/unit/test_q78/test_repo_map_injector.py
+
+---
+
+### 515. Pipeline CLI Commands
+
+**Files:** src/lidco/cli/commands/pipeline_cmds.py (new)
+
+**Acceptance criteria:**
+- Commands: /pipeline run, /pipeline status, /schedule add, /schedule remove, /schedule list, /schedule tick
+- register_pipeline_commands(registry) follows pattern in src/lidco/cli/commands/registry.py
+- All handlers return human-readable strings
+- 8+ tests in tests/unit/test_q78/test_pipeline_cmds.py
+
+---
+
+### 516. Standards Slash Command + Hook
+
+**Files:** src/lidco/cli/commands/standards_cmds.py (new)
+
+**Acceptance criteria:**
+- Commands: /standards check, /standards rules, /standards add, /standards init
+- pre_commit_check(project_dir) for git hook integration
+- standards check reads staged files via git diff --cached --name-only
+- standards init writes .lidco/standards.yaml with default_rules()
+- 6+ tests in tests/unit/test_q78/test_standards_cmds.py
+
+---
+
+## Q79 — Watch Mode 3.0 + Architect Mode + Context Inspector (T517–T521)
+
+**Goal:** Zero-friction AI interaction (Aider parity), dual-model efficiency (Aider Architect parity), and full context transparency (Zed AI parity).
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 517 | [Watch Mode 3.0 — AI! / AI? file-embedded triggers (full agent)](#517-watch-agent) | ✅ Done | 1d | Aider parity |
+| 518 | [Architect Mode — dual-model plan+execute wiring](#518-architect-mode) | ✅ Done | 1d | Aider parity |
+| 519 | [Context Inspector — transparent LLM request viewer](#519-context-inspector) | ✅ Done | 1d | Zed AI parity |
+| 520 | [Per-Agent Persistent Memory (cross-session)](#520-agent-memory-scope) | ✅ Done | 1d | Claude Code parity |
+| 521 | [PR Review Agent with GitHub Comment Threading](#521-pr-review-agent) | ✅ Done | 2d | Copilot parity |
+
+---
+
+### 517. Watch Mode 3.0 — AI! / AI? File-Embedded Triggers
+
+**Files:** src/lidco/watch/agent_trigger.py (new)
+
+**Acceptance criteria:**
+- WatchAgentTrigger(project_dir, agent_fn, patterns) with start(), stop(), scan_file(), collect_all_comments(), process()
+- scan_file(path) returns list of AIComment where each has file_path, line_number, instruction, mode ("execute" or "ask")
+- Patterns: # AI!, # AI?, // AI!, // AI?, -- AI!, -- AI?
+- process() calls agent_fn(task_str) then removes AI! comments from files; AI? appends answer as comment block
+- collect_all_comments(changed_files) aggregates comments across all changed files into single task string
+- 10+ tests in tests/unit/test_q79/test_watch_agent.py
+
+---
+
+### 518. Architect Mode — Dual-Model Plan + Execute
+
+**Files:** src/lidco/llm/architect_mode.py (new)
+
+**Acceptance criteria:**
+- FileChangeSpec(file, action, description) and ArchitectPlan(rationale, file_changes)
+- EditResult(file, success, content, error)
+- ArchitectSession(architect_fn, editor_fn) with plan(task) -> ArchitectPlan, execute(plan) -> list[EditResult], run(task) -> list[EditResult]
+- plan() calls architect_fn with task; parses JSON response into ArchitectPlan (fallback: treat as single-file task)
+- execute() calls editor_fn per FileChangeSpec; returns EditResult per file
+- 10+ tests in tests/unit/test_q79/test_architect_mode.py
+
+---
+
+### 519. Context Inspector
+
+**Files:** src/lidco/context/inspector.py (new)
+
+**Acceptance criteria:**
+- ContextSection(name, content, token_estimate, source) — source: "system", "memory", "rules", "history", "tools"
+- ContextSnapshot(sections, total_tokens, model_limit, session_id, timestamp)
+- ContextInspector(session) with snapshot() -> ContextSnapshot, format_summary() -> str, drop(section_name) -> bool, pin(text, label) -> None, pinned_sections() -> list[ContextSection]
+- snapshot() estimates tokens as len(content)//4 per section
+- format_summary() returns human-readable breakdown with token counts and percentages
+- 8+ tests in tests/unit/test_q79/test_context_inspector.py
+
+---
+
+### 520. Per-Agent Persistent Memory (cross-session)
+
+**Files:** src/lidco/memory/agent_scope.py (new)
+
+**Acceptance criteria:**
+- AgentMemoryScope(agent_name, project_dir, global_dir) with load() -> str, save(content), append(entry), clear()
+- Scope resolution: project .lidco/agent-memory/<name>/MEMORY.md overrides global ~/.lidco/agent-memory/<name>/MEMORY.md
+- load() reads project-scope first; falls back to global; returns "" if neither exists
+- save() writes to project-scope by default; global_dir scope when project_dir is None
+- append(entry) adds a timestamped entry to the end (max 200 lines, trims oldest)
+- 8+ tests in tests/unit/test_q79/test_agent_scope.py
+
+---
+
+### 521. PR Review Agent with GitHub Comment Threading
+
+**Files:** src/lidco/review/pr_reviewer_v2.py (new)
+
+**Acceptance criteria:**
+- ReviewComment(path, line, severity, body, suggestion) — severity: "critical", "warning", or "suggestion"
+- PRReviewResult(pr_number, summary, comments, verdict) — verdict: "approve", "request_changes", or "comment"
+- PRReviewAgentV2(llm_fn, gh_token) with review(repo, pr_number) -> PRReviewResult, post_review(repo, pr_number, result) -> bool, format_review(result) -> str
+- review() fetches diff via GitHub API (or mock), runs llm_fn on diff, parses structured response
+- format_review() formats as Markdown with severity badges
+- post_review() POSTs to GitHub pulls review API; returns True on success, False on error
+- 10+ tests in tests/unit/test_q79/test_pr_reviewer_v2.py
+
+---
+
+## Q80 — @-Mention Providers + Event Automations + Arena Leaderboard (T522–T526)
+
+**Goal:** Turn LIDCO into a platform — external context on demand, event-driven autonomous work, empirical model selection.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 522 | [@-Mention External Context Providers](#522-at-mention-providers) | ✅ Done | 2d | Continue.dev parity |
+| 523 | [Event Automation YAML Engine](#523-automation-engine) | ✅ Done | 2d | Cursor Automations parity |
+| 524 | [Arena Leaderboard + Adaptive Model Routing](#524-arena-leaderboard) | ✅ Done | 1d | Windsurf parity |
+| 525 | [Next-Edit Ripple Propagation (post-edit analysis)](#525-ripple-propagation) | ✅ Done | 2d | Copilot NES parity |
+| 526 | [Container Sandbox (Docker-backed isolation)](#526-container-sandbox) | ✅ Done | 2d | Devin/Jules parity |
+
+---
+
+### 522. @-Mention External Context Providers
+
+**Files:** src/lidco/context/at_mention.py (new)
+
+**Acceptance criteria:**
+- AtMentionProvider(name, pattern, fetch_fn) — pattern is a regex matching @name identifier
+- AtMentionResult(provider, identifier, content, token_estimate, error)
+- AtMentionParser(providers) with parse(text) -> list[AtMentionResult], resolve(text) -> tuple[str, list[AtMentionResult]]
+- Built-in providers: AtGitHubIssue (pattern @gh-issue NUMBER), AtURL (pattern @url URL), AtFile (pattern @file PATH), AtShell (pattern @shell COMMAND)
+- resolve() returns (text_with_mentions_removed, resolved_results)
+- 10+ tests in tests/unit/test_q80/test_at_mention.py
+
+---
+
+### 523. Event Automation YAML Engine
+
+**Files:** src/lidco/scheduler/automation_engine.py (new)
+
+**Acceptance criteria:**
+- AutomationRule(name, trigger_type, trigger_config, task_template, output_type, enabled) — output_type: "pr", "comment", "message", or "log"
+- AutomationResult(rule_name, triggered_at, task, output, success, error)
+- AutomationEngine(rules_path, agent_fn) with load_rules() -> list[AutomationRule], evaluate(event) -> list[AutomationRule], run_rule(rule, event) -> AutomationResult, tick() -> list[AutomationResult]
+- Trigger types: "cron", "github_issue", "github_pr", "webhook"
+- task_template supports {event.title}, {event.body}, {event.number} placeholders
+- YAML rules file at .lidco/automations.yaml
+- 10+ tests in tests/unit/test_q80/test_automation_engine.py
+
+---
+
+### 524. Arena Leaderboard + Adaptive Model Routing
+
+**Files:** src/lidco/agents/arena_leaderboard.py (new)
+
+**Acceptance criteria:**
+- VoteRecord(model_a, model_b, winner, task_type, prompt_hash, timestamp)
+- ModelStats(model, wins, appearances, win_rate, task_type)
+- ArenaLeaderboard(db_path) with record_vote(vote) -> None, stats(task_type) -> list[ModelStats], best_model(task_type) -> str or None, leaderboard() -> list[ModelStats], suggest_models(task_type) -> tuple[str,str]
+- SQLite-backed; win_rate = wins/appearances; best_model returns None if fewer than 3 appearances
+- suggest_models returns top-2 by win_rate for the task_type (or DEFAULT_MODELS if insufficient data)
+- 8+ tests in tests/unit/test_q80/test_arena_leaderboard.py
+
+---
+
+### 525. Next-Edit Ripple Propagation
+
+**Files:** src/lidco/prediction/ripple.py (new)
+
+**Acceptance criteria:**
+- RippleEdit(file, line, original, suggested, reason, symbol)
+- RippleSuggestion(source_file, source_change, edits)
+- RippleAnalyzer(edit_graph, llm_fn) with analyze(diff_text) -> list[RippleSuggestion], extract_changed_symbols(diff) -> list[str], find_references(symbol) -> list[tuple[str,int]], suggest_edit(file, line, symbol, context) -> RippleEdit
+- extract_changed_symbols parses unified diff for +/- lines containing def/function/const/type keywords
+- find_references delegates to edit_graph; suggest_edit calls llm_fn or returns stub if None
+- 10+ tests in tests/unit/test_q80/test_ripple.py
+
+---
+
+### 526. Container Sandbox (Docker-backed)
+
+**Files:** src/lidco/tools/container_sandbox.py (new)
+
+**Acceptance criteria:**
+- ContainerConfig(image, repo_path, env, timeout, network_disabled, memory_limit_mb)
+- ContainerResult(exit_code, stdout, stderr, diff, duration)
+- ContainerSandbox(config) with run(command) -> ContainerResult, get_diff() -> str, cleanup() -> None
+- Uses subprocess to invoke docker run; falls back gracefully if Docker not available
+- get_diff() runs git diff inside container against original state; returns unified diff text
+- memory_limit_mb maps to --memory docker flag; network_disabled maps to --network none
+- 10+ tests in tests/unit/test_q80/test_container_sandbox.py
+
+---
+
+## Q81 — CLI Wiring + DX Polish (T527–T531)
+
+**Goal:** Surface all Q79-Q80 features in the CLI with /watch, /architect, /context, /arena, /auto commands.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 527 | [/watch + /architect CLI commands](#527-watch-architect-cmds) | ✅ Done | 1d | wires T517+T518 |
+| 528 | [/context inspect/edit/drop/pin commands](#528-context-cmds) | ✅ Done | 1d | wires T519 |
+| 529 | [/arena compare + leaderboard commands](#529-arena-cmds) | ✅ Done | 1d | wires T511+T524 |
+| 530 | [/auto (automation engine) commands](#530-auto-cmds) | ✅ Done | 1d | wires T523 |
+| 531 | [@-mention input pre-processing in REPL](#531-at-mention-repl) | ✅ Done | 1d | wires T522 into app.py |
+
+---
+
+### 527. /watch and /architect CLI Commands
+
+**Files:** src/lidco/cli/commands/watch_cmds.py (new)
+
+**Acceptance criteria:**
+- Commands: /watch start, /watch stop, /watch status
+- Commands: /architect <task> — runs ArchitectSession with config-defined architect_model/editor_model
+- register_watch_commands(registry) and register_architect_commands(registry)
+- /watch start accepts optional --patterns flag
+- /architect returns plan summary + list of files changed
+- 8+ tests in tests/unit/test_q81/test_watch_cmds.py
+
+---
+
+### 528. /context Commands
+
+**Files:** src/lidco/cli/commands/context_cmds.py (new — note: context_cmds.py may exist, extend or rename)
+
+**Acceptance criteria:**
+- Commands: /context inspect, /context drop <section>, /context pin <text>, /context pinned, /context snapshot
+- register_context_commands(registry)
+- /context inspect returns ContextInspector.format_summary()
+- /context snapshot saves to .lidco/context_snapshots/
+- All handlers return human-readable strings
+- 8+ tests in tests/unit/test_q81/test_context_cmds.py
+
+---
+
+### 529. /arena Commands
+
+**Files:** src/lidco/cli/commands/arena_cmds.py (new)
+
+**Acceptance criteria:**
+- Commands: /arena compare <model_a> <model_b> <task>, /arena leaderboard, /arena vote <model>
+- register_arena_commands(registry)
+- /arena compare runs ArenaMode.run() then displays format_comparison()
+- /arena leaderboard shows ArenaLeaderboard.leaderboard() as table
+- /arena vote records vote to ArenaLeaderboard for last comparison
+- 6+ tests in tests/unit/test_q81/test_arena_cmds.py
+
+---
+
+### 530. /auto (Automation Engine) Commands
+
+**Files:** src/lidco/cli/commands/auto_cmds.py (new)
+
+**Acceptance criteria:**
+- Commands: /auto list, /auto run <name>, /auto tick, /auto enable <name>, /auto disable <name>
+- register_auto_commands(registry)
+- /auto list shows all rules with status and trigger type
+- /auto run <name> triggers a specific automation rule immediately
+- /auto tick triggers AutomationEngine.tick() and reports results
+- 8+ tests in tests/unit/test_q81/test_auto_cmds.py
+
+---
+
+### 531. @-Mention Input Pre-Processing in REPL
+
+**Files:** src/lidco/context/at_mention_middleware.py (new)
+
+**Acceptance criteria:**
+- AtMentionMiddleware(parser, max_tokens) with process(user_input) -> ProcessedInput
+- ProcessedInput(clean_text, injected_context, total_tokens, errors)
+- process() calls AtMentionParser.resolve(); injects resolved content as ContextSection items
+- Respects max_tokens: drops lowest-priority mentions if budget exceeded
+- Error-tolerant: failed fetches logged in errors, not raised
+- 8+ tests in tests/unit/test_q81/test_at_mention_middleware.py
+
+---
+
+## Q82 — Code Transformation & Generation (T532–T536)
+
+**Goal:** Add symbol rename, atomic multi-file edits, AI test generation, and project health reporting.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 532 | [Cross-file symbol rename](#532-symbol-rename) | ✅ Done | 1d | safer refactoring |
+| 533 | [Multi-file atomic edit transactions](#533-multi-edit) | ✅ Done | 1d | coordinated edits |
+| 534 | [AI test generator](#534-test-gen) | ✅ Done | 1d | TDD support |
+| 535 | [Project health dashboard](#535-health-dashboard) | ✅ Done | 1d | code quality metrics |
+| 536 | [CLI wiring: /rename /multi-edit /testgen /health](#536-transform-cmds) | ✅ Done | 0.5d | exposes T532–T535 |
+
+---
+
+### 532. Cross-file Symbol Rename
+
+**Files:** src/lidco/refactor/__init__.py (new), src/lidco/refactor/symbol_rename.py (new)
+
+**Acceptance criteria:**
+- SymbolRenamer(root) with find_occurrences(name) and rename(old, new, dry_run=False)
+- RenameResult(old_name, new_name, files_changed, occurrences, preview, errors)
+- Whole-word regex matching (\b boundaries)
+- dry_run=True computes changes without writing
+- Skips .git, __pycache__, .venv dirs
+- 8+ tests in tests/unit/test_q82/test_symbol_rename.py
+
+---
+
+### 533. Multi-file Atomic Edit Transactions
+
+**Files:** src/lidco/editing/multi_edit.py (new)
+
+**Acceptance criteria:**
+- MultiEditTransaction with add_edit(), validate(), apply(), rollback()
+- TransactionResult(applied, failed, errors, success)
+- validate() returns errors without writing files
+- rollback() restores all previously written files
+- 8+ tests in tests/unit/test_q82/test_multi_edit.py
+
+---
+
+### 534. AI Test Generator
+
+**Files:** src/lidco/scaffold/test_gen.py (new)
+
+**Acceptance criteria:**
+- TestGenerator(llm_client=None) with generate_for_module(path) and write_test_file(code, path)
+- GeneratedTests(source_path, test_code, functions_covered, error)
+- FunctionSignature extraction via AST (no exec/eval)
+- Skips private functions (starting with _)
+- async generate_async() falls back to AST if llm_client is None
+- 8+ tests in tests/unit/test_q82/test_test_gen.py
+
+---
+
+### 535. Project Health Dashboard
+
+**Files:** src/lidco/analytics/health_dashboard.py (new)
+
+**Acceptance criteria:**
+- ProjectHealthDashboard(root=".") with collect() -> HealthReport
+- HealthReport(source_files, test_files, test_count, total_lines, avg_file_lines, large_files, score)
+- score is 0.0-1.0 composite (test ratio 40%, large file ratio 30%, avg size 30%)
+- format_table() returns human-readable string
+- 8+ tests in tests/unit/test_q82/test_health_dashboard.py
+
+---
+
+### 536. CLI Wiring: /rename, /multi-edit, /testgen, /health
+
+**Files:** src/lidco/cli/commands/transform_cmds.py (new)
+
+**Acceptance criteria:**
+- register_transform_commands(registry)
+- /rename <old> <new> [--dry-run] — wraps SymbolRenamer
+- /multi-edit <spec.yaml> — validates then applies MultiEditTransaction
+- /testgen <path> [--write] — wraps TestGenerator
+- /health — shows ProjectHealthDashboard report
+- 8+ tests in tests/unit/test_q82/test_transform_cmds.py
+
+---
+
+## Q83 — Deep Intelligence & Autonomous Loops (T542–T546)
+
+**Goal:** Add DeepWiki-style codebase indexing, interactive plan validation, auto-lint/test fix loop, and parallel worktree agents — achieving competitive parity with Cursor, Devin 2.0, Aider, and Claude Code.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 542 | [DeepWiki-style codebase indexer](#542-codebase-indexer) | ✅ Done | 1d | Devin DeepWiki parity |
+| 543 | [Interactive plan validation loop](#543-plan-validator) | ✅ Done | 1d | Devin 2.0 parity |
+| 544 | [Auto-lint + auto-test fix loop](#544-auto-fixer) | ✅ Done | 1d | Aider parity |
+| 545 | [Worktree-isolated parallel agents](#545-worktree-runner) | ✅ Done | 1d | Cursor/Claude Code parity |
+| 546 | [CLI wiring: /index /plan-validate /autofix /parallel](#546-intelligence-cmds) | ✅ Done | 0.5d | exposes T542–T545 |
+
+## Q84 — Session Intelligence & Continuous Learning (T552–T556)
+
+**Goal:** Windsurf Cascade Memory + GitHub Copilot Code Review + Devin 2.0 Worker Teams parity.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 552 | [Coding pattern extractor from session](#552-pattern-extractor) | ✅ Done | 1d | Windsurf Cascade Memory parity |
+| 553 | [PR review suggestion auto-applier](#553-suggestion-applier) | ✅ Done | 1d | GitHub Copilot Code Review parity |
+| 554 | [Async worker pool for sub-agents](#554-worker-pool) | ✅ Done | 1d | Devin 2.0 worker teams parity |
+| 555 | [Session learning & context pinning](#555-session-pinner) | ✅ Done | 1d | Windsurf 48h learning parity |
+| 556 | [CLI: /patterns /apply-review /workers /pin-session](#556-learning-cmds) | ✅ Done | 0.5d | exposes T552–T555 |
+
+## Q85 — Enterprise Platform & IDE Integration (T557–T561)
+
+**Goal:** Self-healing CI (Windsurf/Dagger parity) + Webhook automation (Cursor Automations parity) + Knowledge triggers (Devin 2.0 parity) + MCP Task Server for IDE integration.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 557 | [CI pipeline healer](#557-ci-healer) | ✅ Done | 1d | Windsurf/Dagger self-healing CI parity |
+| 558 | [Webhook event bus](#558-webhook-bus) | ✅ Done | 1d | Cursor Automations parity |
+| 559 | [Knowledge trigger injection](#559-knowledge-trigger) | ✅ Done | 1d | Devin 2.0 Knowledge Base parity |
+| 560 | [MCP Task Server](#560-mcp-task-server) | ✅ Done | 1d | MCP Nov-2025 async tasks parity |
+| 561 | [CLI: /ci-heal /webhook /knowledge /mcp-serve](#561-platform-cmds) | ✅ Done | 0.5d | exposes T557–T560 |
+
+## Q86 — Smart Code Navigation & Refactoring Intelligence (T562–T566)
+
+**Goal:** JetBrains AI "extract method" + GitHub Copilot "explain/fix" + Sourcegraph Cody "find symbol" parity.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 562 | [Cross-file symbol navigation](#562-code-navigator) | ✅ Done | 1d | Sourcegraph Cody parity |
+| 563 | [AI code explainer](#563-code-explainer) | ✅ Done | 1d | GitHub Copilot "explain" parity |
+| 564 | [Structural refactoring suggestor](#564-refactor-suggestor) | ✅ Done | 1d | JetBrains AI Assistant parity |
+| 565 | [Error explainer + fix suggestions](#565-error-explainer) | ✅ Done | 1d | GitHub Copilot "fix error" parity |
+| 566 | [CLI: /navigate /explain /refactor-suggest /fix-error](#566-nav-cmds) | ✅ Done | 0.5d | exposes T562–T565 |
+
+## Q87 — Graph Intelligence & Semantic Search (T567–T571)
+
+**Goal:** AST dependency graph + TF-IDF semantic search + Task DAG + approval engine — CodeCompass/Copilot/Replit parity.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 567 | [AST dependency graph (IMPORTS/CALLS/INHERITS)](#567-dependency-graph) | ✅ Done | 1d | CodeCompass / Augment Code parity |
+| 568 | [TF-IDF semantic code search (stdlib)](#568-semantic-search) | ✅ Done | 1d | GitHub Copilot semantic search parity |
+| 569 | [Long-horizon Task DAG with checkpoints](#569-task-dag) | ✅ Done | 1d | Replit Agent 3 / Devin parity |
+| 570 | [Auto-approve rules engine](#570-approval-engine) | ✅ Done | 1d | GitHub Copilot / Cursor approval parity |
+| 571 | [CLI: /graph /search /task-dag /approve-rules](#571-graph-cmds) | ✅ Done | 0.5d | exposes T567–T570 |
+
+## Q88 — Browser Automation & Computer Use (T572–T576)
+
+**Goal:** Playwright browser automation + visual regression testing + Plan/Act mode — Cline/Cursor/OpenHands parity.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 572 | [Playwright browser session](#572-browser-session) | ✅ Done | 1d | Cline/OpenHands computer use parity |
+| 573 | [Screenshot visual analyzer](#573-screenshot-analyzer) | ✅ Done | 1d | Cursor cloud agent visual debug parity |
+| 574 | [Plan/Act mode controller](#574-plan-act-controller) | ✅ Done | 1d | Cline Plan/Act parity |
+| 575 | [Visual regression test runner](#575-visual-test-runner) | ✅ Done | 1d | Cursor visual testing parity |
+| 576 | [CLI: /browser /visual-test /plan-act /screenshot-analyze](#576-browser-cmds) | ✅ Done | 0.5d | exposes T572–T575 |
+
+## Q89 — Turbo Mode & Autonomous Execution (T577–T581)
+
+**Goal:** Windsurf Turbo (auto-execute terminal without per-command approval) + Devin 2.0 role-specialized sub-agents + semantic memory search + long-horizon task planner with retry/resume.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 577 | [Turbo command runner (auto-approve allowlist)](#577-turbo-runner) | ✅ Done | 1d | Windsurf Turbo mode parity |
+| 578 | [Role-specialized sub-agent factory](#578-role-agents) | ✅ Done | 1d | Devin 2.0 specialized agents parity |
+| 579 | [Semantic memory store with priority + TTL](#579-semantic-memory) | ✅ Done | 1d | memory hierarchy improvement |
+| 580 | [Long-horizon task planner with retry/resume](#580-horizon-planner) | ✅ Done | 1d | Replit Agent 3 long-horizon parity |
+| 581 | [CLI: /turbo /role-agent /mem-search /horizon](#581-turbo-cmds) | ✅ Done | 0.5d | exposes T577–T580 |
+
+---
+
+## Q90 — Competitive Parity Sprint (T582–T586)
+
+**Goal:** Close gaps with Cursor (per-directory `.lidco-rules`, multi-file changeset review), Aider (auto-lint-fix loop), Replit Agent (deployment scaffolding), and Windsurf (cost projection before long runs).
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 582 | [Per-directory AI rules (.lidco-rules)](#582-directory-rules) | ✅ Done | 1d | Cursor .cursorrules parity |
+| 583 | [Auto-lint-fix loop](#583-lint-fix-loop) | ✅ Done | 1d | Aider auto-lint parity |
+| 584 | [Deployment scaffolder (auto-detect + generate)](#584-deploy-scaffold) | ✅ Done | 1d | Replit Agent deploy parity |
+| 585 | [Changeset reviewer (multi-file diff review)](#585-changeset-review) | ✅ Done | 1d | Cursor Composer parity |
+| 586 | [Cost projector (estimate before long runs)](#586-cost-projector) | ✅ Done | 1d | Windsurf cost projection parity |
+
+### 582. Directory Rules
+**File:** `src/lidco/context/directory_rules.py`
+`DirectoryRulesResolver` — walks from edited file up to project root, collects `.lidco-rules` files, merges with nearest-directory-wins priority. `inject_for_context()` deduplicates shared ancestors. mtime-based cache.
+
+### 583. Lint Fix Loop
+**File:** `src/lidco/editing/lint_fix_loop.py`
+`LintFixLoop` — lint → call fix_fn callback → re-lint → repeat up to max_iterations. Auto-detects linter by extension (ruff/.py, eslint/.js/.ts, golangci-lint/.go). Returns `FixLoopReport` with error delta.
+
+### 584. Deployment Scaffolder
+**File:** `src/lidco/scaffold/deploy.py`
+`DeploymentScaffolder` — auto-detects language (Python/Node/Go/Rust) and framework (FastAPI/Flask/Django/Express/Next.js/Gin) from marker files. Generates: Dockerfile, `.github/workflows/ci.yml`, `fly.toml`, `.env.example`.
+
+### 585. Changeset Reviewer
+**File:** `src/lidco/editing/changeset_review.py`
+`ChangesetReviewer` — collects `{path: (old, new)}` into a `Changeset` with unified diffs, per-file stats. `format_summary()` / `format_full()`. `apply()` with `ChangesetDecision` (per-file and per-hunk accept/reject).
+
+### 586. Cost Projector
+**File:** `src/lidco/ai/cost_projector.py`
+`CostProjector` — heuristic token estimation per step (base + context_files + output_lines). Uses pricing table (gpt-4o, claude-sonnet/opus/haiku). Historical calibration via `record_actual()`. `format_summary()` returns one-liner with confidence label (low/medium/high).
+
+---
+
+## Q91 — Session History, Smart Apply, Context Exclude, Memory Consolidation, Custom Plugins (T587–T591)
+
+**Goal:** Cursor session history panel + smart code block apply + .lidcoignore exclusions (Aider) + memory consolidation (Windsurf) + custom tool plugin loader (Continue.dev/Cline).
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 587 | [Session history store (list/search/resume)](#587-session-history) | ✅ Done | 1d | Cursor chat history parity |
+| 588 | [Smart code block apply (detect target + apply)](#588-smart-apply) | ✅ Done | 1d | Cursor "Apply in editor" parity |
+| 589 | [.lidcoignore context exclude file](#589-exclude-file) | ✅ Done | 0.5d | Aider .aiderignore parity |
+| 590 | [Memory consolidator (merge similar/stale)](#590-consolidator) | ✅ Done | 1d | Windsurf memory consolidation parity |
+| 591 | [Custom tool plugin loader (.lidco/tools/*.py)](#591-plugin-loader) | ✅ Done | 1d | Continue.dev/Cline plugin parity |
+
+### 587. Session History Store
+**File:** `src/lidco/memory/session_history.py`
+`SessionHistoryStore` — SQLite-backed session records. `save()`, `list()` (newest-first, paginated), `search()` (LIKE across topic/summary/tags), `resume_context()` (formatted for system prompt), `auto_topic()` (first 10 words of first user message). CLI: `/session-history [query]`.
+
+### 588. Smart Code Apply
+**File:** `src/lidco/editing/smart_apply.py`
+`SmartApply` — parses triple-backtick fenced blocks from LLM text, detects language from fence info or content heuristics, finds target file by 3 signals (fence path=1.0, function match=0.6, extension=0.3), applies with dry-run support and path-traversal protection. CLI: `/smart-apply [--dry-run]`.
+
+### 589. Context Exclude File
+**File:** `src/lidco/context/exclude_file.py`
+`ContextExcludeFile` — reads `.lidcoignore` (fallback `.lidco/ignore`), gitignore syntax (`*`, `**`, `!` negation, `#` comments, dir `/`). mtime cache. `filter_paths()` for bulk exclusion. `add_pattern()` / `remove_pattern()`. CLI: `/ignore [add|remove|list] [pattern]`.
+
+### 590. Memory Consolidator
+**File:** `src/lidco/memory/consolidator.py`
+`MemoryConsolidator` — TF-IDF cosine similarity clustering, configurable threshold/TTL/max-group-size. `find_similar_groups()` (exempts use_count > 10), `merge_group()` (unique lines + union tags + earliest timestamp), `consolidate()` + `dry_run()`. CLI: `/mem-compact [--dry-run]`.
+
+### 591. Custom Tool Plugin Loader
+**File:** `src/lidco/tools/plugin_loader.py`
+`ToolPluginLoader` — discovers `.lidco/tools/*.py` (project overrides global). AST-only validation (blocks `eval`/`exec`/`os.system`). Dynamic load via `importlib.util`. `load_all()` isolates failures. `get_tool_from_plugin()` instantiates first BaseTool subclass. CLI: `/plugins [list|reload]`.
+
+---
+
+## Q92 — Prompt Library, Terminal Capture, Export & Team Sync (T592–T596)
+
+**Goal:** Cursor Prompt Files parity (reusable prompt templates), Devin terminal capture, session export to HTML/Markdown, team-shared `.lidco/team.yaml` config, and manual `/hot-reload` command.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 592 | [Prompt template library (.lidco/prompts/)](#592-prompt-library) | ✅ Done | 1d | Cursor Prompt Files / Continue.dev parity |
+| 593 | [Live terminal output capture](#593-terminal-capture) | ✅ Done | 1d | Devin 2.0 terminal context parity |
+| 594 | [Session/report exporter (HTML + Markdown)](#594-session-exporter) | ✅ Done | 1d | Cursor export / doc parity |
+| 595 | [Team configuration loader (.lidco/team.yaml)](#595-team-config) | ✅ Done | 1d | Cursor Teams / shared config parity |
+| 596 | [CLI: /prompt /export /team /hot-reload](#596-q92-cmds) | ✅ Done | 0.5d | exposes T592–T595 |
+
+### 592. Prompt Template Library
+**File:** `src/lidco/prompts/library.py`
+`PromptTemplateLibrary` — discovers `.lidco/prompts/*.md` (project) + `~/.lidco/prompts/*.md` (global). Project overrides global by name. `{{var}}` interpolation via regex replace. `list()` returns all templates, `load(name)` returns `PromptTemplate`, `render(name, variables)` returns `RenderResult` with `missing_vars`, `save(name, content)` writes to project dir.
+
+### 593. Terminal Capture
+**File:** `src/lidco/execution/terminal_capture.py`
+`TerminalCapture` — runs subprocess with timeout, captures stdout+stderr. `CaptureResult(command, stdout, stderr, returncode, elapsed_s)`. `run(command, timeout)` returns CaptureResult. `format_for_context(result)` formats for LLM injection. `run_and_format(command)` convenience wrapper. Max output truncated at `max_output_bytes`.
+
+### 594. Session Exporter
+**File:** `src/lidco/export/session_exporter.py`
+`SessionExporter` — exports conversation `list[dict]` to Markdown or HTML. `ExportConfig(format, include_metadata, max_messages)`. `export(messages, config)` returns `ExportResult(content, format, message_count)`. `export_markdown()` / `export_html()` lower-level methods. `save(result, path)` writes to disk.
+
+### 595. Team Config Loader
+**File:** `src/lidco/config/team_config.py`
+`TeamConfigLoader` — loads `.lidco/team.yaml` (project-shared, in git) + `.lidco/user.yaml` (personal, gitignored). `TeamConfig(model, tools, rules, permissions, members)` dataclass. `load_team()`, `load_personal()`, `merge(team, personal)` → `MergedConfig`. `validate(config)` returns list of error strings.
+
+### 596. CLI: /prompt /export /team /hot-reload
+**File:** `src/lidco/cli/commands/q92_cmds.py`
+`register_q92_commands(registry)` — wires 4 commands:
+- `/prompt list|run <name> [key=val ...]|save <name> <content>` → PromptTemplateLibrary
+- `/export [html|md] [path]` → SessionExporter
+- `/team show|validate` → TeamConfigLoader
+- `/hot-reload` → reloads LidcoConfig from disk
