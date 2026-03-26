@@ -5206,3 +5206,310 @@ lidco task cancel task_abc123
 - `/export [html|md] [path]` → SessionExporter
 - `/team show|validate` → TeamConfigLoader
 - `/hot-reload` → reloads LidcoConfig from disk
+
+---
+
+## Q93 — Playbooks, Test Impact & AI Git Intelligence (T597–T601)
+
+**Goal:** Devin Playbooks parity (reusable multi-step YAML workflows), Nx/Turborepo-style test-impact analysis (run only affected tests), CodeSee AI Git Blame (LLM-enhanced history), and GitHub Copilot-style PR description generation.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 597 | [Playbook Engine (.lidco/playbooks/*.yaml)](#597-playbook-engine) | ✅ Done | 1d | Devin Playbooks parity |
+| 598 | [Test Impact Analyzer](#598-test-impact) | ✅ Done | 1d | Nx/Turborepo parity — run only affected tests |
+| 599 | [AI Git Blame](#599-ai-blame) | ✅ Done | 1d | CodeSee parity — LLM-enhanced history |
+| 600 | [PR Description Generator](#600-pr-desc) | ✅ Done | 1d | GitHub Copilot PR parity |
+| 601 | [CLI: /playbook /test-impact /ai-blame /pr-desc](#601-q93-cmds) | ✅ Done | 0.5d | exposes T597–T600 |
+
+### 597. Playbook Engine
+**File:** `src/lidco/playbooks/engine.py`
+`PlaybookEngine` — discovers `.lidco/playbooks/*.yaml` (project) + `~/.lidco/playbooks/*.yaml` (global). Project overrides global by name. Step types: `run` (shell), `prompt` (LLM), `tool` (slash command), `condition` (if/else). `{{var}}` interpolation. `list()`, `load(name)`, `execute(name, variables)` → `PlaybookResult`. Output from each step propagated as `{{output}}` to next step. Condition evaluation without exec/eval (equality + truthiness only).
+
+### 598. Test Impact Analyzer
+**File:** `src/lidco/testing/impact_analyzer.py`
+`TestImpactAnalyzer` — builds reverse import graph via AST (stdlib-only, no deps). `ChangeSet(files)` → `ImpactResult(changed_files, affected_tests, skipped_tests, coverage_estimate)`. `analyze(changeset)` BFS from changed files through inverted import graph. `analyze_since(ref)` uses `git diff --name-only`. `get_minimal_test_command()` returns ready-to-run pytest command. CLI: `/test-impact [--run] [--since <ref>] [file ...]`.
+
+### 599. AI Git Blame
+**File:** `src/lidco/git/ai_blame.py`
+`AIBlameAnalyzer` — combines `git blame --porcelain` + `git log` + LLM callback. `BlameEntry(file, line_start, line_end, author, commit, date, message, code_lines, ai_explanation)`. `analyze_file(path, line_range)` → list[BlameEntry]. `explain_history(path)` → LLM narrative. `find_introduction(symbol, path)` → BlameEntry of first commit introducing symbol. `get_file_history(path)` → `FileHistory`. LLM callback injected — stdlib-only without it.
+
+### 600. PR Description Generator
+**File:** `src/lidco/git/pr_description.py`
+`PRDescriptionGenerator` — uses `git log` + `git diff --numstat` + LLM callback. `PRDescription(title, summary, changes, test_plan, breaking_changes)` dataclass. `generate(base_branch, head_branch)` → `PRDescription`. `format_markdown(desc)` + `format_github(desc)` (GitHub-ready body with checkbox test plan). Rule-based fallback (no LLM) with heuristic breaking-change detection. LLM structured response parsed via regex sections.
+
+### 601. CLI: /playbook /test-impact /ai-blame /pr-desc
+**File:** `src/lidco/cli/commands/q93_cmds.py`
+`register_q93_commands(registry)` — wires 4 async commands:
+- `/playbook list|show <name>|run <name> [key=val ...]` → PlaybookEngine
+- `/test-impact [--run] [--since <ref>] [files...]` → TestImpactAnalyzer
+- `/ai-blame <file> [<start>-<end>]` → AIBlameAnalyzer
+- `/pr-desc [--base <branch>] [--format github|markdown]` → PRDescriptionGenerator
+
+---
+
+## Q94 — Dependency Intelligence & Automated Refactoring (T602–T606)
+
+**Goal:** Dependabot/Snyk dependency analysis (outdated/unused/vulnerable), Codemod-style code migration engine with built-in py2to3/stdlib/pytest rulesets, conventional-changelog generation from git history, and dotenv-vault-style .env validation.
+
+| # | Task | Status | Est. | Impact |
+|---|------|--------|------|--------|
+| 602 | [Dependency Analyzer](#602-deps) | ✅ Done | 1d | Dependabot/Snyk parity |
+| 603 | [Code Migration Engine](#603-migrate) | ✅ Done | 1d | Codemod/ast-grep parity |
+| 604 | [Changelog Generator](#604-changelog) | ✅ Done | 1d | conventional-changelog parity |
+| 605 | [Env Validator](#605-env-check) | ✅ Done | 1d | dotenv-vault/infisical parity |
+| 606 | [CLI: /deps /migrate /changelog /env-check](#606-q94-cmds) | ✅ Done | 0.5d | exposes T602–T605 |
+
+### 602. Dependency Analyzer
+**File:** `src/lidco/dependencies/analyzer.py`
+`DependencyAnalyzer` — parses requirements*.txt, pyproject.toml, package.json. Detects: unpinned versions (low), known vulnerable packages (high, built-in DB for pillow/cryptography/requests/urllib3/django/flask/pyyaml/jinja2), unused packages (info, via AST import scan), undeclared imports (medium). `DependencyReport(packages, issues, import_names, manifest_names)`. Canonical name mapping (pillow→pil, pyyaml→yaml, etc.). CLI: `/deps [--no-unused] [--no-unpinned] [--no-vuln]`.
+
+### 603. Code Migration Engine
+**File:** `src/lidco/migration/engine.py`
+`CodeMigrationEngine` — applies `MigrationRule` objects (regex or AST mode) to project files. Built-in rulesets: `py2to3` (6 rules: print/raise/except/unicode/has_key/iteritems), `stdlib` (4 rules: collections.abc/distutils/imp/optparse), `pytest` (2 rules). `apply_ruleset(name)` / `apply_rules(rules)` → `MigrationResult`. Dry-run by default. Excludes `.` directories. Callable replacements supported. CLI: `/migrate list|apply <ruleset> [--write]`.
+
+### 604. Changelog Generator
+**File:** `src/lidco/git/changelog.py`
+`ChangelogGenerator` — parses `git log` for Conventional Commits (type/scope/breaking). Groups into sections: Features/Bug Fixes/Performance/Refactoring/Breaking Changes/etc. `generate()` → `ChangelogResult` with `to_markdown()`. `save(result, path)` writes CHANGELOG.md. `get_tags()` for `--since` selection. Unrecognized commits collected separately. CLI: `/changelog [--since <tag>] [--version <label>] [--save]`.
+
+### 605. Env Validator
+**File:** `src/lidco/env/validator.py`
+`EnvValidator` — compares `.env` vs template (`.env.example` > `.env.template` > `.env.schema` > `.env.sample`). `ValidationResult` with `errors`/`warnings` properties. Checks: missing required vars (error), missing optional vars (warning), extra vars (info), empty required vars (error), placeholder/example secret values (warning). Schema format (required/optional:default:secret). `generate_template()` strips secret values. CLI: `/env-check [--env <file>] [--template <file>] [--gen-template]`.
+
+### 606. CLI: /deps /migrate /changelog /env-check
+**File:** `src/lidco/cli/commands/q94_cmds.py`
+`register_q94_commands(registry)` — 4 async commands:
+- `/deps` → DependencyAnalyzer
+- `/migrate list|apply <ruleset> [--write]` → CodeMigrationEngine
+- `/changelog [--since <tag>] [--version <label>] [--save]` → ChangelogGenerator
+- `/env-check [--env <file>] [--template <file>] [--gen-template]` → EnvValidator
+
+## Q95 — Code Statistics, TODO Scanner, License Checker & Git Hooks Manager (T607–T611)
+
+| Task | Name | Status | Est. | Notes |
+|---|------|--------|------|--------|
+| 607 | [Code Statistics](#607-stats) | ✅ Done | 1d | cloc/tokei parity |
+| 608 | [TODO/FIXME Scanner](#608-todo) | ✅ Done | 1d | grep-based tag scan |
+| 609 | [License Checker](#609-licenses) | ✅ Done | 1d | FOSSA parity |
+| 610 | [Git Hooks Manager](#610-hooks) | ✅ Done | 1d | husky/lefthook parity |
+| 611 | [CLI: /stats /todo /licenses /hooks](#611-q95-cmds) | ✅ Done | 0.5d | exposes T607–T610 |
+
+### 607. Code Statistics
+**File:** `src/lidco/stats/code_stats.py`
+`CodeStats` — walks project with `os.walk`, prunes `_SKIP_DIRS`. `LANGUAGE_MAP` covers 35+ extensions. `_count_lines(text, lang)` → `(code, comment, blank)` with block comment state machine. `CodeStatsReport(by_language, file_stats, total_files, total_lines, total_code, total_comments, total_blank)`. `top_languages(n)` sorted by code_lines. CLI: `/stats [--top n] [--json]`.
+
+### 608. TODO/FIXME Scanner
+**File:** `src/lidco/analysis/todo_scanner.py`
+`TodoScanner` — `_TAG_RE` regex matches `# TODO(owner): text` / `// FIXME: text`. `TAG_SEVERITY` dict (FIXME/HACK=high, TODO/BUG=medium, NOTE/OPTIMIZE=info). `TodoItem(file, line, tag, severity, text, owner, context)`. `TodoReport(items, files_scanned, by_tag, by_file)`. Skips `_SKIP_DIRS`. Optional git blame attribution. `scan_file(path)` and `scan()` directory walk. CLI: `/todo [--tag TAG] [--severity LEVEL] [--blame]`.
+
+### 609. License Checker
+**File:** `src/lidco/compliance/license_checker.py`
+`LicenseChecker` — reads dist-info METADATA, parses package.json. `_classify(license_str)` checks weak_copyleft BEFORE copyleft (critical: "lgpl" contains "gpl"). `PackageLicense(name, version, license, classification, homepage, source)`. `LicenseReport(packages, issues, project_license)` with `by_classification` property and `summary()`. Detects copyleft incompatibilities (error), weak copyleft (warning), unknown licenses (warning). CLI: `/licenses [--project-license L] [--no-unknown]`.
+
+### 610. Git Hooks Manager
+**File:** `src/lidco/git/hooks_manager.py`
+`HooksManager` — manages `.git/hooks/`. `GitHook(name, path, enabled, script, is_standard)`. `STANDARD_HOOKS` tuple of 18 hooks. `install(name, script, overwrite)` adds shebang, makes executable. `remove(name)` → bool. `enable(name)` / `disable(name)` → rename to/from `.disabled`. `run(name, timeout)` → `HookResult(hook, success, returncode, stdout, stderr)`. `_make_executable(path)` platform-aware chmod. CLI: `/hooks list|install|remove|enable|disable|run`.
+
+### 611. CLI: /stats /todo /licenses /hooks
+**File:** `src/lidco/cli/commands/q95_cmds.py`
+`register_q95_commands(registry)` — 4 async commands:
+- `/stats [--top n] [--json]` → CodeStats
+- `/todo [--tag TAG] [--severity LEVEL] [--blame]` → TodoScanner
+- `/licenses [--project-license L] [--no-unknown]` → LicenseChecker
+- `/hooks list|install <name> <script>|remove <name>|enable <name>|disable <name>|run <name>` → HooksManager
+
+## Q96 — HTTP Tool, SQL Tool, Profiler & Undo Manager (T612–T616)
+
+| Task | Name | Status | Est. | Notes |
+|---|------|--------|------|--------|
+| 612 | [HTTP Request Tool](#612-http) | ✅ Done | 1d | curl/HTTPie parity |
+| 613 | [SQL Query Tool](#613-sql) | ✅ Done | 1d | SQLite-native |
+| 614 | [Code Profiler](#614-profile) | ✅ Done | 1d | cProfile/pstats wrapper |
+| 615 | [Undo/Redo Manager](#615-undo) | ✅ Done | 1d | file checkpoint system |
+| 616 | [CLI: /http /sql /profile /undo](#616-q96-cmds) | ✅ Done | 0.5d | exposes T612–T615 |
+
+### 612. HTTP Request Tool
+**File:** `src/lidco/tools/http_tool.py`
+`HttpTool` — stdlib urllib only (no requests/httpx). Supports GET/POST/PUT/DELETE/PATCH with params, headers, JSON body, form data, basic auth, bearer auth, configurable timeout. `HttpResponse(url, method, status, reason, headers, body, elapsed_ms, error)` with `.ok`, `.json()`, `.format_summary()`. CLI: `/http <METHOD> <url> [--header K=V] [--json '{...}'] [--form K=V] [--bearer TOKEN] [--timeout N]`.
+
+### 613. SQL Query Tool
+**File:** `src/lidco/tools/sql_tool.py`
+`SqlTool` — sqlite3-based SQL execution. `execute(query, params)` / `execute_many(query, params_list)` / `execute_script(script)` → `SqlResult`. `list_tables()`, `table_info(name)` → `TableInfo`. `SqlResult.format_table()` ASCII table. Context manager support. CLI: `/sql [--db <path>] <query|tables|schema <name>>`.
+
+### 614. Code Profiler
+**File:** `src/lidco/profiling/profiler.py`
+`CodeProfiler` — cProfile + pstats wrapper. `profile_callable(func, *args)`, `profile_code(code_str)`, `profile_file(path)` → `ProfileReport`. `FunctionStat(module, function, line, ncalls, tottime, cumtime, percall)`. `ProfileReport.format_table(n)` ASCII hotspot table. `top_hotspots(n)` by cumulative time. CLI: `/profile file <path> [--top N] | code <snippet>`.
+
+### 615. Undo/Redo Manager
+**File:** `src/lidco/editing/undo_manager.py`
+`UndoManager` — file snapshot-based undo/redo. `watch(*paths)`, `checkpoint(label, extra_files)` → `Checkpoint`. `undo()` / `redo()` → `UndoResult(success, checkpoint, restored_files, error)`. `list_history()` / `list_redo()`. `can_undo` / `can_redo`. Max N checkpoints enforced. Best-effort restore on disk write errors. CLI: `/undo checkpoint|undo|redo|watch|history`.
+
+### 616. CLI: /http /sql /profile /undo
+**File:** `src/lidco/cli/commands/q96_cmds.py`
+`register_q96_commands(registry)` — 4 async commands:
+- `/http <METHOD> <url> [--header K=V] [--json] [--form] [--bearer] [--timeout]` → HttpTool
+- `/sql [--db path] <query|tables|schema name>` → SqlTool
+- `/profile file|code <target> [--top N]` → CodeProfiler
+- `/undo checkpoint|undo|redo|watch|history` → UndoManager
+
+## Q97 — Process Runner, File Watcher, Config Manager & Template Engine (T617–T621)
+
+| Task | Name | Status | Est. | Notes |
+|---|------|--------|------|--------|
+| 617 | [Process Runner](#617-run) | ✅ Done | 1d | subprocess wrapper |
+| 618 | [File Watcher](#618-watch) | ✅ Done | 1d | poll-based fs watcher |
+| 619 | [Config Manager](#619-config) | ✅ Done | 1d | layered JSON/TOML config |
+| 620 | [Template Engine](#620-template) | ✅ Done | 1d | Jinja2-like renderer |
+| 621 | [CLI: /run /watch /config /template](#621-q97-cmds) | ✅ Done | 0.5d | exposes T617–T620 |
+
+### 617. Process Runner
+**File:** `src/lidco/execution/process_runner.py`
+`ProcessRunner` — subprocess wrapper with timeout, cwd, env, stdin piping, streaming output via callback. `run(cmd)` → `ProcessResult(cmd, returncode, stdout, stderr, elapsed_ms, timed_out)`. `run_script(multi_line_script)` runs each line, stops on failure (unless prefixed with `-`). `which(name)`, `is_available(name)`. CLI: `/run <cmd> [--timeout N] [--cwd PATH] [--env K=V]`.
+
+### 618. File Watcher
+**File:** `src/lidco/watch/file_watcher.py`
+`FileWatcher` — polling-based (os.stat mtime) file watcher. `WatchEvent(path, kind: created|modified|deleted)`. `register_handler(pattern, callback)` glob matching. `poll()` synchronous one-shot poll. `start()`/`stop()` background thread. Debounce support. CLI: `/watch start|stop|events|status [--pattern GLOB] [--interval N]`.
+
+### 619. Config Manager
+**File:** `src/lidco/core/config_manager.py`
+`ConfigManager` — layered config: defaults → user (~/.lidco/config.*) → project (.lidco/config.*) → env vars → runtime overrides. Supports JSON + TOML (3.11+ tomllib). Dot-notation `get("llm.model")` / `set("llm.model", val)`. `save()` persists runtime to .lidco/config.json. `reload()` re-reads disk. Env prefix (LIDCO_LLM_MODEL → llm.model). CLI: `/config get|set|list|save|reload`.
+
+### 620. Template Engine
+**File:** `src/lidco/templates/engine.py`
+`TemplateEngine` — Jinja2-like without deps. `{{ var }}` substitution, `{% if/elif/else/endif %}`, `{% for x in items %}...{% endfor %}` with `loop.index/first/last`, `{# comments #}`, `{% raw %}...{% endraw %}`, `{% include 'file' %}`. 15 built-in filters (upper/lower/len/default/truncate/join/first/last/etc.). `render(str, ctx)` / `render_file(path, ctx)`. CLI: `/template render|file|test`.
+
+### 621. CLI: /run /watch /config /template
+**File:** `src/lidco/cli/commands/q97_cmds.py`
+`register_q97_commands(registry)` — 4 async commands:
+- `/run <cmd> [--timeout N] [--cwd PATH] [--env K=V]` → ProcessRunner
+- `/watch start|stop|events|status` → FileWatcher
+- `/config get|set|list|save|reload` → ConfigManager
+- `/template render|file|test [--var K=V]` → TemplateEngine
+
+---
+
+## Q98 — Secrets, Notifications, Scheduling & Data Pipeline (T622–T626)
+
+| Task | Name | Status | Est. | Notes |
+|---|------|--------|------|--------|
+| 622 | [Secrets Manager](#622-secrets) | ✅ Done | 1d | XOR+base64 obfuscated vault |
+| 623 | [Notification Center](#623-notify) | ✅ Done | 1d | multi-channel notifications |
+| 624 | [Task Scheduler](#624-scheduler) | ✅ Done | 1d | persistent one-shot + recurring |
+| 625 | [Data Pipeline](#625-data-pipeline) | ✅ Done | 1d | composable ETL |
+| 626 | [CLI: /secrets /notify /scheduler /data-pipeline](#626-q98-cmds) | ✅ Done | 0.5d | exposes T622–T625 |
+
+### 622. Secrets Manager
+**File:** `src/lidco/security/secrets_manager.py`
+`SecretsManager` — XOR+base64 obfuscated local secrets vault (obfuscation, not crypto). `set(key, value)`, `get(key) -> str|None`, `delete(key) -> bool`, `list() -> list[str]`, `export_env() -> dict`. Persists to `.lidco/secrets.json`. Key derived from `socket.gethostname()` via SHA-256 (override via `machine_key` ctor arg). `SecretEntry` dataclass with timestamps.
+
+### 623. Notification Center
+**File:** `src/lidco/notifications/center.py`
+`NotificationCenter` — multi-channel notification dispatch: `log` (callback/print), `webhook` (urllib POST), `desktop` (notify-send/osascript/msg). Thread-safe. `send(title, body, level, channels)` → `Notification`. `add_webhook/remove_webhook/list_webhooks`. `get_history()` newest-first, `clear_history()`. Errors captured per-channel, not raised.
+
+### 624. Task Scheduler
+**File:** `src/lidco/scheduler/task_scheduler.py`
+`TaskScheduler` — persistent one-shot + recurring task scheduler. `ScheduledTask` dataclass with id/name/command/schedule/next_run. Schedule formats: `"every Ns/Nm/Nh"` (recurring) or ISO datetime string (one-shot). `add/remove/list/get/run_due`. `start(poll_interval)/stop()` background daemon thread. Persists to `.lidco/scheduled_tasks.json`. `TaskRunResult.format_summary()`.
+
+### 625. Data Pipeline
+**File:** `src/lidco/data/pipeline.py`
+`DataPipeline` — composable ETL pipeline. Steps: `FilterStep(predicate)`, `MapStep(transform)`, `SortStep(key, reverse)`, `LimitStep(n)`, `UniqueStep(key)`. Fluent `add_step()` returns self. `run(data) -> list`, `dry_run(data) -> list[StepResult]` (per-step counts, no side effects). `clear()`. Raises `RuntimeError` if `run()` called with no steps.
+
+### 626. CLI: /secrets /notify /scheduler /data-pipeline
+**File:** `src/lidco/cli/commands/q98_cmds.py`
+`register_q98_commands(registry)` — 4 async commands:
+- `/secrets set|get|delete|list|export` → SecretsManager
+- `/notify send|webhook|history|clear` → NotificationCenter
+- `/scheduler add|remove|list|run` → TaskScheduler
+- `/data-pipeline run|steps [--sort KEY] [--limit N] [--unique]` → DataPipeline
+
+
+---
+
+## Q99 — Rate Limiter, Circuit Breaker, Event Bus & Job Queue (T627-T631)
+
+| Task | Name | Status | Est. | Notes |
+|---|------|--------|------|--------|
+| 627 | Rate Limiter | Done | 1d | token bucket, thread-safe |
+| 628 | Circuit Breaker | Done | 1d | CLOSED/OPEN/HALF_OPEN |
+| 629 | Event Bus | Done | 1d | typed pub/sub |
+| 630 | Job Queue | Done | 1d | priority + worker threads |
+| 631 | CLI q99_cmds | Done | 0.5d | exposes T627-T630 |
+
+## Q100 — Key-Value Store, Message Queue, State Machine & Retry (T632-T636)
+
+| Task | Name | Status | Est. | Notes |
+|---|------|--------|------|--------|
+| 632 | Key-Value Store | Done | 1d | TTL + namespaces + persistence |
+| 633 | Message Queue | Done | 1d | FIFO + dead-letter queue |
+| 634 | State Machine | Done | 1d | FSM with guards + actions |
+| 635 | Retry Decorator | Done | 1d | exponential/linear/fixed backoff |
+| 636 | CLI q100_cmds | Done | 0.5d | exposes T632-T635 |
+
+## Q101 — Cache, Object Pool, Observer & Command (tasks 637–641)
+
+| # | Task | Module | Status |
+|---|------|--------|--------|
+| 637 | LRU Cache | src/lidco/core/cache.py | DONE |
+| 638 | Object Pool | src/lidco/core/object_pool.py | DONE |
+| 639 | Observer Pattern | src/lidco/patterns/observer.py | DONE |
+| 640 | Command Pattern | src/lidco/patterns/command.py | DONE |
+| 641 | CLI Commands | src/lidco/cli/commands/q101_cmds.py | DONE |
+
+Tests: tests/unit/test_q101/ — 110 tests
+
+## Q102 — DI Container, Plugin Registry, Feature Flags & Audit Logger (tasks 642–646)
+
+| # | Task | Module | Status |
+|---|------|--------|--------|
+| 642 | DI Container | src/lidco/core/container.py | DONE |
+| 643 | Plugin Registry | src/lidco/plugins/registry.py | DONE |
+| 644 | Feature Flags | src/lidco/features/flags.py | DONE |
+| 645 | Audit Logger | src/lidco/audit/logger.py | DONE |
+| 646 | CLI Commands | src/lidco/cli/commands/q102_cmds.py | DONE |
+
+Tests: tests/unit/test_q102/ — 108 tests
+
+## Q103 — Event Sourcing, CQRS & Saga Pattern (tasks 647–651)
+
+| # | Task | Module | Status |
+|---|------|--------|--------|
+| 647 | Event Store + Aggregate Root | src/lidco/eventsourcing/store.py, aggregate.py | DONE |
+| 648 | CQRS Bus | src/lidco/cqrs/bus.py | DONE |
+| 649 | Saga Coordinator | src/lidco/saga/coordinator.py | DONE |
+| 650 | CLI Commands | src/lidco/cli/commands/q103_cmds.py | DONE |
+
+Tests: tests/unit/test_q103/ — 88 tests
+
+## Q104 — Repository, Unit of Work, Specification & Domain Service (tasks 652–656)
+
+| # | Task | Module | Status |
+|---|------|--------|--------|
+| 652 | Repository | src/lidco/repository/base.py | DONE |
+| 653 | Unit of Work | src/lidco/repository/unit_of_work.py | DONE |
+| 654 | Specification Pattern | src/lidco/domain/specification.py | DONE |
+| 655 | Domain Service Registry | src/lidco/domain/service.py | DONE |
+| 656 | CLI Commands | src/lidco/cli/commands/q104_cmds.py | DONE |
+
+Tests: tests/unit/test_q104/ — 94 tests
+
+## Q105 — Value Objects, Entity, Domain Events Publisher (tasks 657–661)
+
+| # | Task | Module | Status |
+|---|------|--------|--------|
+| 657 | Value Object + Money/Email/Phone | src/lidco/domain/value_object.py | DONE |
+| 658 | Entity + TimestampedEntity | src/lidco/domain/entity.py | DONE |
+| 659 | Domain Event Publisher | src/lidco/domain/events.py | DONE |
+| 660 | CLI Commands | src/lidco/cli/commands/q105_cmds.py | DONE |
+
+Tests: tests/unit/test_q105/ — 95 tests
+
+## Q106 — Builder, Strategy, Template Method & Decorator Pattern (tasks 662–666)
+
+| # | Task | Module | Status |
+|---|------|--------|--------|
+| 662 | Builder Pattern | src/lidco/patterns/builder.py | DONE |
+| 663 | Strategy Pattern | src/lidco/patterns/strategy.py | DONE |
+| 664 | Template Method Pattern | src/lidco/patterns/template_method.py | DONE |
+| 665 | Decorator Pattern | src/lidco/patterns/decorator_pattern.py | DONE |
+| 666 | CLI Commands | src/lidco/cli/commands/q106_cmds.py | DONE |
+
+Tests: tests/unit/test_q106/ — 95 tests
