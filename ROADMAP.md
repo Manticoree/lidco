@@ -5513,3 +5513,15 @@ Tests: tests/unit/test_q105/ — 95 tests
 | 666 | CLI Commands | src/lidco/cli/commands/q106_cmds.py | DONE |
 
 Tests: tests/unit/test_q106/ — 95 tests
+
+## Q107 — Composer Mode, Context Optimizer, Workflow Engine & Code Actions (tasks 667–671)
+
+| # | Task | Module | Status |
+|---|------|--------|--------|
+| 667 | Composer Session | src/lidco/composer/session.py | DONE |
+| 668 | Context Optimizer | src/lidco/context/optimizer.py | DONE |
+| 669 | Workflow Engine | src/lidco/workflow/engine.py | DONE |
+| 670 | Code Actions Registry | src/lidco/code_actions/registry.py | DONE |
+| 671 | CLI Commands | src/lidco/cli/commands/q107_cmds.py | DONE |
+
+Tests: tests/unit/test_q107/ — 152 tests
