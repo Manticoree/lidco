@@ -5525,3 +5525,181 @@ Tests: tests/unit/test_q106/ — 95 tests
 | 671 | CLI Commands | src/lidco/cli/commands/q107_cmds.py | DONE |
 
 Tests: tests/unit/test_q107/ — 152 tests
+
+## Q108 — Docgen, Snippet Manager, Import Resolver & Error Monitor (tasks 672–676)
+
+| # | Task | Module | Status |
+|---|------|--------|--------|
+| 672 | Doc Generator | src/lidco/docgen/generator.py | DONE |
+| 673 | Snippet Store | src/lidco/snippets/store.py | DONE |
+| 674 | Import Resolver | src/lidco/imports/resolver.py | DONE |
+| 675 | Error Monitor | src/lidco/monitoring/error_monitor.py | DONE |
+| 676 | CLI Commands | src/lidco/cli/commands/q108_cmds.py | DONE |
+
+Tests: tests/unit/test_q108/ — 153 tests
+
+## Q109 — Type Annotator, Stash Manager, Fixture Generator & Liveness Checker (tasks 677–681)
+
+| # | Task | Module | Status |
+|---|------|--------|--------|
+| 677 | Type Annotator | src/lidco/typing_/annotator.py | DONE |
+| 678 | Stash Manager | src/lidco/git/stash_manager.py | DONE |
+| 679 | Fixture Generator | src/lidco/testing/fixture_gen.py | DONE |
+| 680 | Liveness Checker | src/lidco/liveness/checker.py | DONE |
+| 681 | CLI Commands | src/lidco/cli/commands/q109_cmds.py | DONE |
+
+Tests: tests/unit/test_q109/ — 147 tests
+
+## Q110 — SemVer, Mock Generator, Conflict Resolver & Formatter Registry (tasks 682–686)
+
+| # | Task | Module | Status |
+|---|------|--------|--------|
+| 682 | SemVer Manager | src/lidco/versioning/semver.py | DONE |
+| 683 | Mock Generator | src/lidco/testing/mock_gen.py | DONE |
+| 684 | Conflict Resolver | src/lidco/git/conflict_resolver.py | DONE |
+| 685 | Formatter Registry | src/lidco/format/formatter.py | DONE |
+| 686 | CLI Commands | src/lidco/cli/commands/q110_cmds.py | DONE |
+
+Tests: tests/unit/test_q110/ — ~120 tests
+
+## Q111 — Session Intelligence & Memory Extraction (tasks 687–691)
+
+**Theme:** Close the Cursor/Windsurf "persistent memories" gap. Auto-mine conversations for reusable facts, manage their lifecycle, and add full session-level checkpoints (Cursor Checkpoints parity).
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 687 | ConversationMemoryExtractor | src/lidco/memory/conversation_extractor.py | Parse transcript for facts, score confidence, deduplicate vs AgentMemory, return ExtractedFact list |
+| 688 | MemoryApprovalQueue | src/lidco/memory/approval_queue.py | Pending-approval queue; approve/reject/list_pending/auto_approve(threshold); JSON-persisted in .lidco/ |
+| 689 | MemoryInjector | src/lidco/memory/injector.py | Compose system prompt block from approved memories; token-budget-aware; integrates with SessionSeeder |
+| 690 | SessionCheckpointStore | src/lidco/memory/session_checkpoint.py | Full session-level checkpoint (messages + file refs + memory state); save/list/restore/diff; named labels |
+| 691 | CLI Commands | src/lidco/cli/commands/q111_cmds.py | /memory extract, /memory approve, /memory list, /memory inject, /checkpoint save/list/restore/diff |
+
+Tests: tests/unit/test_q111/ — ~125 tests
+
+## Q112 — Live Task Orchestration & Chat Modes (tasks 692–696)
+
+**Theme:** Windsurf "live todo" parity + Aider "four chat modes" parity + Devin child-session spawning.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 692 | LiveTodoTracker | src/lidco/tasks/live_todo.py | Real-time progress renderer; TodoBoard with pending/active/done/blocked states; render_ascii(); EventBus-driven |
+| 693 | TodoPlanningAgent | src/lidco/tasks/planning_agent.py | NL task → TodoItem list via LLM; wraps TaskDAG; emits events for LiveTodoTracker; TodoPlan with deps |
+| 694 | ChildSessionSpawner | src/lidco/agents/child_session.py | Parent spawns typed child sessions with OutputSchema (dataclass-based); ChildSessionHandle; schema validation |
+| 695 | ChatModeManager | src/lidco/composer/chat_mode.py | Four modes: code/ask/architect/help; switch(mode); active_mode; mode persisted per ComposerSession |
+| 696 | CLI Commands | src/lidco/cli/commands/q112_cmds.py | /todo plan/board/done/block, /mode <code|ask|architect|help>, /mode status, /spawn |
+
+Tests: tests/unit/test_q112/ — ~125 tests
+
+## Q113 — BugBot PR Autofix Pipeline (tasks 697–701)
+
+**Theme:** Cursor BugBot Autofix parity: PR-triggered find-bugs → generate-fix → post-proposal loop. Plus session tagging and post-edit auto-lint.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 697 | BugBotPRTrigger | src/lidco/review/bugbot_pr_trigger.py | PR event listener; fetches diff; runs BugbotAnalyzer + PRReviewerV2; BugBotFinding list |
+| 698 | BugBotFixAgent | src/lidco/review/bugbot_fix_agent.py | Finding → minimal patch via LLM; BugBotFixProposal with before/after + rationale + confidence |
+| 699 | BugBotPRPoster | src/lidco/review/bugbot_pr_poster.py | Post fix proposals as inline PR comments; dry-run mode; duplicate detection via posted_ids |
+| 700 | SessionTagStore | src/lidco/memory/session_tags.py | Tag sessions by labels + attributes (origin, time_range, agent); search/filter/untag; SQLite-backed |
+| 701 | PostEditLintHook | src/lidco/editing/post_edit_lint.py | After-edit callback on SmartApply/ComposerSession; runs FormatterRegistry + LintFixLoop; LintHookResult |
+
+Tests: tests/unit/test_q113/ — ~125 tests
+
+## Q114 — Notebook Support & Web Grounding (tasks 702–706)
+
+**Theme:** Jupyter notebook support (Cursor parity) + in-session web search grounding (Windsurf parity).
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 702 | NotebookParser | src/lidco/notebook/parser.py | Read/write .ipynb JSON; NotebookDoc + Cell dataclasses; parse/dump/diff; stdlib json only |
+| 703 | NotebookEditor | src/lidco/notebook/editor.py | append/replace/delete/move cells; SmartApply-style diffs; immutable transforms; NotebookEditError |
+| 704 | NotebookAgent | src/lidco/notebook/agent.py | NL instructions → cell operations via LLM; execute_plan(instruction, doc, llm_fn); TodoPlan trace |
+| 705 | WebSearchGrounder | src/lidco/search/web_search.py | In-session web search (urllib.request); DuckDuckGo HTML scrape; pluggable provider; grounded_prompt() |
+| 706 | CLI Commands | src/lidco/cli/commands/q114_cmds.py | /notebook open/add/replace/show/ask, /search web <query>, /search web --grounded <prompt> |
+
+Tests: tests/unit/test_q114/ — ~125 tests
+
+## Q115 — Deploy Pipeline, Diagram Renderer & Max Mode (tasks 707–711)
+
+**Theme:** Windsurf one-click deploy parity + Cursor MCP Apps diagram rendering + Max Mode configuration (Cursor Max Mode parity).
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 707 | DeployProviderRegistry | src/lidco/scaffold/deploy_registry.py | Provider registry: Netlify/Railway/Fly.io/Heroku/custom; auto_detect(project_dir); .lidco/deploy.json |
+| 708 | DeployPipeline | src/lidco/scaffold/deploy_pipeline.py | build→test→deploy via JobQueue; DeployJob/DeployResult; dry-run; rollback via FlowCheckpointManager |
+| 709 | DiagramRenderer | src/lidco/multimodal/diagram_renderer.py | MermaidDiagram + AsciiDiagram; MCP tool adapter; render(spec) → RenderResult; pure stdlib, no subprocess |
+| 710 | MaxModeManager | src/lidco/composer/max_mode.py | Named modes: normal/max/mini; activate() updates AdaptiveBudget + ComposerSession limits; usage metering |
+| 711 | CLI Commands | src/lidco/cli/commands/q115_cmds.py | /deploy detect/run/status/rollback, /diagram mermaid/ascii/show, /max-mode <normal|max|mini>/status |
+
+Tests: tests/unit/test_q115/ — ~125 tests
+
+✅ **Q111–Q115 DONE** — Session Intelligence, Live Tasks, BugBot, Notebooks, Deploy/Diagram/MaxMode. ~703 tests.
+
+## Q116 — Agent Teams (tasks 712–716)
+
+**Theme:** Multi-agent squads where a lead coordinator delegates tasks from a shared pool; teammates communicate via AgentMailbox; results challenged before final delivery. Claude Code Agent Teams parity.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 712 | AgentTeamRegistry | src/lidco/agents/team_registry.py | AgentTeam(name, roles, mailbox); register/lookup; team-level broadcast() via AgentMailbox |
+| 713 | SharedTaskList | src/lidco/agents/shared_task_list.py | Thread-safe SharedTask pool; claim(agent_name) atomic; complete(task_id, result); list_pending() |
+| 714 | TeamCoordinator | src/lidco/agents/team_coordinator.py | Lead agent splits prompt→sub-tasks; dispatches via mailbox; collects results with timeout; CoordinationResult |
+| 715 | TeammateChallengeProtocol | src/lidco/agents/teammate_challenge.py | ChallengeRequest/Response; routes through AgentMailbox; ChallengeLog records outcomes |
+| 716 | CLI Commands | src/lidco/cli/commands/q116_cmds.py | /team create/assign/status/challenge |
+
+Tests: tests/unit/test_q116/ — ~125 tests
+
+## Q117 — Hooks System Expansion (tasks 717–721)
+
+**Theme:** New lifecycle hook events (InstructionsLoaded, CwdChanged, FileChanged, TaskCreated/Completed, Elicitation, PostCompact/PreCompact, WorktreeCreate/Remove, UserPromptSubmit), conditional if: filters, HTTP delivery. Claude Code parity.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 717 | HookEventBus | src/lidco/hooks/event_bus.py | HookEvent(event_type, payload, timestamp); subscribe/emit; immutable subscriber list replacement |
+| 718 | HookEventTypes | src/lidco/hooks/event_types.py | 12 frozen dataclass event types; event_type class-var; all 9 new lifecycle events |
+| 719 | ConditionalHookFilter | src/lidco/hooks/conditional_filter.py | ConditionalFilter(if_pattern); re.search matching; HookRegistry with HookDefinition; wildcard "*" |
+| 720 | HttpHookDelivery | src/lidco/hooks/http_delivery.py | HttpHookConfig(url, headers, timeout, retry); POST JSON via urllib.request; HttpDeliveryResult |
+| 721 | CLI Commands | src/lidco/cli/commands/q117_cmds.py | /hook list/emit/add-http/add-filter |
+
+Tests: tests/unit/test_q117/ — ~125 tests
+
+## Q118 — Automations Platform v2 (tasks 722–726)
+
+**Theme:** Unified AutomationTrigger registry wiring cron/GitHub PR/Slack/Linear/custom HTTP triggers to AutomationRunner with memory across runs and structured output routing. Cursor Automations Platform parity.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 722 | AutomationTriggerRegistry | src/lidco/scheduler/trigger_registry.py | AutomationTrigger(name, trigger_type, config, instructions_template, output_type, memory_key); register/match; JSON persistence |
+| 723 | TriggerEventNormalizer | src/lidco/scheduler/trigger_normalizer.py | Normalize cron/GitHub/Slack/Linear/HTTP → NormalizedEvent(trigger_type, source_id, title, body, metadata) |
+| 724 | AutomationRunner | src/lidco/scheduler/automation_runner.py | match triggers, render template, call agent_fn, persist RunRecord; RunSummary |
+| 725 | AutomationOutputRouter | src/lidco/scheduler/output_router.py | OutputRouter maps output_type(pr/slack/linear/log/comment) → OutputHandler; stub impls; route(result) |
+| 726 | CLI Commands | src/lidco/cli/commands/q118_cmds.py | /automation list/add/run/history |
+
+Tests: tests/unit/test_q118/ — ~125 tests
+
+## Q119 — Rules Directory + Effort Level + Session Color (tasks 727–731)
+
+**Theme:** Glob-scoped .lidco/rules/*.md files, RulesResolver for context-aware loading, effort levels mapped to token budgets, per-session accent colors. Claude Code rules directory + /effort + /color parity.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 727 | RulesFileLoader | src/lidco/rules/rules_loader.py | Scan .lidco/rules/*.md; parse globs: frontmatter; mtime cache; default glob "*" |
+| 728 | RulesResolver | src/lidco/rules/rules_resolver.py | fnmatch current_files vs rule glob; resolve_text() concatenates matched rules for prompt injection |
+| 729 | EffortManager | src/lidco/config/effort_manager.py | EffortLevel LOW/MEDIUM/HIGH/AUTO; EffortBudget(max_tokens, thinking_tokens, temperature); persist to .lidco/effort.json; auto heuristic |
+| 730 | SessionColorManager | src/lidco/config/session_color.py | 16 ANSI named colors; set_color/get_ansi_prefix/reset; persist to .lidco/session_color.json |
+| 731 | CLI Commands | src/lidco/cli/commands/q119_cmds.py | /rules list/check, /effort [level], /color [name] |
+
+Tests: tests/unit/test_q119/ — ~125 tests
+
+## Q120 — Memory Consolidation + Session Forking + Transcript Search (tasks 732–736)
+
+**Theme:** Async-safe memory consolidation (Auto Dream parity), session forking with divergence tracking, full-text transcript search with step-through navigation, stateful session summaries.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 732 | AsyncConsolidationScheduler | src/lidco/memory/consolidation_scheduler.py | Daemon thread wrapping MemoryConsolidator; schedule/cancel; ConsolidationJob status; emits PostCompact hook |
+| 733 | SessionForkManager | src/lidco/memory/session_fork.py | SessionFork(id, parent_id, title, branch_point, turns); create by cloning; diff(fork_a, fork_b) → ForkDiff |
+| 734 | TranscriptSearch | src/lidco/memory/transcript_search.py | Inverted word index; search(query) → SearchResultSet; Navigator with next/prev/current cursor |
+| 735 | SessionSummarizer | src/lidco/memory/session_summarizer.py | Summarize on threshold; SummaryRecord persisted to SessionHistoryStore; inject_context() for prompt |
+| 736 | CLI Commands | src/lidco/cli/commands/q120_cmds.py | /memory consolidate, /session fork/diff, /transcript search/next/prev, /summary show |
+
+Tests: tests/unit/test_q120/ — ~125 tests
