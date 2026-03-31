@@ -8,7 +8,7 @@ from lidco.editing.changeset_review import (
     Changeset,
     FileChange,
     ChangesetDecision,
-    ApplyResult,
+    ChangesetApplyResult,
 )
 
 OLD = "line1\nline2\nline3\n"
@@ -384,6 +384,6 @@ def test_changeset_decision_defaults():
 
 
 def test_apply_result_fields():
-    ar = ApplyResult(applied_files=3, skipped_files=1, errors=["oops"])
+    ar = ChangesetApplyResult(applied_files=3, skipped_files=1, errors=["oops"])
     assert ar.applied_files == 3
     assert ar.errors == ["oops"]

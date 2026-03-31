@@ -106,9 +106,11 @@ class SemanticMemoryStore:
         self,
         store_path: str | Path | None = None,
         max_entries: int = 1000,
+        enabled: bool = True,
     ) -> None:
         self._store_path = Path(store_path) if store_path else None
         self._max = max_entries
+        self._enabled = enabled
         self._entries: dict[str, MemoryEntry] = {}
         if self._store_path and self._store_path.exists():
             self._load()
@@ -132,6 +134,8 @@ class SemanticMemoryStore:
             priority=max(1, min(5, priority)),
             ttl=ttl,
         )
+        if not self._enabled:
+            return entry
         self._entries[key] = entry
         self._evict_if_needed()
         return entry
@@ -168,6 +172,8 @@ class SemanticMemoryStore:
         min_priority: int = 1,
     ) -> list[SearchResult]:
         """Find the most semantically similar non-expired entries."""
+        if not self._enabled:
+            return []
         # Filter candidates
         candidates = [
             e for e in self._entries.values()

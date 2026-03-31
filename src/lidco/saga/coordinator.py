@@ -97,6 +97,8 @@ class SagaCoordinator:
         with self._lock:
             steps = list(self._steps)
 
+        status = SagaStatus.RUNNING
+
         for step in steps:
             try:
                 result = step.action(ctx)
@@ -106,6 +108,7 @@ class SagaCoordinator:
                     step_data[step.name] = result
             except Exception as exc:
                 # Compensate in reverse order
+                status = SagaStatus.COMPENSATING
                 compensated: list[str] = []
                 for done_step in reversed(completed):
                     try:

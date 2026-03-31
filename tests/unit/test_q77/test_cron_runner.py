@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from lidco.scheduler.cron_runner import CronRunner, ScheduledTask, RunResult
+from lidco.scheduler.cron_runner import CronRunner, CronTask, CronRunResult
 
 
 class TestAddTask:

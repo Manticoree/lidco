@@ -9,7 +9,7 @@ from typing import Callable
 
 
 @dataclass
-class ScheduledTask:
+class CronTask:
     name: str
     cron_expr: str
     instruction: str
@@ -19,7 +19,7 @@ class ScheduledTask:
 
 
 @dataclass
-class RunResult:
+class CronRunResult:
     task_name: str
     started_at: float
     finished_at: float
@@ -35,18 +35,18 @@ class CronRunner:
 
     def __init__(self, state_path: Path | None = None) -> None:
         self._state_path = state_path or self._DEFAULT_STATE
-        self._tasks: dict[str, ScheduledTask] = {}
+        self._tasks: dict[str, CronTask] = {}
 
     # ------------------------------------------------------------------
     # Task management
     # ------------------------------------------------------------------
 
-    def add_task(self, name: str, cron_expr: str, instruction: str) -> ScheduledTask:
-        """Validate cron_expr (5 fields), store and return ScheduledTask."""
+    def add_task(self, name: str, cron_expr: str, instruction: str) -> CronTask:
+        """Validate cron_expr (5 fields), store and return CronTask."""
         fields = cron_expr.strip().split()
         if len(fields) != 5:
             raise ValueError(f"Invalid cron expression (need 5 fields): {cron_expr!r}")
-        task = ScheduledTask(name=name, cron_expr=cron_expr, instruction=instruction)
+        task = CronTask(name=name, cron_expr=cron_expr, instruction=instruction)
         self._tasks = {**self._tasks, name: task}
         return task
 
@@ -57,7 +57,7 @@ class CronRunner:
         self._tasks = {k: v for k, v in self._tasks.items() if k != name}
         return True
 
-    def list_tasks(self) -> list[ScheduledTask]:
+    def list_tasks(self) -> list[CronTask]:
         """Return list of all tasks."""
         return list(self._tasks.values())
 
@@ -65,7 +65,7 @@ class CronRunner:
     # Scheduling logic
     # ------------------------------------------------------------------
 
-    def is_due(self, task: ScheduledTask, now: float | None = None) -> bool:
+    def is_due(self, task: CronTask, now: float | None = None) -> bool:
         """Return True if task should run at the given time (or current time)."""
         now_ts = now if now is not None else time.time()
 
@@ -96,11 +96,11 @@ class CronRunner:
         self,
         executor: Callable[[str], str] | None = None,
         now: float | None = None,
-    ) -> list[RunResult]:
+    ) -> list[CronRunResult]:
         """Run all enabled due tasks; return results."""
         _executor = executor if executor is not None else (lambda i: f"[stub] ran: {i}")
         now_ts = now if now is not None else time.time()
-        results: list[RunResult] = []
+        results: list[CronRunResult] = []
 
         for task in list(self._tasks.values()):
             if not task.enabled:
@@ -121,7 +121,7 @@ class CronRunner:
             finished = time.time()
 
             # Update task state (immutable replacement)
-            updated = ScheduledTask(
+            updated = CronTask(
                 name=task.name,
                 cron_expr=task.cron_expr,
                 instruction=task.instruction,
@@ -131,7 +131,7 @@ class CronRunner:
             )
             self._tasks = {**self._tasks, task.name: updated}
 
-            results.append(RunResult(
+            results.append(CronRunResult(
                 task_name=task.name,
                 started_at=started,
                 finished_at=finished,
@@ -161,9 +161,9 @@ class CronRunner:
             return
         try:
             data = json.loads(self._state_path.read_text(encoding="utf-8"))
-            tasks: dict[str, ScheduledTask] = {}
+            tasks: dict[str, CronTask] = {}
             for name, item in data.items():
-                tasks[name] = ScheduledTask(
+                tasks[name] = CronTask(
                     name=item["name"],
                     cron_expr=item["cron_expr"],
                     instruction=item["instruction"],

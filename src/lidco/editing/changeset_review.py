@@ -39,7 +39,7 @@ class ChangesetDecision:
 
 
 @dataclass
-class ApplyResult:
+class ChangesetApplyResult:
     applied_files: int
     skipped_files: int
     errors: list[str]
@@ -123,7 +123,7 @@ class ChangesetReviewer:
 
     def apply(
         self, changeset: Changeset, decision: ChangesetDecision
-    ) -> ApplyResult:
+    ) -> ChangesetApplyResult:
         """Apply accepted files, skip rejected, handle partial hunks."""
         applied = 0
         skipped = 0
@@ -147,11 +147,11 @@ class ChangesetReviewer:
             else:
                 skipped += 1
 
-        return ApplyResult(
+        return ChangesetApplyResult(
             applied_files=applied, skipped_files=skipped, errors=errors
         )
 
-    def apply_all(self, changeset: Changeset) -> ApplyResult:
+    def apply_all(self, changeset: Changeset) -> ChangesetApplyResult:
         """Accept every change in the changeset."""
         decision = ChangesetDecision(
             accepted_files={ch.path for ch in changeset.changes},
@@ -160,9 +160,9 @@ class ChangesetReviewer:
         )
         return self.apply(changeset, decision)
 
-    def reject_all(self, changeset: Changeset) -> ApplyResult:
+    def reject_all(self, changeset: Changeset) -> ChangesetApplyResult:
         """Reject every change — nothing is written."""
-        return ApplyResult(
+        return ChangesetApplyResult(
             applied_files=0,
             skipped_files=changeset.total_files,
             errors=[],

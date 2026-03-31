@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from lidco.editing.patch_applier import ApplyResult, PatchApplier
+from lidco.editing.patch_applier import PatchApplyResult, PatchApplier
 from lidco.editing.patch_parser import PatchFile
 
 
@@ -15,7 +15,7 @@ class BatchEditResult:
     """Result of a batch patch operation."""
     applied: int
     failed: int
-    results: dict[str, ApplyResult] = field(default_factory=dict)
+    results: dict[str, PatchApplyResult] = field(default_factory=dict)
 
 
 class BatchEditor:
@@ -40,7 +40,7 @@ class BatchEditor:
         """
         applied = 0
         failed = 0
-        results: dict[str, ApplyResult] = {}
+        results: dict[str, PatchApplyResult] = {}
 
         for filename, (original, patch_file) in patches.items():
             result = self._applier.apply(original, patch_file)

@@ -1,6 +1,6 @@
 """Tests for src/lidco/editing/patch_applier.py."""
 from lidco.editing.patch_parser import PatchParser, PatchFile, PatchHunk
-from lidco.editing.patch_applier import PatchApplier, ApplyResult, ApplyError
+from lidco.editing.patch_applier import PatchApplier, PatchApplyResult, ApplyError
 
 
 SIMPLE_DIFF = """\
@@ -24,15 +24,15 @@ NEW_FILE_DIFF = """\
 ORIGINAL = "line1\nline2\nline3\n"
 
 
-class TestApplyResult:
+class TestPatchApplyResult:
     def test_success_fields(self):
-        r = ApplyResult(success=True, result_text="hello")
+        r = PatchApplyResult(success=True, result_text="hello")
         assert r.success is True
         assert r.result_text == "hello"
         assert r.error == ""
 
     def test_failure_fields(self):
-        r = ApplyResult(success=False, result_text="", error="mismatch")
+        r = PatchApplyResult(success=False, result_text="", error="mismatch")
         assert r.success is False
         assert r.error == "mismatch"
 
@@ -72,7 +72,7 @@ class TestPatchApplier:
         applier = PatchApplier()
         pf = self._parse(SIMPLE_DIFF)
         result = applier.apply(ORIGINAL, pf)
-        assert isinstance(result, ApplyResult)
+        assert isinstance(result, PatchApplyResult)
 
     def test_apply_empty_patch(self):
         applier = PatchApplier()
@@ -93,7 +93,7 @@ class TestPatchApplier:
         applier = PatchApplier()
         pf = self._parse(SIMPLE_DIFF)
         result = applier.dry_run(ORIGINAL, pf)
-        assert isinstance(result, ApplyResult)
+        assert isinstance(result, PatchApplyResult)
 
     def test_dry_run_success(self):
         applier = PatchApplier()
@@ -139,7 +139,7 @@ class TestPatchApplier:
         applier = PatchApplier()
         pf = self._parse(SIMPLE_DIFF)
         result = applier.apply(ORIGINAL, pf, strict=True)
-        assert isinstance(result, ApplyResult)
+        assert isinstance(result, PatchApplyResult)
 
     def test_apply_error_field_on_success(self):
         applier = PatchApplier()

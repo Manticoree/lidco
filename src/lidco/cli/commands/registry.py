@@ -52,6 +52,10 @@ class CommandRegistry:
     def register(self, cmd: SlashCommand) -> None:
         self._commands[cmd.name] = cmd
 
+    def register_async(self, name: str, description: str, handler: Callable[..., Awaitable[str]]) -> None:
+        """Convenience: register a command from (name, description, handler) triple."""
+        self.register(SlashCommand(name, description, handler))
+
     def get(self, name: str) -> SlashCommand | None:
         return self._commands.get(name)
 
@@ -98,6 +102,166 @@ class CommandRegistry:
         browser_cmds.register_browser_commands(self)
         from lidco.cli.commands import turbo_cmds
         turbo_cmds.register_turbo_commands(self)
+        # Q91–Q100 command modules (register_qNN_commands pattern)
+        from lidco.cli.commands import q91_cmds
+        q91_cmds.register_q91_commands(self)
+        from lidco.cli.commands import q92_cmds
+        q92_cmds.register_q92_commands(self)
+        from lidco.cli.commands import q93_cmds
+        q93_cmds.register_q93_commands(self)
+        from lidco.cli.commands import q94_cmds
+        q94_cmds.register_q94_commands(self)
+        from lidco.cli.commands import q95_cmds
+        q95_cmds.register_q95_commands(self)
+        from lidco.cli.commands import q96_cmds
+        q96_cmds.register_q96_commands(self)
+        from lidco.cli.commands import q97_cmds
+        q97_cmds.register_q97_commands(self)
+        from lidco.cli.commands import q98_cmds
+        q98_cmds.register_q98_commands(self)
+        from lidco.cli.commands import q99_cmds
+        q99_cmds.register_q99_commands(self)
+        from lidco.cli.commands import q100_cmds
+        q100_cmds.register_q100_commands(self)
+        # Q101–Q153 command modules (register pattern)
+        from lidco.cli.commands import q101_cmds
+        q101_cmds.register(self)
+        from lidco.cli.commands import q102_cmds
+        q102_cmds.register(self)
+        from lidco.cli.commands import q103_cmds
+        q103_cmds.register(self)
+        from lidco.cli.commands import q104_cmds
+        q104_cmds.register(self)
+        from lidco.cli.commands import q105_cmds
+        q105_cmds.register(self)
+        from lidco.cli.commands import q106_cmds
+        q106_cmds.register(self)
+        from lidco.cli.commands import q107_cmds
+        q107_cmds.register(self)
+        from lidco.cli.commands import q108_cmds
+        q108_cmds.register(self)
+        from lidco.cli.commands import q109_cmds
+        q109_cmds.register(self)
+        from lidco.cli.commands import q110_cmds
+        q110_cmds.register(self)
+        from lidco.cli.commands import q111_cmds
+        q111_cmds.register(self)
+        from lidco.cli.commands import q112_cmds
+        q112_cmds.register(self)
+        from lidco.cli.commands import q113_cmds
+        q113_cmds.register(self)
+        from lidco.cli.commands import q114_cmds
+        q114_cmds.register(self)
+        from lidco.cli.commands import q115_cmds
+        q115_cmds.register(self)
+        from lidco.cli.commands import q116_cmds
+        q116_cmds.register(self)
+        from lidco.cli.commands import q117_cmds
+        q117_cmds.register(self)
+        from lidco.cli.commands import q118_cmds
+        q118_cmds.register(self)
+        from lidco.cli.commands import q119_cmds
+        q119_cmds.register(self)
+        from lidco.cli.commands import q120_cmds
+        q120_cmds.register(self)
+        from lidco.cli.commands import q121_cmds
+        q121_cmds.register(self)
+        from lidco.cli.commands import q122_cmds
+        q122_cmds.register(self)
+        from lidco.cli.commands import q123_cmds
+        q123_cmds.register(self)
+        from lidco.cli.commands import q124_cmds
+        q124_cmds.register(self)
+        from lidco.cli.commands import q125_cmds
+        q125_cmds.register(self)
+        from lidco.cli.commands import q126_cmds
+        q126_cmds.register(self)
+        from lidco.cli.commands import q127_cmds
+        q127_cmds.register(self)
+        from lidco.cli.commands import q128_cmds
+        q128_cmds.register(self)
+        from lidco.cli.commands import q129_cmds
+        q129_cmds.register(self)
+        from lidco.cli.commands import q130_cmds
+        q130_cmds.register(self)
+        from lidco.cli.commands import q131_cmds
+        q131_cmds.register(self)
+        from lidco.cli.commands import q132_cmds
+        q132_cmds.register(self)
+        from lidco.cli.commands import q133_cmds
+        q133_cmds.register(self)
+        from lidco.cli.commands import q134_cmds
+        q134_cmds.register(self)
+        from lidco.cli.commands import q135_cmds
+        q135_cmds.register(self)
+        from lidco.cli.commands import q136_cmds
+        q136_cmds.register(self)
+        from lidco.cli.commands import q137_cmds
+        q137_cmds.register(self)
+        from lidco.cli.commands import q138_cmds
+        q138_cmds.register(self)
+        from lidco.cli.commands import q139_cmds
+        q139_cmds.register(self)
+        from lidco.cli.commands import q140_cmds
+        q140_cmds.register(self)
+        from lidco.cli.commands import q141_cmds
+        q141_cmds.register(self)
+        from lidco.cli.commands import q142_cmds
+        q142_cmds.register(self)
+        from lidco.cli.commands import q143_cmds
+        q143_cmds.register(self)
+        from lidco.cli.commands import q144_cmds
+        q144_cmds.register(self)
+        from lidco.cli.commands import q145_cmds
+        q145_cmds.register(self)
+        from lidco.cli.commands import q146_cmds
+        q146_cmds.register(self)
+        from lidco.cli.commands import q147_cmds
+        q147_cmds.register(self)
+        from lidco.cli.commands import q148_cmds
+        q148_cmds.register(self)
+        from lidco.cli.commands import q149_cmds
+        q149_cmds.register(self)
+        from lidco.cli.commands import q150_cmds
+        q150_cmds.register(self)
+        from lidco.cli.commands import q151_cmds
+        q151_cmds.register(self)
+        from lidco.cli.commands import q152_cmds
+        q152_cmds.register(self)
+        from lidco.cli.commands import q153_cmds
+        q153_cmds.register(self)
+        from lidco.cli.commands import q160_cmds
+        q160_cmds.register(self)
+        from lidco.cli.commands import q161_cmds
+        q161_cmds.register(self)
+        from lidco.cli.commands import q162_cmds
+        q162_cmds.register(self)
+        from lidco.cli.commands import q163_cmds
+        q163_cmds.register(self)
+        from lidco.cli.commands import q164_cmds
+        q164_cmds.register(self)
+        from lidco.cli.commands import q165_cmds
+        q165_cmds.register(self)
+        from lidco.cli.commands import q166_cmds
+        q166_cmds.register(self)
+        from lidco.cli.commands import q167_cmds
+        q167_cmds.register(self)
+        from lidco.cli.commands import q168_cmds
+        q168_cmds.register(self)
+        from lidco.cli.commands import q169_cmds
+        q169_cmds.register(self)
+        from lidco.cli.commands import q170_cmds
+        q170_cmds.register(self)
+        from lidco.cli.commands import q172_cmds
+        q172_cmds.register_q172_commands(self)
+        from lidco.cli.commands import q173_cmds
+        q173_cmds.register_q173_commands(self)
+        from lidco.cli.commands import q175_cmds
+        q175_cmds.register_q175_commands(self)
+        from lidco.cli.commands import q176_cmds
+        q176_cmds.register_q176_commands(self)
+        from lidco.cli.commands import q179_cmds
+        q179_cmds.register_q179_commands(self)
         self._load_skill_commands()
 
     def _load_skill_commands(self) -> None:

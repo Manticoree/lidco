@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("lidco.workspace.snapshot", reason="snapshot.py v1 removed in Q157")
 from lidco.workspace.snapshot import RestoreResult, WorkspaceSnapshot, WorkspaceSnapshotManager
 
 

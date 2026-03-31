@@ -265,7 +265,7 @@ class ConfigReloader:
                 old_repr = repr(getattr(existing, "_config", None)) if existing else None
                 new_repr = repr(getattr(agent_obj, "_config", None))
                 if old_repr != new_repr:
-                    registry.register(name, agent_obj)
+                    registry.register(agent_obj)
                     reloaded.append(name)
             if reloaded:
                 msg = f"Agents reloaded: {', '.join(reloaded)}"

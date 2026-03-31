@@ -1,0 +1,122 @@
+[
+  {
+    "id": "d4343dd3",
+    "fact": {
+      "content": "I prefer Python for scripts.",
+      "confidence": 0.7,
+      "tags": [
+        "python"
+      ],
+      "source_turn": 0
+    },
+    "created_at": "2026-03-28T14:20:22.127022+00:00"
+  },
+  {
+    "id": "4bd021d0",
+    "fact": {
+      "content": "I prefer Python for scripts.",
+      "confidence": 0.7,
+      "tags": [
+        "python"
+      ],
+      "source_turn": 0
+    },
+    "created_at": "2026-03-28T14:20:32.974224+00:00"
+  },
+  {
+    "id": "3f6e2419",
+    "fact": {
+      "content": "I prefer Python for scripts.",
+      "confidence": 0.7,
+      "tags": [
+        "python"
+      ],
+      "source_turn": 0
+    },
+    "created_at": "2026-03-28T14:20:59.804844+00:00"
+  },
+  {
+    "id": "202153c3",
+    "fact": {
+      "content": "I prefer Python for scripts.",
+      "confidence": 0.7,
+      "tags": [
+        "python"
+      ],
+      "source_turn": 0
+    },
+    "created_at": "2026-03-29T12:12:03.563646+00:00"
+  },
+  {
+    "id": "50cf39c0",
+    "fact": {
+      "content": "I prefer Python for scripts.",
+      "confidence": 0.7,
+      "tags": [
+        "python"
+      ],
+      "source_turn": 0
+    },
+    "created_at": "2026-03-29T12:20:00.709095+00:00"
+  },
+  {
+    "id": "8b80d19d",
+    "fact": {
+      "content": "I prefer Python for scripts.",
+      "confidence": 0.7,
+      "tags": [
+        "python"
+      ],
+      "source_turn": 0
+    },
+    "created_at": "2026-03-29T12:23:23.558151+00:00"
+  },
+  {
+    "id": "c564027d",
+    "fact": {
+      "content": "I prefer Python for scripts.",
+      "confidence": 0.7,
+      "tags": [
+        "python"
+      ],
+      "source_turn": 0
+    },
+    "created_at": "2026-03-30T08:47:27.466378+00:00"
+  },
+  {
+    "id": "7cd15dc7",
+    "fact": {
+      "content": "I prefer Python for scripts.",
+      "confidence": 0.7,
+      "tags": [
+        "python"
+      ],
+      "source_turn": 0
+    },
+    "created_at": "2026-03-30T19:22:16.998240+00:00"
+  },
+  {
+    "id": "2b7def5d",
+    "fact": {
+      "content": "I prefer Python for scripts.",
+      "confidence": 0.7,
+      "tags": [
+        "python"
+      ],
+      "source_turn": 0
+    },
+    "created_at": "2026-03-30T19:53:12.841116+00:00"
+  },
+  {
+    "id": "da2604d5",
+    "fact": {
+      "content": "I prefer Python for scripts.",
+      "confidence": 0.7,
+      "tags": [
+        "python"
+      ],
+      "source_turn": 0
+    },
+    "created_at": "2026-03-30T20:24:52.043341+00:00"
+  }
+]

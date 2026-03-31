@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+pytest.importorskip("lidco.analysis.symbol_index", reason="symbol_index.py removed in Q157")
 from lidco.analysis.symbol_index import SymbolDef, SymbolIndex, SymbolIndexBuilder
 
 

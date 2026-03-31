@@ -27,6 +27,7 @@ class ScheduledTask:
     last_run: float | None = None
     last_result: str = ""
     run_count: int = 0
+    timeout: float = 300.0
 
 
 @dataclass
@@ -116,7 +117,7 @@ class TaskScheduler:
                 shell=True,
                 capture_output=True,
                 text=True,
-                timeout=300,
+                timeout=task.timeout,
             )
             finished = time.time()
             return TaskRunResult(
@@ -140,7 +141,7 @@ class TaskScheduler:
                 finished_at=finished,
                 returncode=-1,
                 stdout="",
-                stderr="Command timed out after 300s",
+                stderr=f"Command timed out after {task.timeout}s",
                 success=False,
             )
         except Exception as exc:  # noqa: BLE001

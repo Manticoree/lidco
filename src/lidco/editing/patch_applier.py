@@ -14,7 +14,7 @@ class ApplyError(Exception):
 
 
 @dataclass
-class ApplyResult:
+class PatchApplyResult:
     """Result of applying a patch."""
     success: bool
     result_text: str
@@ -24,7 +24,7 @@ class ApplyResult:
 class PatchApplier:
     """Apply PatchFile hunks to original text."""
 
-    def apply(self, original: str, patch_file: PatchFile, strict: bool = False) -> ApplyResult:
+    def apply(self, original: str, patch_file: PatchFile, strict: bool = False) -> PatchApplyResult:
         """Apply all hunks from patch_file to original text.
 
         If strict=False, fuzzy matching is attempted on mismatch (±3 lines).
@@ -38,11 +38,11 @@ class PatchApplier:
             try:
                 result_lines, offset = _apply_hunk(result_lines, hunk, offset, strict)
             except ApplyError as e:
-                return ApplyResult(success=False, result_text=original, error=str(e))
+                return PatchApplyResult(success=False, result_text=original, error=str(e))
 
-        return ApplyResult(success=True, result_text="".join(result_lines))
+        return PatchApplyResult(success=True, result_text="".join(result_lines))
 
-    def dry_run(self, original: str, patch_file: PatchFile) -> ApplyResult:
+    def dry_run(self, original: str, patch_file: PatchFile) -> PatchApplyResult:
         """Simulate applying the patch without modifying original."""
         return self.apply(original, patch_file, strict=False)
 

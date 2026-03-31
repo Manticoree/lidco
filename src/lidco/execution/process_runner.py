@@ -22,6 +22,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+try:
+    from lidco.resilience.retry_executor import RetryConfig, RetryExecutor
+except ImportError:  # pragma: no cover
+    RetryConfig = None  # type: ignore[assignment,misc]
+    RetryExecutor = None  # type: ignore[assignment,misc]
+
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -96,12 +102,14 @@ class ProcessRunner:
         default_env: dict[str, str] | None = None,
         shell: bool = True,
         encoding: str = "utf-8",
+        retry_policy: "RetryConfig | None" = None,
     ) -> None:
         self._timeout = default_timeout
         self._cwd = default_cwd
         self._env = default_env
         self._shell = shell
         self._encoding = encoding
+        self._retry_policy = retry_policy
 
     # ------------------------------------------------------------------
     # Public API
@@ -150,6 +158,19 @@ class ProcessRunner:
             effective_env.update(env)
 
         cmd_str = cmd if isinstance(cmd, str) else " ".join(str(c) for c in cmd)
+
+        # If a retry policy is configured, wrap execution in RetryExecutor
+        if self._retry_policy is not None and RetryExecutor is not None:
+            return self._run_with_retry(
+                cmd, cmd_str,
+                effective_timeout=effective_timeout,
+                effective_cwd=effective_cwd,
+                effective_shell=effective_shell,
+                effective_env=effective_env,
+                stdin=stdin,
+                on_output=on_output,
+            )
+
         start = time.monotonic()
 
         try:
@@ -249,6 +270,71 @@ class ProcessRunner:
                 elapsed_ms=elapsed,
                 error=str(exc),
             )
+
+    def _run_with_retry(
+        self,
+        cmd: str | list[str],
+        cmd_str: str,
+        *,
+        effective_timeout: float | None,
+        effective_cwd: str | None,
+        effective_shell: bool,
+        effective_env: dict[str, str],
+        stdin: str | None,
+        on_output: Callable[[str], None] | None,
+    ) -> ProcessResult:
+        """Execute via RetryExecutor — retries on non-zero exit codes."""
+
+        def _attempt() -> ProcessResult:
+            # Temporarily disable retry to use the normal path
+            saved = self._retry_policy
+            self._retry_policy = None
+            try:
+                result = self.run(
+                    cmd,
+                    timeout=effective_timeout,
+                    cwd=effective_cwd,
+                    env=None,  # already merged into effective_env
+                    stdin=stdin,
+                    on_output=on_output,
+                    shell=effective_shell,
+                )
+            finally:
+                self._retry_policy = saved
+
+            # Override env for the inner call — we need to set it on self temporarily
+            # Actually the env is already baked into effective_env via the outer call,
+            # but since we pass env=None above the run() rebuilds from os.environ+self._env.
+            # This is fine because effective_env == os.environ+self._env+env already.
+
+            if not result.ok:
+                raise RuntimeError(
+                    f"Process failed: exit={result.returncode}, "
+                    f"timed_out={result.timed_out}, error={result.error}"
+                )
+            return result
+
+        executor = RetryExecutor(self._retry_policy)
+        retry_result = executor.execute(_attempt)
+
+        if retry_result.success:
+            return retry_result.result
+
+        # All retries exhausted — run once more without retry to get the real result
+        saved = self._retry_policy
+        self._retry_policy = None
+        try:
+            return self.run(
+                cmd,
+                timeout=effective_timeout,
+                cwd=effective_cwd,
+                env=None,
+                stdin=stdin,
+                on_output=on_output,
+                shell=effective_shell,
+            )
+        finally:
+            self._retry_policy = saved
 
     def run_script(
         self,

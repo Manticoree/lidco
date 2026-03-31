@@ -66,7 +66,7 @@ class TestRulesListCommand(unittest.TestCase):
         reg = _make_registry()
         cmd = reg.get("rules")
         result = _run(cmd.handler("list"))
-        self.assertIn("No rules", result.lower())
+        self.assertIn("no rules", result.lower())
 
 
 class TestRulesCheckCommand(unittest.TestCase):

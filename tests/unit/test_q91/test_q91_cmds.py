@@ -30,7 +30,7 @@ def test_session_history_list_command(tmp_path):
     with patch("lidco.memory.session_history.SessionHistoryStore") as MockStore:
         instance = MockStore.return_value
         instance.list.return_value = []
-        result = handler("")
+        result = asyncio.run(handler(""))
     assert "No session history" in result or "Recent" in result
 
 
@@ -51,7 +51,7 @@ def test_session_history_search_command():
         search_result.records = [mock_record]
         search_result.total = 1
         instance.search.return_value = search_result
-        result = handler("auth")
+        result = asyncio.run(handler("auth"))
     assert "auth" in result.lower() or "Fix" in result
 
 
@@ -86,7 +86,7 @@ def test_ignore_list_command(tmp_path):
     with patch("lidco.context.exclude_file.ContextExcludeFile") as MockEF:
         instance = MockEF.return_value
         instance.list_patterns.return_value = []
-        result = handler("list")
+        result = asyncio.run(handler("list"))
     assert isinstance(result, str)
 
 
@@ -98,7 +98,7 @@ def test_ignore_add_command():
 
     with patch("lidco.context.exclude_file.ContextExcludeFile") as MockEF:
         instance = MockEF.return_value
-        result = handler("add *.pyc")
+        result = asyncio.run(handler("add *.pyc"))
     assert "*.pyc" in result or "Added" in result
 
 
@@ -114,7 +114,7 @@ def test_mem_compact_command():
         report = MagicMock()
         report.summary = "Merged 2 groups."
         consolidator.consolidate.return_value = report
-        result = handler("")
+        result = asyncio.run(handler(""))
     assert isinstance(result, str)
 
 
@@ -130,7 +130,7 @@ def test_mem_compact_dry_run_command():
         report = MagicMock()
         report.summary = "[dry-run] Would merge 1 group."
         consolidator.dry_run.return_value = report
-        result = handler("--dry-run")
+        result = asyncio.run(handler("--dry-run"))
     assert isinstance(result, str)
 
 
@@ -146,7 +146,7 @@ def test_plugins_list_command():
         manifest.format_summary.return_value = "Plugins: 0/0 loaded, 0 failed"
         manifest.plugins = []
         instance.load_all.return_value = manifest
-        result = handler("list")
+        result = asyncio.run(handler("list"))
     assert "Plugin" in result or "plugin" in result.lower()
 
 

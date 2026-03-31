@@ -33,12 +33,20 @@ class AgentMemory:
 class AgentMemoryStore:
     """SQLite-backed store for persistent agent memories."""
 
-    def __init__(self, db_path: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        db_path: Path | str | None = None,
+        max_entries: int = 0,
+        enabled: bool = True,
+    ) -> None:
+        self._enabled = enabled
+        self._max_entries = max_entries  # 0 = unlimited
         if db_path is None:
             db_path = Path(".lidco") / "agent_memory.db"
         self._db_path = Path(db_path)
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
+        if self._enabled:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._init_db()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -79,7 +87,11 @@ class AgentMemoryStore:
     # ------------------------------------------------------------------
 
     def add(self, content: str, tags: list[str] | None = None) -> AgentMemory:
-        """Store a new memory and return it."""
+        """Store a new memory and return it.
+
+        When ``enabled`` is False the call is a no-op and a transient
+        AgentMemory is returned without touching the database.
+        """
         memory = AgentMemory(
             id=str(uuid.uuid4())[:8],
             content=content.strip(),
@@ -87,6 +99,8 @@ class AgentMemoryStore:
             created_at=time.time(),
             last_used=time.time(),
         )
+        if not self._enabled:
+            return memory
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?)",
@@ -99,10 +113,15 @@ class AgentMemoryStore:
                     memory.use_count,
                 ),
             )
+        # Enforce max_entries (evict oldest by last_used)
+        if self._max_entries > 0:
+            self._enforce_limit()
         return memory
 
     def search(self, query: str, limit: int = 10) -> list[AgentMemory]:
         """Simple keyword search across content and tags."""
+        if not self._enabled:
+            return []
         words = query.lower().split()
         with self._connect() as conn:
             rows = conn.execute(
@@ -119,6 +138,8 @@ class AgentMemoryStore:
 
     def list(self, limit: int = 20) -> list[AgentMemory]:
         """Return the most recently used memories."""
+        if not self._enabled:
+            return []
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM memories ORDER BY last_used DESC LIMIT ?",
@@ -163,3 +184,21 @@ class AgentMemoryStore:
             tag_str = f" [{', '.join(m.tags)}]" if m.tags else ""
             lines.append(f"- {m.content}{tag_str}")
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Capacity enforcement
+    # ------------------------------------------------------------------
+
+    def _enforce_limit(self) -> None:
+        """Delete oldest entries (by last_used) when count exceeds max_entries."""
+        if self._max_entries <= 0:
+            return
+        with self._connect() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+            excess = count - self._max_entries
+            if excess > 0:
+                conn.execute(
+                    "DELETE FROM memories WHERE id IN "
+                    "(SELECT id FROM memories ORDER BY last_used ASC LIMIT ?)",
+                    (excess,),
+                )

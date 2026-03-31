@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+pytest.importorskip("lidco.proactive.suggestions", reason="suggestions.py removed in Q157")
 from lidco.proactive.suggestions import Suggestion, SuggestionEngine, _parse_suggestions
 
 

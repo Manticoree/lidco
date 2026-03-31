@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from lidco.shadow.workspace import ApplyResult, PendingWrite, ShadowWorkspace
+from lidco.shadow.workspace import ShadowApplyResult, PendingWrite, ShadowWorkspace
 
 
 class TestShadowWorkspaceActiveFlag:
@@ -172,7 +172,7 @@ class TestApply:
         sw = ShadowWorkspace()
         sw.intercept(str(target), "data")
         result = sw.apply()
-        assert isinstance(result, ApplyResult)
+        assert isinstance(result, ShadowApplyResult)
         assert isinstance(result.applied, list)
         assert isinstance(result.skipped, list)
         assert isinstance(result.errors, dict)

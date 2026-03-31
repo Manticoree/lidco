@@ -1,6 +1,7 @@
 """LRUCache — LRU eviction with per-key TTL (stdlib only)."""
 from __future__ import annotations
 
+import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -51,23 +52,25 @@ class LRUCache:
         self._hits = 0
         self._misses = 0
         self._evictions = 0
+        self._lock = threading.Lock()
 
     # ------------------------------------------------------------------ public
 
     def get(self, key: str, default: Any = None) -> Any:
         """Return value for *key*, or *default* if missing/expired."""
-        entry = self._data.get(key)
-        if entry is None:
-            self._misses += 1
-            return default
-        if entry.is_expired():
-            del self._data[key]
-            self._misses += 1
-            return default
-        # Move to end (most-recently-used)
-        self._data.move_to_end(key)
-        self._hits += 1
-        return entry.value
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is None:
+                self._misses += 1
+                return default
+            if entry.is_expired():
+                del self._data[key]
+                self._misses += 1
+                return default
+            # Move to end (most-recently-used)
+            self._data.move_to_end(key)
+            self._hits += 1
+            return entry.value
 
     def set(self, key: str, value: Any, ttl: Any = _UNSET) -> None:
         """
@@ -79,34 +82,45 @@ class LRUCache:
             Per-key TTL override.  Pass explicit *None* for no expiry.
             Omit to use the cache-level default.
         """
-        if ttl is _UNSET:
-            effective_ttl = self._default_ttl
-        else:
-            effective_ttl = ttl
+        with self._lock:
+            if ttl is _UNSET:
+                effective_ttl = self._default_ttl
+            else:
+                effective_ttl = ttl
 
-        expires_at = (time.monotonic() + effective_ttl) if effective_ttl is not None else None
-        entry = _CacheEntry(value=value, expires_at=expires_at)
+            expires_at = (time.monotonic() + effective_ttl) if effective_ttl is not None else None
+            entry = _CacheEntry(value=value, expires_at=expires_at)
 
-        if key in self._data:
-            self._data.move_to_end(key)
-            self._data[key] = entry
-        else:
-            self._data[key] = entry
-            if len(self._data) > self._maxsize:
-                # Evict the oldest (leftmost) entry
-                self._data.popitem(last=False)
-                self._evictions += 1
+            if key in self._data:
+                self._data.move_to_end(key)
+                self._data[key] = entry
+            else:
+                self._data[key] = entry
+                if len(self._data) > self._maxsize:
+                    # Evict the oldest (leftmost) entry
+                    self._data.popitem(last=False)
+                    self._evictions += 1
+
+    def put(self, key: str, value: Any, ttl: Any = _UNSET) -> None:
+        """Alias for :meth:`set`."""
+        self.set(key, value, ttl)
+
+    def evict(self, key: str) -> bool:
+        """Remove *key*.  Return True if it existed."""
+        with self._lock:
+            if key in self._data:
+                del self._data[key]
+                return True
+            return False
 
     def delete(self, key: str) -> bool:
-        """Remove *key*.  Return True if it existed."""
-        if key in self._data:
-            del self._data[key]
-            return True
-        return False
+        """Alias for :meth:`evict`."""
+        return self.evict(key)
 
     def clear(self) -> None:
         """Remove all entries."""
-        self._data.clear()
+        with self._lock:
+            self._data.clear()
 
     def keys(self) -> list[str]:
         """Return all non-expired keys."""

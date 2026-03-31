@@ -2,7 +2,7 @@
 from __future__ import annotations
 from pathlib import Path
 import pytest
-from lidco.review.suggestion_applier import SuggestionApplier, Suggestion, ApplyResult, ApplyBatch
+from lidco.review.suggestion_applier import SuggestionApplier, Suggestion, SuggestionApplyResult, ApplyBatch
 
 
 def test_parse_suggestions_basic():

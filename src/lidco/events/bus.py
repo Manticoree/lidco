@@ -41,7 +41,13 @@ class EventBus:
         self._max_history = max_history
         self._subscriptions: dict[str, list[Subscription]] = {}
         self._history: list[Event] = []
+        self._errors: list[Exception] = []
         self._lock = threading.Lock()
+
+    @property
+    def last_errors(self) -> list[Exception]:
+        """Return list of errors captured during the most recent publish call."""
+        return list(self._errors)
 
     # ---------------------------------------------------------------- subscribe
 
@@ -70,10 +76,11 @@ class EventBus:
     def publish(self, event_type: str, data: dict | None = None) -> Event:
         """
         Create an Event and call all subscribers synchronously.
-        Handler exceptions are silently swallowed.
+        Handler exceptions are captured in :attr:`last_errors`.
         Return the Event.
         """
         event = Event(type=event_type, data=data or {})
+        errors: list[Exception] = []
 
         with self._lock:
             handlers = list(self._subscriptions.get(event_type, []))
@@ -84,9 +91,10 @@ class EventBus:
         for sub in handlers:
             try:
                 sub.handler(event)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
 
+        self._errors = errors
         return event
 
     def publish_async(self, event_type: str, data: dict | None = None) -> Event:

@@ -405,7 +405,7 @@ class Session:
             self._ledger_failure_count = getattr(self, "_ledger_failure_count", 0) + 1
             if self._ledger_failure_count == 3:
                 logger.warning(
-                    "ErrorLedger недоступен 3 раза подряд — история ошибок не сохраняется"
+                    "ErrorLedger unavailable 3 times in a row — error history is not being saved"
                 )
 
     def clear_context_cache(self) -> None:

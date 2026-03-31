@@ -11,6 +11,21 @@ import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# ---------------------------------------------------------------------------
+# Canonical .lidco/ directory layout — single source of truth for all paths
+# ---------------------------------------------------------------------------
+
+CONFIG_DIR = ".lidco"
+CONFIG_FILE = ".lidco/config.yaml"
+GLOBAL_CONFIG = "~/.lidco/config.yaml"
+MEMORY_DB = ".lidco/agent_memory.db"
+CHECKPOINTS_FILE = ".lidco/checkpoints.json"
+APPROVAL_QUEUE_FILE = ".lidco/approval_queue.json"
+SESSION_HISTORY_FILE = ".lidco/session_history.json"
+EVENT_STORE_FILE = ".lidco/event_store.json"
+KV_STORE_FILE = ".lidco/kv_store.json"
+SNAPSHOTS_DIR = ".lidco/workspace_snapshots"
+
 
 class PermissionLevel(str, Enum):
     AUTO = "auto"

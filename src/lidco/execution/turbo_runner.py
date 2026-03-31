@@ -12,6 +12,12 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Callable
 
+try:
+    from lidco.resilience.error_boundary import ErrorBoundary, BoundaryResult
+except ImportError:  # pragma: no cover
+    ErrorBoundary = None  # type: ignore[assignment,misc]
+    BoundaryResult = None  # type: ignore[assignment,misc]
+
 # Default safe allowlist patterns (regex)
 _DEFAULT_ALLOWED: list[str] = [
     r"^python\b",
@@ -95,6 +101,8 @@ class TurboRunner:
         self.cwd = cwd
         self.timeout = timeout
         self._history: list[RunResult] = []
+        self._boundary = ErrorBoundary() if ErrorBoundary is not None else None
+        self.last_errors: list[dict] = []
 
     # ------------------------------------------------------------------
     # Public API
@@ -160,6 +168,14 @@ class TurboRunner:
                 dry_run=True,
             )
         else:
+            result = self._execute_command(command)
+        self._history.append(result)
+        return result
+
+    def _execute_command(self, command: str) -> RunResult:
+        """Run *command* via subprocess, wrapped in ErrorBoundary when available."""
+
+        def _do_run() -> RunResult:
             try:
                 proc = subprocess.run(
                     command,
@@ -169,7 +185,7 @@ class TurboRunner:
                     cwd=self.cwd,
                     timeout=self.timeout,
                 )
-                result = RunResult(
+                return RunResult(
                     command=command,
                     stdout=proc.stdout,
                     stderr=proc.stderr,
@@ -179,7 +195,7 @@ class TurboRunner:
                     dry_run=False,
                 )
             except subprocess.TimeoutExpired:
-                result = RunResult(
+                return RunResult(
                     command=command,
                     stdout="",
                     stderr=f"Command timed out after {self.timeout}s.",
@@ -188,8 +204,25 @@ class TurboRunner:
                     blocked=False,
                     dry_run=False,
                 )
-        self._history.append(result)
-        return result
+
+        if self._boundary is not None:
+            boundary_result = self._boundary.catch(
+                _do_run,
+                default=RunResult(
+                    command=command,
+                    stdout="",
+                    stderr="ErrorBoundary caught an unexpected error.",
+                    returncode=-1,
+                    approved=True,
+                    blocked=False,
+                    dry_run=False,
+                ),
+            )
+            if not boundary_result.success:
+                self.last_errors = list(self._boundary.log)
+            return boundary_result.value
+
+        return _do_run()
 
     def run_many(self, commands: list[str]) -> list[RunResult]:
         """Run a sequence of commands; stop on first failure."""

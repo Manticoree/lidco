@@ -1,6 +1,6 @@
 """Tests for src/lidco/editing/batch_editor.py."""
 from lidco.editing.patch_parser import PatchParser, PatchFile
-from lidco.editing.patch_applier import PatchApplier, ApplyResult
+from lidco.editing.patch_applier import PatchApplier, PatchApplyResult
 from lidco.editing.batch_editor import BatchEditor, BatchEditResult
 
 
@@ -35,7 +35,7 @@ class TestBatchEditResult:
         assert r.results == {}
 
     def test_results_dict(self):
-        ar = ApplyResult(success=True, result_text="ok")
+        ar = PatchApplyResult(success=True, result_text="ok")
         r = BatchEditResult(applied=1, failed=0, results={"f": ar})
         assert "f" in r.results
 
@@ -109,7 +109,7 @@ class TestBatchEditor:
     def test_rollback_returns_originals_for_failed(self):
         be = BatchEditor()
         # Make a result with a failed entry
-        failed_result = ApplyResult(success=False, result_text="original_content", error="err")
+        failed_result = PatchApplyResult(success=False, result_text="original_content", error="err")
         batch = BatchEditResult(applied=0, failed=1, results={"fail.py": failed_result})
         originals = be.rollback(batch)
         assert "fail.py" in originals
@@ -117,7 +117,7 @@ class TestBatchEditor:
 
     def test_rollback_empty_if_all_success(self):
         be = BatchEditor()
-        success_result = ApplyResult(success=True, result_text="new_content")
+        success_result = PatchApplyResult(success=True, result_text="new_content")
         batch = BatchEditResult(applied=1, failed=0, results={"ok.py": success_result})
         originals = be.rollback(batch)
         assert originals == {}

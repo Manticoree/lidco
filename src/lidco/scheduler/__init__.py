@@ -1,4 +1,8 @@
 """Scheduler package — cron-based task runner."""
-from .cron_runner import CronRunner, ScheduledTask, RunResult
+from .cron_runner import CronRunner, CronTask, CronRunResult
 
-__all__ = ["CronRunner", "ScheduledTask", "RunResult"]
+# Backward-compatible aliases
+ScheduledTask = CronTask
+RunResult = CronRunResult
+
+__all__ = ["CronRunner", "CronTask", "CronRunResult", "ScheduledTask", "RunResult"]

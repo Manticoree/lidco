@@ -18,7 +18,7 @@ class Suggestion:
 
 
 @dataclass
-class ApplyResult:
+class SuggestionApplyResult:
     suggestion: Suggestion
     success: bool
     message: str
@@ -26,7 +26,7 @@ class ApplyResult:
 
 @dataclass
 class ApplyBatch:
-    results: list[ApplyResult]
+    results: list[SuggestionApplyResult]
     applied: int
     failed: int
     skipped: int
@@ -90,33 +90,33 @@ class SuggestionApplier:
             ))
         return suggestions
 
-    def apply(self, suggestion: Suggestion, *, dry_run: bool = False) -> ApplyResult:
+    def apply(self, suggestion: Suggestion, *, dry_run: bool = False) -> SuggestionApplyResult:
         """Apply a single suggestion to the target file."""
         if not suggestion.file:
-            return ApplyResult(suggestion=suggestion, success=False, message="No target file specified")
+            return SuggestionApplyResult(suggestion=suggestion, success=False, message="No target file specified")
 
         path = self.repo_root / suggestion.file
         if not path.exists():
-            return ApplyResult(suggestion=suggestion, success=False, message=f"File not found: {path}")
+            return SuggestionApplyResult(suggestion=suggestion, success=False, message=f"File not found: {path}")
 
         try:
             content = path.read_text(encoding="utf-8", errors="replace")
         except OSError as e:
-            return ApplyResult(suggestion=suggestion, success=False, message=str(e))
+            return SuggestionApplyResult(suggestion=suggestion, success=False, message=str(e))
 
         if suggestion.old_code and suggestion.old_code in content:
             new_content = content.replace(suggestion.old_code, suggestion.new_code, 1)
             if not dry_run:
                 path.write_text(new_content, encoding="utf-8")
-            return ApplyResult(suggestion=suggestion, success=True, message=f"Replaced in {suggestion.file}")
+            return SuggestionApplyResult(suggestion=suggestion, success=True, message=f"Replaced in {suggestion.file}")
         elif not suggestion.old_code and suggestion.new_code:
             # Append mode
             new_content = content + "\n" + suggestion.new_code
             if not dry_run:
                 path.write_text(new_content, encoding="utf-8")
-            return ApplyResult(suggestion=suggestion, success=True, message=f"Appended to {suggestion.file}")
+            return SuggestionApplyResult(suggestion=suggestion, success=True, message=f"Appended to {suggestion.file}")
         else:
-            return ApplyResult(suggestion=suggestion, success=False, message="old_code not found in file")
+            return SuggestionApplyResult(suggestion=suggestion, success=False, message="old_code not found in file")
 
     def apply_all(
         self,
@@ -125,13 +125,13 @@ class SuggestionApplier:
         dry_run: bool = False,
     ) -> ApplyBatch:
         """Apply all suggestions, returning a batch result."""
-        results: list[ApplyResult] = []
+        results: list[SuggestionApplyResult] = []
         applied = 0
         failed = 0
         skipped = 0
         for s in suggestions:
             if not s.file:
-                results.append(ApplyResult(suggestion=s, success=False, message="skipped (no file)"))
+                results.append(SuggestionApplyResult(suggestion=s, success=False, message="skipped (no file)"))
                 skipped += 1
                 continue
             r = self.apply(s, dry_run=dry_run)

@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from lidco.editing.smart_apply import SmartApply, ApplyCandidate, ApplyResult
+from lidco.editing.smart_apply import SmartApply, ApplyCandidate, SmartApplyResult
 
 
 # ---------------------------------------------------------------------------
@@ -277,11 +277,11 @@ def test_apply_candidate_fields():
 
 
 def test_apply_result_default_error():
-    r = ApplyResult("foo.py", True, "diff")
+    r = SmartApplyResult("foo.py", True, "diff")
     assert r.error == ""
 
 
 def test_apply_result_with_error():
-    r = ApplyResult("foo.py", False, "", "something went wrong")
+    r = SmartApplyResult("foo.py", False, "", "something went wrong")
     assert r.error == "something went wrong"
     assert r.applied is False

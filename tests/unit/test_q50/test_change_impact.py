@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+pytest.importorskip("lidco.analysis.change_impact", reason="change_impact.py removed in Q157")
 from lidco.analysis.change_impact import ChangeImpactAnalyzer, ImpactReport, ImpactedModule
 from lidco.analysis.dependency_graph import DependencyGraph
 

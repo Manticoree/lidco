@@ -15,7 +15,7 @@ class ApplyCandidate:
 
 
 @dataclass
-class ApplyResult:
+class SmartApplyResult:
     file_path: str
     applied: bool
     diff_preview: str  # unified diff
@@ -146,7 +146,7 @@ class SmartApply:
 
     def apply_block(
         self, code: str, target: str, dry_run: bool = False
-    ) -> ApplyResult:
+    ) -> SmartApplyResult:
         """Write code to target file. Returns unified diff preview."""
         target_path = Path(target)
 
@@ -154,14 +154,14 @@ class SmartApply:
         try:
             target_path.resolve().relative_to(self.project_root)
         except ValueError:
-            return ApplyResult(target, False, "", "Target file is outside project root")
+            return SmartApplyResult(target, False, "", "Target file is outside project root")
 
         original = ""
         if target_path.exists():
             try:
                 original = target_path.read_text(encoding="utf-8")
             except OSError as exc:
-                return ApplyResult(target, False, "", str(exc))
+                return SmartApplyResult(target, False, "", str(exc))
 
         diff = "\n".join(
             difflib.unified_diff(
@@ -178,16 +178,16 @@ class SmartApply:
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 target_path.write_text(code, encoding="utf-8")
             except OSError as exc:
-                return ApplyResult(target, False, diff, str(exc))
+                return SmartApplyResult(target, False, diff, str(exc))
 
-        return ApplyResult(target, not dry_run, diff)
+        return SmartApplyResult(target, not dry_run, diff)
 
     def apply_all(
         self, text: str, dry_run: bool = False
-    ) -> list[ApplyResult]:
+    ) -> list[SmartApplyResult]:
         """Process all code blocks in LLM response text."""
         blocks = self.extract_code_blocks(text)
-        results: list[ApplyResult] = []
+        results: list[SmartApplyResult] = []
         for fence_info, code in blocks:
             if not code.strip():
                 continue

@@ -10,7 +10,7 @@ def register_q91_commands(registry):
     # ------------------------------------------------------------------
     # /session-history [search query]
     # ------------------------------------------------------------------
-    def session_history_handler(args: str) -> str:
+    async def session_history_handler(args: str) -> str:
         from lidco.memory.session_history import SessionHistoryStore
         store = SessionHistoryStore()
         args = args.strip()
@@ -68,7 +68,7 @@ def register_q91_commands(registry):
     # ------------------------------------------------------------------
     # /ignore [add|remove|list] [pattern]
     # ------------------------------------------------------------------
-    def ignore_handler(args: str) -> str:
+    async def ignore_handler(args: str) -> str:
         from lidco.context.exclude_file import ContextExcludeFile
         ef = ContextExcludeFile(".")
         parts = args.strip().split(None, 1)
@@ -104,7 +104,7 @@ def register_q91_commands(registry):
     # ------------------------------------------------------------------
     # /mem-compact [--dry-run]
     # ------------------------------------------------------------------
-    def mem_compact_handler(args: str) -> str:
+    async def mem_compact_handler(args: str) -> str:
         from lidco.memory.consolidator import MemoryConsolidator
         dry_run = "--dry-run" in args.lower()
         consolidator = MemoryConsolidator()
@@ -130,7 +130,7 @@ def register_q91_commands(registry):
     # ------------------------------------------------------------------
     # /plugins [list|reload]
     # ------------------------------------------------------------------
-    def plugins_handler(args: str) -> str:
+    async def plugins_handler(args: str) -> str:
         from lidco.tools.plugin_loader import ToolPluginLoader
         loader = ToolPluginLoader(".")
         sub = args.strip().lower()

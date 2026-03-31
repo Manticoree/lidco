@@ -17,7 +17,7 @@ class PendingWrite:
 
 
 @dataclass
-class ApplyResult:
+class ShadowApplyResult:
     """Result of applying pending changes to disk."""
 
     applied: list[str]
@@ -94,14 +94,14 @@ class ShadowWorkspace:
 
     # -- apply / discard ---------------------------------------------------
 
-    def apply(self, paths: list[str] | None = None) -> ApplyResult:
+    def apply(self, paths: list[str] | None = None) -> ShadowApplyResult:
         """Write accepted changes to disk.
 
         Args:
             paths: Specific paths to apply.  ``None`` means apply all.
 
         Returns:
-            An :class:`ApplyResult` with lists of applied, skipped and errored paths.
+            An :class:`ShadowApplyResult` with lists of applied, skipped and errored paths.
         """
         targets = paths if paths is not None else list(self._pending.keys())
         applied: list[str] = []
@@ -122,7 +122,7 @@ class ShadowWorkspace:
             except OSError as exc:
                 errors[p] = str(exc)
 
-        return ApplyResult(applied=applied, skipped=skipped, errors=errors)
+        return ShadowApplyResult(applied=applied, skipped=skipped, errors=errors)
 
     def discard(self, paths: list[str] | None = None) -> int:
         """Clear pending changes.

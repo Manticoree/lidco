@@ -28,6 +28,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+try:
+    from lidco.core.config import LidcoConfig
+except ImportError:  # pragma: no cover
+    LidcoConfig = None  # type: ignore[assignment,misc]
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -147,12 +152,16 @@ class ConfigManager:
         user_home: str | None = None,
         env_prefix: str = "LIDCO",
         config_filename: str = "config",
+        config: "LidcoConfig | None" = None,
     ) -> None:
         self._defaults: dict = defaults or {}
         self._project_root = Path(project_root) if project_root else Path.cwd()
         self._user_home = Path(user_home) if user_home else Path.home()
         self._env_prefix = env_prefix.upper().rstrip("_") + "_"
         self._config_filename = config_filename
+
+        # Optional LidcoConfig backing store
+        self._lidco_config: "LidcoConfig | None" = config
 
         # Runtime overrides (set via .set())
         self._runtime: dict = {}
@@ -169,6 +178,10 @@ class ConfigManager:
         """
         Get a config value by dot-notation key.
 
+        When a LidcoConfig is attached, resolves dot-notation keys against the
+        Pydantic model (e.g. ``"llm.default_model"`` -> ``config.llm.default_model``).
+        Falls back to the merged dict for keys not on the model.
+
         Parameters
         ----------
         key : str
@@ -176,6 +189,11 @@ class ConfigManager:
         default : Any
             Returned if key not found.
         """
+        if self._lidco_config is not None:
+            try:
+                return self._resolve_from_model(key)
+            except (AttributeError, KeyError, TypeError):
+                pass
         keys = key.split(".")
         try:
             return _get_nested(self._config, keys)
@@ -196,7 +214,15 @@ class ConfigManager:
         return result
 
     def all(self) -> dict:
-        """Return a copy of the full merged config."""
+        """Return a copy of the full merged config.
+
+        When a LidcoConfig is attached, serialises the current model state
+        (which includes any mutations applied via ``set()``) merged on top of
+        the file-based config.
+        """
+        if self._lidco_config is not None:
+            base = self._lidco_config.model_dump()
+            return _deep_merge(base, self._runtime)
         return deepcopy(self._config)
 
     # ------------------------------------------------------------------
@@ -206,6 +232,9 @@ class ConfigManager:
     def set(self, key: str, value: Any) -> None:
         """
         Set a runtime override (in-memory only, not persisted).
+
+        When a LidcoConfig is attached, also updates the model attribute so
+        that ``get()`` and ``all()`` reflect the new value immediately.
 
         Parameters
         ----------
@@ -217,6 +246,8 @@ class ConfigManager:
         keys = key.split(".")
         self._runtime = _set_nested(self._runtime, keys, value)
         self._config = _deep_merge(self._config, _set_nested({}, keys, value))
+        if self._lidco_config is not None:
+            self._apply_to_model(keys, value)
 
     def save(self, path: str | Path | None = None) -> Path:
         """
@@ -243,10 +274,39 @@ class ConfigManager:
     # Reload
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # LidcoConfig helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_from_model(self, key: str) -> Any:
+        """Walk dot-notation *key* against the LidcoConfig Pydantic model."""
+        parts = key.split(".")
+        obj: Any = self._lidco_config
+        for p in parts:
+            if isinstance(obj, dict):
+                obj = obj[p]
+            else:
+                obj = getattr(obj, p)
+        return obj
+
+    def _apply_to_model(self, keys: list[str], value: Any) -> None:
+        """Best-effort set of a dot-notation path on the LidcoConfig model."""
+        try:
+            obj: Any = self._lidco_config
+            for k in keys[:-1]:
+                obj = getattr(obj, k)
+            setattr(obj, keys[-1], value)
+        except (AttributeError, TypeError, ValueError):
+            pass  # key does not map to a model field — runtime dict still has it
+
     def reload(self) -> None:
         """Re-read all config files and rebuild the merged config."""
         # Start with defaults
         merged = deepcopy(self._defaults)
+
+        # If a LidcoConfig is attached, seed from its serialised state
+        if self._lidco_config is not None:
+            merged = _deep_merge(merged, self._lidco_config.model_dump())
 
         # User config (~/.lidco/config.*)
         user_cfg = self._load_user_config()
