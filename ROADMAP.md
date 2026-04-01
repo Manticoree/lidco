@@ -1277,3 +1277,1063 @@ Tests: tests/unit/test_q237/ — 53 tests
 | 1306 | CLI Commands | src/lidco/cli/commands/q238_cmds.py | /ultraplan, /ultrareview, /turn-limit, /parallel-tools |
 
 Tests: tests/unit/test_q238/ — 70 tests
+
+---
+
+# Phase 14 — Session & Conversation Engine (Q239–Q248)
+
+> Goal: production-grade conversation engine — message validation, streaming backpressure, conversation branching, session persistence, context window OS.
+
+## Q239 — Message Schema Validation (tasks 1307–1311)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1307 | Message Validator | src/lidco/conversation/validator.py | Validate role (system/user/assistant/tool); content type checks; tool_call_id required for tool role; max content length |
+| 1308 | Schema Registry | src/lidco/conversation/schema_registry.py | Register schemas per provider (OpenAI, Anthropic, custom); auto-select based on model; extensible |
+| 1309 | Message Normalizer | src/lidco/conversation/normalizer.py | Normalize messages across providers; content→list-of-blocks; strip unsupported fields; add defaults |
+| 1310 | Validation Reporter | src/lidco/conversation/validation_reporter.py | Report schema violations; auto-fix where possible; log warnings; strict/lenient modes |
+| 1311 | CLI Commands | src/lidco/cli/commands/q239_cmds.py | /validate-messages, /normalize, /schema-info, /message-stats |
+
+## Q240 — Streaming Backpressure & Flow Control (tasks 1312–1316)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1312 | Backpressure Controller | src/lidco/streaming/backpressure.py | Token-rate limiter; buffer overflow detection; pause/resume signals; configurable high/low watermarks |
+| 1313 | Stream Buffer | src/lidco/streaming/stream_buffer.py | Ring buffer for tokens; overflow policy (drop-oldest/block/error); stats; drain on flush |
+| 1314 | Flow Controller | src/lidco/streaming/flow_controller.py | Coordinate producer (LLM) and consumer (display); adaptive rate; congestion detection |
+| 1315 | Stream Monitor | src/lidco/streaming/stream_monitor.py | Real-time stream stats; tokens/sec; latency percentiles; stall detection; alert on anomalies |
+| 1316 | CLI Commands | src/lidco/cli/commands/q240_cmds.py | /stream-stats, /backpressure, /stream-buffer, /flow-control |
+
+## Q241 — Session Persistence & Resume (tasks 1317–1321)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1317 | Session Persister | src/lidco/session/persister.py | Save full session to SQLite; messages, config, tool state; incremental save after each turn |
+| 1318 | Session Loader | src/lidco/session/loader.py | Load session from disk; validate integrity; migrate schema versions; partial load (last N turns) |
+| 1319 | Resume Manager | src/lidco/session/resume_manager.py | List resumable sessions; auto-detect last session; resume with context summary; conflict resolution |
+| 1320 | Session Garbage Collector | src/lidco/session/gc.py | Clean up old sessions; configurable retention (days/count); archive before delete; disk usage report |
+| 1321 | CLI Commands | src/lidco/cli/commands/q241_cmds.py | /session-save, /session-load, /resume, /session-gc |
+
+## Q242 — Conversation Branching v2 (tasks 1322–1326)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1322 | Branch Tree | src/lidco/conversation/branch_tree.py | Tree structure for conversation branches; parent/child; depth tracking; leaf enumeration |
+| 1323 | Branch Navigator | src/lidco/conversation/branch_navigator.py | Navigate between branches; jump to any node; breadcrumb trail; visual tree display |
+| 1324 | Branch Comparator | src/lidco/conversation/branch_comparator.py | Diff two branches; divergence point; unique messages per branch; cost comparison |
+| 1325 | Branch Pruner | src/lidco/conversation/branch_pruner.py | Delete dead branches; merge successful branches back; archive; space savings report |
+| 1326 | CLI Commands | src/lidco/cli/commands/q242_cmds.py | /branch-tree, /branch-nav, /branch-compare, /branch-prune |
+
+## Q243 — Context Window OS (tasks 1327–1331)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1327 | Context Scheduler | src/lidco/context/scheduler.py | Priority-based context scheduling; time-slice allocation; preemption for high-priority content |
+| 1328 | Virtual Memory | src/lidco/context/virtual_memory.py | Swap cold context to disk; page-in on reference; working set tracking; LRU page replacement |
+| 1329 | Context Segments | src/lidco/context/segments.py | Named segments (system/tools/history/active); per-segment budgets; resize on demand |
+| 1330 | Context Defragmenter | src/lidco/context/defragmenter.py | Compact fragmented context; merge small segments; reclaim wasted space; scheduled maintenance |
+| 1331 | CLI Commands | src/lidco/cli/commands/q243_cmds.py | /context-segments, /virtual-memory, /defrag, /context-schedule |
+
+## Q244 — Conversation Replay & Debug (tasks 1332–1336)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1332 | Replay Engine | src/lidco/conversation/replay_engine.py | Step through conversation turn-by-turn; modify and re-run from any point; what-if analysis |
+| 1333 | Debug Inspector | src/lidco/conversation/debug_inspector.py | Inspect any message; token count; role; tool calls; metadata; timing info |
+| 1334 | Conversation Profiler | src/lidco/conversation/profiler.py | Token cost per turn; cumulative charts; hotspot detection; waste identification |
+| 1335 | Assertion Engine | src/lidco/conversation/assertions.py | Assert conditions on conversation state; "response contains X"; "token count < N"; test harness |
+| 1336 | CLI Commands | src/lidco/cli/commands/q244_cmds.py | /replay, /inspect-message, /profile-conversation, /assert |
+
+## Q245 — Multi-Model Orchestration (tasks 1337–1341)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1337 | Model Pool | src/lidco/llm/model_pool.py | Pool of model connections; health checks; round-robin/least-loaded selection; warm standby |
+| 1338 | Cascade Router | src/lidco/llm/cascade_router.py | Try models in order; fall back on error/timeout/quality; configurable cascade rules |
+| 1339 | Ensemble Runner | src/lidco/llm/ensemble_runner.py | Run same prompt on multiple models; vote/merge responses; confidence-weighted selection |
+| 1340 | Model Benchmark | src/lidco/llm/model_benchmark.py | Benchmark models on standard tasks; latency/quality/cost comparison; ranking |
+| 1341 | CLI Commands | src/lidco/cli/commands/q245_cmds.py | /model-pool, /cascade, /ensemble, /benchmark |
+
+## Q246 — Prompt Engineering Toolkit (tasks 1342–1346)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1342 | Prompt Optimizer | src/lidco/prompts/optimizer.py | A/B test prompts; measure response quality; auto-select best; version control for prompts |
+| 1343 | System Prompt Builder | src/lidco/prompts/system_builder.py | Composable system prompt from fragments; conditional sections; variable injection; token budget |
+| 1344 | Few-Shot Manager | src/lidco/prompts/few_shot_manager.py | Store/retrieve few-shot examples; auto-select relevant examples; token-budget-aware selection |
+| 1345 | Prompt Debugger | src/lidco/prompts/debugger.py | Show exact prompt sent to model; diff between turns; highlight injected context; token breakdown |
+| 1346 | CLI Commands | src/lidco/cli/commands/q246_cmds.py | /prompt-optimize, /system-prompt, /few-shot, /prompt-debug |
+
+## Q247 — Response Processing Pipeline (tasks 1347–1351)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1347 | Response Parser | src/lidco/response/parser.py | Parse structured responses; extract code blocks; identify tool calls; separate thinking from output |
+| 1348 | Response Validator | src/lidco/response/validator.py | Validate response format; check for hallucinated files; verify code syntax; detect incomplete responses |
+| 1349 | Response Transformer | src/lidco/response/transformer.py | Post-process responses; strip redundant text; format code; apply style rules; deduplicate |
+| 1350 | Response Cache | src/lidco/response/cache.py | Cache responses for identical prompts; similarity-based retrieval; invalidation on context change |
+| 1351 | CLI Commands | src/lidco/cli/commands/q247_cmds.py | /parse-response, /validate-response, /transform, /response-cache |
+
+## Q248 — Conversation Analytics (tasks 1352–1356)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1352 | Turn Analyzer | src/lidco/conversation/turn_analyzer.py | Analyze each turn: token delta, tools used, files modified, success/failure; per-turn scoring |
+| 1353 | Pattern Detector | src/lidco/conversation/pattern_detector.py | Detect conversation patterns: loops, dead-ends, tool abuse, excessive retries; alert on anti-patterns |
+| 1354 | Success Predictor | src/lidco/conversation/success_predictor.py | Predict task completion likelihood; based on turn count, error rate, tool usage patterns |
+| 1355 | Conversation Exporter | src/lidco/conversation/exporter.py | Export to Markdown/HTML/JSON; configurable sections; code highlighting; statistics appendix |
+| 1356 | CLI Commands | src/lidco/cli/commands/q248_cmds.py | /turn-analysis, /patterns, /predict-success, /export-conversation |
+
+---
+
+# Phase 15 — Code Intelligence v2 (Q249–Q258)
+
+> Goal: deep code understanding — semantic analysis, cross-language support, impact analysis, code generation, automated testing.
+
+## Q249 — Semantic Code Graph (tasks 1357–1361)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1357 | Code Graph Builder | src/lidco/codegraph/builder.py | Build call graph, inheritance graph, dependency graph from AST; incremental updates; cross-file |
+| 1358 | Graph Query Engine | src/lidco/codegraph/query.py | Query graph: "who calls X?", "what depends on Y?", "path from A to B"; Cypher-like syntax |
+| 1359 | Impact Analyzer | src/lidco/codegraph/impact.py | Given a change, predict affected functions/files/tests; confidence scoring; transitive closure |
+| 1360 | Graph Visualizer | src/lidco/codegraph/visualizer.py | DOT/Mermaid output; interactive filtering; highlight paths; collapse modules |
+| 1361 | CLI Commands | src/lidco/cli/commands/q249_cmds.py | /code-graph, /graph-query, /impact, /graph-viz |
+
+## Q250 — Cross-Language Intelligence (tasks 1362–1366)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1362 | Language Detector | src/lidco/polyglot/detector.py | Detect language from file extension, shebang, content; confidence scoring; multi-language files |
+| 1363 | Universal Parser | src/lidco/polyglot/parser.py | Parse Python, JS/TS, Go, Rust, Java, C/C++; extract symbols, imports, types; fallback to regex |
+| 1364 | Cross-Language Linker | src/lidco/polyglot/linker.py | Link symbols across languages (Python↔JS via API, Go↔Proto, etc.); FFI detection |
+| 1365 | Polyglot Search | src/lidco/polyglot/search.py | Search across all languages uniformly; normalized symbol names; type-aware matching |
+| 1366 | CLI Commands | src/lidco/cli/commands/q250_cmds.py | /detect-lang, /parse-universal, /cross-link, /polyglot-search |
+
+## Q251 — Intelligent Code Completion (tasks 1367–1371)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1367 | Completion Engine | src/lidco/completion/engine.py | Context-aware completions; function signatures; variable types; import suggestions; ranked results |
+| 1368 | Fill-in-Middle | src/lidco/completion/fim.py | Fill-in-middle completions; cursor position aware; multi-line; respects indentation |
+| 1369 | Snippet Expander | src/lidco/completion/snippets.py | Custom snippet library; template variables; tab stops; context-aware snippet selection |
+| 1370 | Import Resolver | src/lidco/completion/import_resolver.py | Auto-resolve imports; detect missing imports from usage; suggest best import path |
+| 1371 | CLI Commands | src/lidco/cli/commands/q251_cmds.py | /complete, /fill-middle, /snippet, /resolve-import |
+
+## Q252 — Code Generation Templates (tasks 1372–1376)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1372 | Template Engine v2 | src/lidco/codegen/template_v2.py | Advanced code templates; conditional blocks; loops; inheritance; composition; Python/JS/Go support |
+| 1373 | Scaffold Generator | src/lidco/codegen/scaffold.py | Generate project scaffolds; API endpoints, models, tests, configs; from spec or prompt |
+| 1374 | CRUD Generator | src/lidco/codegen/crud.py | Generate CRUD operations from model definition; REST/GraphQL; with validation and tests |
+| 1375 | Migration Generator | src/lidco/codegen/migration_gen.py | Generate DB migrations from model changes; Alembic/Prisma/Knex support; reversible |
+| 1376 | CLI Commands | src/lidco/cli/commands/q252_cmds.py | /generate, /scaffold, /crud, /generate-migration |
+
+## Q253 — Automated Test Generation (tasks 1377–1381)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1377 | Test Scaffolder | src/lidco/testgen/scaffolder.py | Generate test file structure from source; test class per class; test method per method; fixtures |
+| 1378 | Edge Case Generator | src/lidco/testgen/edge_cases.py | Generate edge case inputs; boundary values; null/empty; type errors; overflow; encoding issues |
+| 1379 | Mock Generator v2 | src/lidco/testgen/mock_gen.py | Generate mocks from interfaces; auto-detect dependencies; configurable return values; spy tracking |
+| 1380 | Test Data Factory | src/lidco/testgen/data_factory.py | Generate realistic test data; faker-like but stdlib; configurable schemas; deterministic seeds |
+| 1381 | CLI Commands | src/lidco/cli/commands/q253_cmds.py | /gen-tests, /edge-cases, /gen-mocks, /test-data |
+
+## Q254 — Code Smell Detection v2 (tasks 1382–1386)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1382 | Smell Catalog | src/lidco/smells/catalog.py | 50+ code smell definitions; severity; detection rules; auto-fix templates; language-specific |
+| 1383 | Smell Scanner | src/lidco/smells/scanner.py | Scan codebase for smells; parallel per-file; incremental (changed files only); configurable rules |
+| 1384 | Smell Fixer | src/lidco/smells/fixer.py | Auto-fix common smells; preview diff; batch apply; undo support; safe-mode (backup first) |
+| 1385 | Smell Dashboard | src/lidco/smells/dashboard.py | Smell counts by category/file/severity; trend over time; worst files ranking; improvement score |
+| 1386 | CLI Commands | src/lidco/cli/commands/q254_cmds.py | /smell-scan, /smell-fix, /smell-dashboard, /smell-config |
+
+## Q255 — Dependency Intelligence v2 (tasks 1387–1391)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1387 | Dep Graph Builder | src/lidco/depgraph/builder.py | Build full dependency graph; direct/transitive; version constraints; platform-specific |
+| 1388 | Version Resolver | src/lidco/depgraph/resolver.py | Resolve version conflicts; find compatible versions; detect diamond dependencies; suggest upgrades |
+| 1389 | License Analyzer | src/lidco/depgraph/license.py | Detect license per dependency; compatibility matrix; flag GPL in MIT projects; SBOM generation |
+| 1390 | Update Planner | src/lidco/depgraph/update_planner.py | Plan dependency updates; risk scoring; breaking change detection; staged rollout; rollback plan |
+| 1391 | CLI Commands | src/lidco/cli/commands/q255_cmds.py | /dep-graph, /resolve-deps, /license-audit, /plan-updates |
+
+## Q256 — API Intelligence (tasks 1392–1396)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1392 | API Extractor | src/lidco/api_intel/extractor.py | Extract API surface from code; endpoints, params, return types; OpenAPI/GraphQL schema generation |
+| 1393 | API Diff | src/lidco/api_intel/diff.py | Diff two API versions; breaking changes; added/removed endpoints; parameter changes |
+| 1394 | API Mock Server | src/lidco/api_intel/mock_server.py | Generate mock responses from schema; configurable delays; error scenarios; stateful mocking |
+| 1395 | API Test Generator | src/lidco/api_intel/test_gen.py | Generate API tests from schema; happy path + error cases; auth handling; response validation |
+| 1396 | CLI Commands | src/lidco/cli/commands/q256_cmds.py | /api-extract, /api-diff, /api-mock, /api-test |
+
+## Q257 — Type Intelligence (tasks 1397–1401)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1397 | Type Inferrer | src/lidco/types/inferrer.py | Infer types from usage; function params from call sites; return types from returns; variable types |
+| 1398 | Type Annotator v2 | src/lidco/types/annotator_v2.py | Add type annotations to untyped code; batch annotate; preserve existing; stub generation |
+| 1399 | Type Checker Integration | src/lidco/types/checker.py | Run mypy/pyright; parse errors; suggest fixes; incremental checking; severity mapping |
+| 1400 | Type Migration | src/lidco/types/migration.py | Migrate typing patterns (Optional→X|None, Dict→dict, etc.); PEP 604/585 modernization |
+| 1401 | CLI Commands | src/lidco/cli/commands/q257_cmds.py | /infer-types, /annotate-types, /type-check, /migrate-types |
+
+## Q258 — Documentation Intelligence v2 (tasks 1402–1406)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1402 | Doc Coverage Analyzer | src/lidco/docgen/coverage.py | Measure docstring coverage; public API vs documented; missing params; stale docs detection |
+| 1403 | Doc Generator v2 | src/lidco/docgen/generator_v2.py | Generate docs from code+tests+git; cross-reference; usage examples from tests; versioned |
+| 1404 | Doc Linter | src/lidco/docgen/linter.py | Lint docstrings; param mismatch; deprecated references; broken links; style consistency |
+| 1405 | Doc Search Engine | src/lidco/docgen/search_engine.py | Full-text search across all docs; TF-IDF ranking; snippet extraction; cross-module results |
+| 1406 | CLI Commands | src/lidco/cli/commands/q258_cmds.py | /doc-coverage, /gen-docs, /lint-docs, /search-docs |
+
+---
+
+# Phase 16 — Enterprise & Security (Q259–Q268)
+
+> Goal: enterprise-grade features — audit, compliance, access control, SSO, data governance, rate limiting.
+
+## Q259 — Role-Based Access Control (tasks 1407–1411)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1407 | Role Registry | src/lidco/rbac/roles.py | Define roles (admin/developer/viewer/auditor); permissions per role; inheritance; custom roles |
+| 1408 | Permission Checker | src/lidco/rbac/checker.py | Check user permissions; tool-level, file-level, command-level; deny-by-default; audit log |
+| 1409 | Policy Engine | src/lidco/rbac/policy.py | ABAC policies; conditions (time, IP, project); policy composition (AND/OR/NOT); evaluation cache |
+| 1410 | Session Auth | src/lidco/rbac/session_auth.py | Session-level authentication; token-based; expiry; refresh; multi-factor support |
+| 1411 | CLI Commands | src/lidco/cli/commands/q259_cmds.py | /roles, /permissions, /policy, /auth |
+
+## Q260 — Compliance & Data Governance (tasks 1412–1416)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1412 | Data Classifier | src/lidco/compliance/data_classifier.py | Classify data sensitivity (public/internal/confidential/restricted); PII detection; auto-label |
+| 1413 | Retention Manager | src/lidco/compliance/retention.py | Data retention policies; auto-delete after period; legal hold; export before deletion; audit trail |
+| 1414 | Redaction Engine | src/lidco/compliance/redaction.py | Redact sensitive data in logs/exports; configurable patterns; reversible with key; compliance report |
+| 1415 | Compliance Reporter | src/lidco/compliance/reporter.py | SOC2/GDPR/HIPAA compliance checks; evidence collection; gap analysis; remediation suggestions |
+| 1416 | CLI Commands | src/lidco/cli/commands/q260_cmds.py | /classify-data, /retention, /redact, /compliance-report |
+
+## Q261 — Advanced Audit System (tasks 1417–1421)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1417 | Audit Event Store | src/lidco/audit/event_store.py | Immutable event log; structured events; tamper detection; export to SIEM; retention policies |
+| 1418 | Audit Query Engine | src/lidco/audit/query_engine.py | Query audit log; filter by user/action/time/resource; aggregation; timeline view; export |
+| 1419 | Anomaly Detector | src/lidco/audit/anomaly.py | Detect unusual patterns; privilege escalation; off-hours access; bulk operations; alert on anomalies |
+| 1420 | Audit Dashboard | src/lidco/audit/dashboard.py | Real-time audit view; event stream; user activity; resource access patterns; risk score |
+| 1421 | CLI Commands | src/lidco/cli/commands/q261_cmds.py | /audit-events, /audit-query, /audit-anomaly, /audit-dashboard |
+
+## Q262 — Secret Scanning & Rotation (tasks 1422–1426)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1422 | Secret Scanner v2 | src/lidco/secrets/scanner.py | Scan files, git history, env vars; 100+ patterns; entropy-based detection; pre-commit hook |
+| 1423 | Secret Rotator | src/lidco/secrets/rotator.py | Automated secret rotation; provider-specific (AWS/GCP/GitHub); notify on rotation; rollback |
+| 1424 | Vault Integration | src/lidco/secrets/vault.py | HashiCorp Vault / AWS Secrets Manager integration; dynamic secrets; lease management |
+| 1425 | Secret Inventory | src/lidco/secrets/inventory.py | Track all secrets in project; age; rotation status; exposure risk; remediation priority |
+| 1426 | CLI Commands | src/lidco/cli/commands/q262_cmds.py | /scan-secrets, /rotate-secret, /vault, /secret-inventory |
+
+## Q263 — Network Security & Proxy (tasks 1427–1431)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1427 | Request Inspector | src/lidco/netsec/inspector.py | Inspect all outbound HTTP requests; log URLs/headers/bodies; block unauthorized destinations |
+| 1428 | Proxy Manager | src/lidco/netsec/proxy.py | HTTP/SOCKS proxy configuration; per-provider proxy; auto-detect corporate proxy; PAC file support |
+| 1429 | Certificate Manager | src/lidco/netsec/certificates.py | Custom CA certs; cert pinning; expiry monitoring; self-signed cert generation for dev |
+| 1430 | Network Policy | src/lidco/netsec/policy.py | Allowlist/denylist for outbound connections; domain-based; port-based; logging; enforcement modes |
+| 1431 | CLI Commands | src/lidco/cli/commands/q263_cmds.py | /net-inspect, /proxy-config, /certs, /net-policy |
+
+## Q264 — Multi-Tenant Isolation (tasks 1432–1436)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1432 | Tenant Manager | src/lidco/tenant/manager.py | Create/delete tenants; resource quotas; isolation boundaries; config inheritance |
+| 1433 | Tenant Router | src/lidco/tenant/router.py | Route requests to correct tenant context; session affinity; tenant-aware tool execution |
+| 1434 | Quota Enforcer | src/lidco/tenant/quota.py | Per-tenant token/cost/storage quotas; soft/hard limits; usage tracking; overage alerts |
+| 1435 | Tenant Analytics | src/lidco/tenant/analytics.py | Per-tenant usage stats; cost allocation; activity comparison; growth trends |
+| 1436 | CLI Commands | src/lidco/cli/commands/q264_cmds.py | /tenant, /tenant-quota, /tenant-stats, /tenant-config |
+
+## Q265 — SSO & Identity Federation (tasks 1437–1441)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1437 | SSO Client | src/lidco/identity/sso.py | SAML/OIDC client; auto-discover IdP; token exchange; session binding; logout |
+| 1438 | Identity Provider | src/lidco/identity/provider.py | Abstract identity provider; local/LDAP/OAuth/SAML backends; user info extraction |
+| 1439 | Token Service | src/lidco/identity/token_service.py | JWT creation/validation; refresh tokens; token revocation; claims-based authorization |
+| 1440 | User Directory | src/lidco/identity/directory.py | User/group management; sync from external directory; group-based permissions; profile storage |
+| 1441 | CLI Commands | src/lidco/cli/commands/q265_cmds.py | /sso-login, /identity, /token, /user-directory |
+
+## Q266 — Enterprise Deployment (tasks 1442–1446)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1442 | Config Distributor | src/lidco/enterprise/distributor.py | Push config to fleet; canary rollout; rollback; version tracking; diff before apply |
+| 1443 | Fleet Manager | src/lidco/enterprise/fleet.py | Manage multiple LIDCO instances; health monitoring; version tracking; bulk update |
+| 1444 | Usage Aggregator | src/lidco/enterprise/aggregator.py | Aggregate usage across fleet; per-team/per-project breakdowns; billing integration |
+| 1445 | Enterprise Dashboard | src/lidco/enterprise/dashboard_v2.py | Org-wide metrics; adoption tracking; ROI calculator; executive summary export |
+| 1446 | CLI Commands | src/lidco/cli/commands/q266_cmds.py | /fleet, /distribute-config, /aggregate-usage, /enterprise-dashboard |
+
+## Q267 — Incident Response (tasks 1447–1451)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1447 | Incident Detector | src/lidco/incident/detector.py | Detect security incidents; unusual activity patterns; data exfiltration attempts; alert escalation |
+| 1448 | Response Playbook | src/lidco/incident/playbook.py | Automated response steps; isolate session; preserve evidence; notify team; block user |
+| 1449 | Forensics Collector | src/lidco/incident/forensics.py | Collect session logs, file changes, API calls; timeline reconstruction; chain of custody |
+| 1450 | Recovery Manager | src/lidco/incident/recovery.py | Restore from incident; revert changes; rotate compromised credentials; post-incident report |
+| 1451 | CLI Commands | src/lidco/cli/commands/q267_cmds.py | /incident-detect, /incident-respond, /forensics, /incident-recover |
+
+## Q268 — Data Loss Prevention (tasks 1452–1456)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1452 | DLP Scanner | src/lidco/dlp/scanner.py | Scan outbound content for sensitive data; PII, credentials, proprietary code; block or warn |
+| 1453 | Content Filter | src/lidco/dlp/filter.py | Filter content before sending to LLM; configurable rules; allow/deny patterns; context-aware |
+| 1454 | Watermark Engine | src/lidco/dlp/watermark.py | Add invisible watermarks to generated code; track provenance; detect unauthorized copies |
+| 1455 | DLP Policy Manager | src/lidco/dlp/policy.py | DLP policies; per-project rules; severity levels; exception handling; compliance mapping |
+| 1456 | CLI Commands | src/lidco/cli/commands/q268_cmds.py | /dlp-scan, /content-filter, /watermark, /dlp-policy |
+
+---
+
+# Phase 17 — Developer Experience v2 (Q269–Q278)
+
+> Goal: superior developer UX — themes, stickers, notifications, keyboard shortcuts, accessibility, mobile.
+
+## Q269 — Theme Engine & Visual Customization (tasks 1457–1461)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1457 | Theme Registry | src/lidco/themes/registry.py | Built-in themes (dark/light/monokai/solarized/dracula); custom theme definition; hot-swap |
+| 1458 | Color Palette | src/lidco/themes/palette.py | Named colors; semantic tokens (error/warning/info/success); 256-color and truecolor support |
+| 1459 | Icon Set | src/lidco/themes/icons.py | Unicode icon sets; Nerd Fonts support; fallback ASCII; per-theme icon overrides |
+| 1460 | Theme Composer | src/lidco/themes/composer.py | Compose themes from base + overrides; extend existing; export/import; community themes |
+| 1461 | CLI Commands | src/lidco/cli/commands/q269_cmds.py | /theme, /colors, /icons, /theme-export |
+
+## Q270 — Desktop Notifications & Sound (tasks 1462–1466)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1462 | Notification Dispatcher | src/lidco/notify/dispatcher.py | Cross-platform notifications (Windows toast, macOS notification, Linux notify-send); configurable |
+| 1463 | Sound Engine | src/lidco/notify/sound.py | Play completion/error sounds; configurable sound files; system beep fallback; mute mode |
+| 1464 | Notification Rules | src/lidco/notify/rules.py | Rule-based notifications; on completion, on error, on mention, on long-running; cooldown |
+| 1465 | Notification History | src/lidco/notify/history.py | Log all notifications; search; dismiss; snooze; batch clear; export |
+| 1466 | CLI Commands | src/lidco/cli/commands/q270_cmds.py | /notify, /sound, /notify-rules, /notify-history |
+
+## Q271 — Advanced Keyboard Shortcuts (tasks 1467–1471)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1467 | Shortcut Registry | src/lidco/shortcuts/registry.py | Register keyboard shortcuts; conflict detection; context-dependent; chord sequences (Ctrl+K Ctrl+C) |
+| 1468 | Shortcut Profiles | src/lidco/shortcuts/profiles.py | Preset profiles (default/vim/emacs/vscode); switch profiles; merge custom bindings |
+| 1469 | Command Palette | src/lidco/shortcuts/palette.py | Fuzzy-search command palette (Ctrl+Shift+P); recent commands; categorized; preview |
+| 1470 | Shortcut Trainer | src/lidco/shortcuts/trainer.py | Interactive shortcut learning; show binding after manual action; progress tracking; quiz mode |
+| 1471 | CLI Commands | src/lidco/cli/commands/q271_cmds.py | /shortcuts, /shortcut-profile, /palette, /shortcut-train |
+
+## Q272 — Accessibility (tasks 1472–1476)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1472 | Screen Reader Support | src/lidco/a11y/screen_reader.py | ARIA-like annotations for terminal; structured output; navigation landmarks; skip links |
+| 1473 | High Contrast Mode | src/lidco/a11y/high_contrast.py | High contrast color scheme; configurable contrast ratio; WCAG 2.1 AA compliance |
+| 1474 | Reduced Motion | src/lidco/a11y/reduced_motion.py | Disable animations; static progress indicators; no spinner; instant transitions |
+| 1475 | Voice Control | src/lidco/a11y/voice_control.py | Voice command recognition; dictation mode; voice navigation; configurable wake word |
+| 1476 | CLI Commands | src/lidco/cli/commands/q272_cmds.py | /a11y, /high-contrast, /reduced-motion, /voice |
+
+## Q273 — Interactive Widgets (tasks 1477–1481)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1477 | Widget Framework | src/lidco/widgets/framework.py | Base widget class; focus management; event handling; layout engine; render pipeline |
+| 1478 | File Picker | src/lidco/widgets/file_picker.py | Interactive file selection; fuzzy search; directory tree; recent files; bookmarks |
+| 1479 | Diff Viewer | src/lidco/widgets/diff_viewer.py | Side-by-side diff; hunk navigation; accept/reject per hunk; syntax highlighting |
+| 1480 | Progress Dashboard | src/lidco/widgets/progress_dashboard.py | Multi-task progress; nested tasks; ETA per task; expandable details; auto-refresh |
+| 1481 | CLI Commands | src/lidco/cli/commands/q273_cmds.py | /widgets, /file-picker, /diff-view, /progress-view |
+
+## Q274 — Context Menu & Quick Actions (tasks 1482–1486)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1482 | Quick Action Registry | src/lidco/actions/registry.py | Register context-sensitive actions; priority ordering; keyboard shortcut binding; preview |
+| 1483 | Code Actions Provider | src/lidco/actions/code_provider.py | Context-aware code actions; extract function, rename, inline, wrap in try; language-specific |
+| 1484 | File Actions Provider | src/lidco/actions/file_provider.py | File operations; create/rename/move/delete; template-based new file; copy path |
+| 1485 | Git Actions Provider | src/lidco/actions/git_provider.py | Git operations; stage/unstage, commit, push, create branch, stash; conflict resolution |
+| 1486 | CLI Commands | src/lidco/cli/commands/q274_cmds.py | /actions, /code-action, /file-action, /git-action |
+
+## Q275 — Smart Error Recovery (tasks 1487–1491)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1487 | Error Classifier | src/lidco/recovery/classifier.py | Classify errors: syntax, runtime, network, permission, resource, timeout; confidence scoring |
+| 1488 | Recovery Strategy | src/lidco/recovery/strategy.py | Per-error-type recovery; retry with backoff, fix and retry, skip, escalate; configurable chains |
+| 1489 | Self-Heal Engine | src/lidco/recovery/self_heal.py | Auto-fix common errors; missing imports, syntax typos, permission issues; preview before apply |
+| 1490 | Error Pattern Learning | src/lidco/recovery/learner.py | Learn from past error resolutions; suggest fixes; rank by success rate; per-project patterns |
+| 1491 | CLI Commands | src/lidco/cli/commands/q275_cmds.py | /classify-error, /recovery, /self-heal, /error-patterns |
+
+## Q276 — Session Templates & Presets (tasks 1492–1496)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1492 | Session Template | src/lidco/presets/template.py | Pre-configured session setups; system prompt + tools + config; per-project-type templates |
+| 1493 | Preset Library | src/lidco/presets/library.py | Built-in presets (bug-fix, feature, refactor, review, docs); community presets; versioned |
+| 1494 | Preset Composer | src/lidco/presets/composer.py | Compose presets; inherit + override; conditional sections; variable substitution |
+| 1495 | Preset Sharing | src/lidco/presets/sharing.py | Export/import presets; Git-based sharing; team registry; conflict resolution |
+| 1496 | CLI Commands | src/lidco/cli/commands/q276_cmds.py | /preset, /preset-library, /preset-compose, /preset-share |
+
+## Q277 — Inline Annotations & Markers (tasks 1497–1501)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1497 | Annotation Engine | src/lidco/annotations/engine.py | Add inline annotations to files; virtual (not in source); per-line markers; categories |
+| 1498 | Marker Types | src/lidco/annotations/markers.py | Built-in markers: TODO, FIXME, NOTE, WARNING, QUESTION, REVIEW; custom markers; priority |
+| 1499 | Annotation Overlay | src/lidco/annotations/overlay.py | Display annotations alongside code; gutter icons; hover details; filter by type |
+| 1500 | Annotation Search | src/lidco/annotations/search.py | Search annotations across project; group by file/type/priority; export; bulk operations |
+| 1501 | CLI Commands | src/lidco/cli/commands/q277_cmds.py | /annotate, /markers, /annotation-overlay, /search-annotations |
+
+## Q278 — Performance Profiler Integration (tasks 1502–1506)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1502 | Profile Runner | src/lidco/profiler/runner.py | Run code with profiling; cProfile/py-spy/scalene integration; output parsing; comparison |
+| 1503 | Flame Graph Generator | src/lidco/profiler/flamegraph.py | Generate flame graphs from profile data; interactive SVG; collapsible; search; filter |
+| 1504 | Hotspot Finder | src/lidco/profiler/hotspots.py | Find performance hotspots; rank by time/calls; suggest optimizations; track improvements |
+| 1505 | Memory Profiler | src/lidco/profiler/memory.py | Track memory allocations; find leaks; object count trends; gc pressure; per-function breakdown |
+| 1506 | CLI Commands | src/lidco/cli/commands/q278_cmds.py | /profile-run, /flamegraph, /hotspots, /memory-profile |
+
+---
+
+# Phase 18 — AI Capabilities (Q279–Q288)
+
+> Goal: advanced AI — multi-agent debates, self-reflection, learning, hallucination detection, chain-of-thought.
+
+## Q279 — Multi-Agent Debate (tasks 1507–1511)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1507 | Debate Orchestrator | src/lidco/debate/orchestrator.py | Set up debates between agents; proposition/opposition/judge; configurable rounds; voting |
+| 1508 | Agent Personas | src/lidco/debate/personas.py | Define agent personas (optimist/pessimist/pragmatist/security/perf); system prompt templates |
+| 1509 | Argument Evaluator | src/lidco/debate/evaluator.py | Score arguments; evidence quality; logical consistency; novelty; persuasiveness |
+| 1510 | Consensus Builder | src/lidco/debate/consensus.py | Synthesize debate into consensus; majority vote; weighted by expertise; dissent tracking |
+| 1511 | CLI Commands | src/lidco/cli/commands/q279_cmds.py | /debate, /personas, /evaluate-args, /consensus |
+
+## Q280 — Self-Reflection & Meta-Cognition (tasks 1512–1516)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1512 | Reflection Engine | src/lidco/metacog/reflection.py | After each response, generate self-assessment; what worked, what didn't; improvement notes |
+| 1513 | Confidence Calibrator | src/lidco/metacog/calibrator.py | Track prediction accuracy; calibrate confidence scores; detect overconfidence; Brier score |
+| 1514 | Knowledge Boundary | src/lidco/metacog/boundary.py | Detect questions near knowledge limits; "I'm not sure" triggers; suggest verification steps |
+| 1515 | Learning Journal | src/lidco/metacog/journal.py | Log lessons learned per session; pattern extraction; cross-session knowledge transfer |
+| 1516 | CLI Commands | src/lidco/cli/commands/q280_cmds.py | /reflect, /confidence, /knowledge-boundary, /learning-journal |
+
+## Q281 — Hallucination Detection (tasks 1517–1521)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1517 | Fact Checker | src/lidco/hallucination/checker.py | Verify claims against codebase; file existence, function signatures, import paths; confidence |
+| 1518 | Reference Validator | src/lidco/hallucination/validator.py | Validate referenced files/functions exist; check line numbers; verify code snippets match source |
+| 1519 | Consistency Checker | src/lidco/hallucination/consistency.py | Check response consistency; contradictions within response; conflicts with prior turns |
+| 1520 | Grounding Engine | src/lidco/hallucination/grounding.py | Ground responses in evidence; cite sources; link claims to code; traceability score |
+| 1521 | CLI Commands | src/lidco/cli/commands/q281_cmds.py | /fact-check, /validate-refs, /consistency, /grounding |
+
+## Q282 — Chain-of-Thought Management (tasks 1522–1526)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1522 | CoT Planner | src/lidco/cot/planner.py | Plan reasoning steps; decompose complex questions; estimate step count; dependency ordering |
+| 1523 | Step Executor | src/lidco/cot/executor.py | Execute reasoning steps; intermediate results; checkpoint per step; resume on failure |
+| 1524 | CoT Optimizer | src/lidco/cot/optimizer.py | Optimize reasoning chains; remove redundant steps; parallelize independent steps; cache results |
+| 1525 | CoT Visualizer | src/lidco/cot/visualizer.py | Visualize reasoning as tree/graph; highlight critical path; show alternatives; export |
+| 1526 | CLI Commands | src/lidco/cli/commands/q282_cmds.py | /cot-plan, /cot-execute, /cot-optimize, /cot-visualize |
+
+## Q283 — Adaptive Prompting (tasks 1527–1531)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1527 | Prompt Adapter | src/lidco/adaptive/adapter.py | Adapt prompt style to task type; code tasks vs explanation vs debugging; model-specific tuning |
+| 1528 | Context Ranker | src/lidco/adaptive/ranker.py | Rank context items by relevance to current task; semantic similarity; recency; user focus |
+| 1529 | Example Selector | src/lidco/adaptive/selector.py | Select best few-shot examples; task-type matching; difficulty matching; diversity |
+| 1530 | Style Transfer | src/lidco/adaptive/style.py | Match user's coding style; naming conventions; comment style; architecture patterns |
+| 1531 | CLI Commands | src/lidco/cli/commands/q283_cmds.py | /adapt-prompt, /rank-context, /select-examples, /style-match |
+
+## Q284 — Agent Memory & Learning (tasks 1532–1536)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1532 | Episodic Memory | src/lidco/agent_memory/episodic.py | Store task episodes; outcome (success/failure); strategy used; files involved; searchable |
+| 1533 | Procedural Memory | src/lidco/agent_memory/procedural.py | Store learned procedures; step sequences; preconditions; success rate; generalize across projects |
+| 1534 | Semantic Memory | src/lidco/agent_memory/semantic.py | Store facts about codebase; architecture decisions; team conventions; decay over time |
+| 1535 | Memory Retrieval | src/lidco/agent_memory/retrieval.py | Context-aware retrieval; combine episodic + procedural + semantic; relevance ranking |
+| 1536 | CLI Commands | src/lidco/cli/commands/q284_cmds.py | /episodic-memory, /procedural-memory, /semantic-memory, /memory-retrieve |
+
+## Q285 — Autonomous Goal Decomposition (tasks 1537–1541)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1537 | Goal Parser | src/lidco/goals/parser.py | Parse natural language goals into structured objectives; acceptance criteria; priority |
+| 1538 | Subtask Generator | src/lidco/goals/subtasks.py | Decompose goals into subtasks; dependency graph; estimate effort; assign to agents |
+| 1539 | Progress Monitor | src/lidco/goals/monitor.py | Track goal progress; completion percentage; blockers; estimated time remaining; auto-report |
+| 1540 | Goal Validator | src/lidco/goals/validator.py | Validate goal completion; check acceptance criteria; run tests; verify files changed |
+| 1541 | CLI Commands | src/lidco/cli/commands/q285_cmds.py | /goal, /subtasks, /goal-progress, /validate-goal |
+
+## Q286 — Tool Use Optimization (tasks 1542–1546)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1542 | Tool Use Analyzer | src/lidco/tool_opt/analyzer.py | Analyze tool usage patterns; unnecessary calls; missed opportunities; efficiency score |
+| 1543 | Tool Planner | src/lidco/tool_opt/planner.py | Plan tool calls before execution; batch reads; parallelize independent calls; minimize round-trips |
+| 1544 | Tool Cache Advisor | src/lidco/tool_opt/cache_advisor.py | Suggest cacheable tool calls; detect repeated reads; recommend prefetch; estimate savings |
+| 1545 | Tool Composition | src/lidco/tool_opt/composition.py | Compose tools into pipelines; grep→read→edit chains; conditional branches; error handling |
+| 1546 | CLI Commands | src/lidco/cli/commands/q286_cmds.py | /tool-analyze, /tool-plan, /cache-advice, /tool-compose |
+
+## Q287 — Multi-Modal Intelligence (tasks 1547–1551)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1547 | Image Analyzer | src/lidco/multimodal/image_analyzer.py | Analyze screenshots; extract text (OCR); detect UI elements; describe layout; diff screenshots |
+| 1548 | Diagram Generator | src/lidco/multimodal/diagram_gen.py | Generate diagrams from code; class diagrams, sequence diagrams, architecture; Mermaid/PlantUML |
+| 1549 | Audio Transcriber | src/lidco/multimodal/transcriber.py | Transcribe voice memos; meeting notes extraction; action item detection; speaker diarization |
+| 1550 | PDF Analyzer | src/lidco/multimodal/pdf_analyzer.py | Extract text/tables from PDFs; parse technical specs; convert to structured data; page selection |
+| 1551 | CLI Commands | src/lidco/cli/commands/q287_cmds.py | /analyze-image, /gen-diagram, /transcribe, /analyze-pdf |
+
+## Q288 — Reasoning Verification (tasks 1552–1556)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1552 | Logic Verifier | src/lidco/verify/logic.py | Verify logical consistency of reasoning; detect circular arguments; check syllogisms; flag gaps |
+| 1553 | Code Proof Checker | src/lidco/verify/code_proof.py | Verify code change correctness; pre/post conditions; invariant preservation; regression check |
+| 1554 | Evidence Linker | src/lidco/verify/evidence.py | Link claims to evidence; source code citations; test results; documentation references |
+| 1555 | Verification Report | src/lidco/verify/report.py | Comprehensive verification report; confidence scores; unverified claims; recommendations |
+| 1556 | CLI Commands | src/lidco/cli/commands/q288_cmds.py | /verify-logic, /verify-code, /link-evidence, /verification-report |
+
+---
+
+# Phase 19 — Integration Hub (Q289–Q298)
+
+> Goal: deep integrations — GitHub, GitLab, Jira, Slack, Linear, Notion, databases, cloud providers.
+
+## Q289 — GitHub Deep Integration (tasks 1557–1561)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1557 | GitHub Client | src/lidco/github/client.py | Full GitHub API client; repos, issues, PRs, reviews, actions; rate limit handling; pagination |
+| 1558 | PR Workflow | src/lidco/github/pr_workflow.py | Create PR from changes; auto-description from diff; request reviewers; handle review comments |
+| 1559 | Issue Manager | src/lidco/github/issues.py | Create/update/close issues; auto-label; link to PRs; template-based; bulk operations |
+| 1560 | Actions Monitor | src/lidco/github/actions.py | Monitor CI runs; parse logs; detect failures; suggest fixes; re-trigger; status badges |
+| 1561 | CLI Commands | src/lidco/cli/commands/q289_cmds.py | /gh-pr, /gh-issue, /gh-actions, /gh-review |
+
+## Q290 — GitLab Integration (tasks 1562–1566)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1562 | GitLab Client | src/lidco/gitlab/client.py | GitLab API client; projects, MRs, issues, pipelines; personal/group tokens; pagination |
+| 1563 | MR Workflow | src/lidco/gitlab/mr_workflow.py | Create merge requests; auto-description; assign reviewers; handle discussions; approve |
+| 1564 | Pipeline Monitor | src/lidco/gitlab/pipeline.py | Monitor CI/CD pipelines; job logs; artifact download; retry failed jobs; schedule |
+| 1565 | GitLab Wiki | src/lidco/gitlab/wiki.py | Read/write wiki pages; sync docs to wiki; cross-reference with code; search |
+| 1566 | CLI Commands | src/lidco/cli/commands/q290_cmds.py | /gl-mr, /gl-issue, /gl-pipeline, /gl-wiki |
+
+## Q291 — Jira Integration (tasks 1567–1571)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1567 | Jira Client | src/lidco/jira/client.py | Jira REST API client; issues, projects, boards, sprints; JQL queries; pagination |
+| 1568 | Issue Sync | src/lidco/jira/sync.py | Bi-directional sync; create Jira issue from TODO; update status from git; link PRs |
+| 1569 | Sprint Planner | src/lidco/jira/sprint.py | View sprint; estimate stories; capacity planning; auto-assign based on skills |
+| 1570 | Jira Reporter | src/lidco/jira/reporter.py | Generate sprint reports; velocity charts; burndown data; completion predictions |
+| 1571 | CLI Commands | src/lidco/cli/commands/q291_cmds.py | /jira, /jira-sync, /jira-sprint, /jira-report |
+
+## Q292 — Slack Integration (tasks 1572–1576)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1572 | Slack Client | src/lidco/slack/client.py | Slack Web API client; messages, channels, threads, files; rate limiting; retry |
+| 1573 | Notification Bridge | src/lidco/slack/bridge.py | Send LIDCO notifications to Slack; configurable channels; thread replies; rich formatting |
+| 1574 | Command Bridge | src/lidco/slack/commands.py | Receive commands from Slack; parse mentions; execute LIDCO commands; return results |
+| 1575 | Code Sharing | src/lidco/slack/code_share.py | Share code snippets to Slack; syntax highlighting; file attachments; thread context |
+| 1576 | CLI Commands | src/lidco/cli/commands/q292_cmds.py | /slack-notify, /slack-command, /slack-share, /slack-config |
+
+## Q293 — Linear Integration (tasks 1577–1581)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1577 | Linear Client | src/lidco/linear/client.py | Linear GraphQL API; issues, projects, cycles, teams; pagination; webhook support |
+| 1578 | Issue Tracker | src/lidco/linear/tracker.py | Create/update issues from code; link to PRs; auto-status from git; priority mapping |
+| 1579 | Cycle Planner | src/lidco/linear/cycle.py | View current cycle; scope tracking; auto-create issues from spec; estimates |
+| 1580 | Linear Dashboard | src/lidco/linear/dashboard.py | Team velocity; issue distribution; cycle progress; SLA tracking |
+| 1581 | CLI Commands | src/lidco/cli/commands/q293_cmds.py | /linear, /linear-issue, /linear-cycle, /linear-dashboard |
+
+## Q294 — Notion Integration (tasks 1582–1586)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1582 | Notion Client | src/lidco/notion/client.py | Notion API client; pages, databases, blocks; rich text; pagination; search |
+| 1583 | Doc Sync | src/lidco/notion/doc_sync.py | Sync markdown docs to Notion; bidirectional; conflict resolution; auto-update on commit |
+| 1584 | Knowledge Base | src/lidco/notion/knowledge.py | Use Notion as knowledge base; query docs for context; inject relevant pages into prompts |
+| 1585 | Meeting Notes | src/lidco/notion/meetings.py | Create meeting notes; action items extraction; assign follow-ups; link to issues |
+| 1586 | CLI Commands | src/lidco/cli/commands/q294_cmds.py | /notion, /notion-sync, /notion-kb, /notion-meeting |
+
+## Q295 — Database Intelligence (tasks 1587–1591)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1587 | Schema Analyzer | src/lidco/database/schema.py | Analyze DB schema; tables, relationships, indexes; ER diagram generation; anomaly detection |
+| 1588 | Query Optimizer | src/lidco/database/optimizer.py | Analyze SQL queries; suggest indexes; rewrite for performance; explain plan interpretation |
+| 1589 | Migration Planner | src/lidco/database/migration_planner.py | Plan schema migrations; detect breaking changes; generate rollback; data preservation |
+| 1590 | Data Seeder | src/lidco/database/seeder.py | Generate seed data; realistic values; referential integrity; configurable volume; deterministic |
+| 1591 | CLI Commands | src/lidco/cli/commands/q295_cmds.py | /db-schema, /db-optimize, /db-migrate, /db-seed |
+
+## Q296 — Container & Kubernetes (tasks 1592–1596)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1592 | Dockerfile Generator | src/lidco/containers/dockerfile.py | Generate Dockerfile from project; multi-stage builds; security best practices; optimization |
+| 1593 | Compose Manager | src/lidco/containers/compose.py | Generate/validate docker-compose; service dependencies; volumes; networks; environment |
+| 1594 | K8s Manifest Generator | src/lidco/containers/k8s.py | Generate Kubernetes manifests; deployments, services, ingress; Helm chart scaffolding |
+| 1595 | Container Debugger | src/lidco/containers/debugger.py | Debug containers; log streaming; exec into container; port forwarding; health check |
+| 1596 | CLI Commands | src/lidco/cli/commands/q296_cmds.py | /dockerfile, /compose, /k8s, /container-debug |
+
+## Q297 — Monitoring & Observability (tasks 1597–1601)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1597 | Metrics Exporter | src/lidco/observability/exporter.py | Export metrics to Prometheus/Datadog/CloudWatch; custom metrics; labels; histograms |
+| 1598 | Log Analyzer | src/lidco/observability/log_analyzer.py | Analyze application logs; pattern detection; error clustering; root cause suggestion |
+| 1599 | Trace Collector | src/lidco/observability/traces.py | OpenTelemetry trace collection; span analysis; latency breakdown; service map |
+| 1600 | Alert Manager | src/lidco/observability/alerts.py | Define alert rules; threshold/anomaly-based; notification routing; escalation; silencing |
+| 1601 | CLI Commands | src/lidco/cli/commands/q297_cmds.py | /metrics, /analyze-logs, /traces, /alerts |
+
+## Q298 — Webhook & Event System (tasks 1602–1606)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1602 | Webhook Server | src/lidco/webhooks/server.py | Receive webhooks; signature verification; event routing; retry queue; dead letter |
+| 1603 | Event Router | src/lidco/webhooks/router.py | Route events to handlers; pattern matching; filter chains; priority; parallel dispatch |
+| 1604 | Webhook Client | src/lidco/webhooks/client.py | Send webhooks; configurable retries; backoff; payload signing; delivery tracking |
+| 1605 | Event Schema Registry | src/lidco/webhooks/schemas.py | Define event schemas; validate payloads; version management; backward compatibility |
+| 1606 | CLI Commands | src/lidco/cli/commands/q298_cmds.py | /webhook-server, /webhook-send, /event-route, /event-schema |
+
+---
+
+# Phase 20 — Advanced Git & VCS (Q299–Q308)
+
+> Goal: git superpowers — smart commits, PR automation, merge conflict AI, git history intelligence.
+
+## Q299 — Smart Commit Engine (tasks 1607–1611)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1607 | Commit Analyzer | src/lidco/smartgit/commit_analyzer.py | Analyze staged changes; classify (feat/fix/refactor/docs/test); extract scope; suggest message |
+| 1608 | Commit Splitter | src/lidco/smartgit/splitter.py | Split large commits into logical units; per-file grouping; per-feature grouping; interactive |
+| 1609 | Commit Validator | src/lidco/smartgit/validator.py | Validate commit message; conventional commits format; scope check; breaking change detection |
+| 1610 | Commit Amender | src/lidco/smartgit/amender.py | Safe amend workflow; preserve original; create fixup commit; auto-squash on merge |
+| 1611 | CLI Commands | src/lidco/cli/commands/q299_cmds.py | /smart-commit, /split-commit, /validate-commit, /amend-safe |
+
+## Q300 — PR Automation (tasks 1612–1616)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1612 | PR Description Generator | src/lidco/pr/description.py | Generate PR description from commits+diff; summary, changes, test plan; screenshot placeholders |
+| 1613 | PR Reviewer Matcher | src/lidco/pr/reviewer.py | Suggest reviewers based on file ownership; CODEOWNERS; recent activity; expertise matching |
+| 1614 | PR Checklist Generator | src/lidco/pr/checklist.py | Generate PR checklist; required checks; testing steps; deployment notes; security considerations |
+| 1615 | PR Status Tracker | src/lidco/pr/status.py | Track PR lifecycle; CI status; review status; merge readiness; auto-merge when ready |
+| 1616 | CLI Commands | src/lidco/cli/commands/q300_cmds.py | /pr-description, /pr-reviewer, /pr-checklist, /pr-status |
+
+## Q301 — Merge Conflict AI (tasks 1617–1621)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1617 | Conflict Detector | src/lidco/merge/detector.py | Detect merge conflicts early; pre-merge simulation; affected files prediction; severity scoring |
+| 1618 | Conflict Resolver AI | src/lidco/merge/resolver.py | AI-assisted conflict resolution; understand both sides intent; suggest resolution; preview |
+| 1619 | Merge Strategy | src/lidco/merge/strategy.py | Choose merge strategy; rebase vs merge vs squash; based on branch history and team preference |
+| 1620 | Post-Merge Verifier | src/lidco/merge/verifier.py | Verify merge result; run tests; check for regressions; compare behavior before/after |
+| 1621 | CLI Commands | src/lidco/cli/commands/q301_cmds.py | /conflict-detect, /conflict-resolve, /merge-strategy, /verify-merge |
+
+## Q302 — Git History Intelligence (tasks 1622–1626)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1622 | History Analyzer | src/lidco/githistory/analyzer.py | Analyze commit history; contributor patterns; file churn; hotspots; release cadence |
+| 1623 | Blame Intelligence | src/lidco/githistory/blame.py | Smart blame; skip formatting commits; find original author; annotation with context |
+| 1624 | Bisect Assistant | src/lidco/githistory/bisect.py | Automated bisect; define good/bad criteria; run tests per commit; find regression |
+| 1625 | History Search | src/lidco/githistory/search.py | Search commit messages, diffs, file history; regex; date range; author filter |
+| 1626 | CLI Commands | src/lidco/cli/commands/q302_cmds.py | /git-analyze, /smart-blame, /auto-bisect, /git-search |
+
+## Q303 — Branch Management (tasks 1627–1631)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1627 | Branch Strategy | src/lidco/branches/strategy.py | Enforce branching strategy (GitFlow/GitHub Flow/trunk-based); naming validation; auto-create |
+| 1628 | Branch Cleanup | src/lidco/branches/cleanup.py | Find stale branches; merged branches; orphaned; bulk delete with confirmation; protection |
+| 1629 | Branch Dashboard | src/lidco/branches/dashboard.py | Visual branch overview; ahead/behind; active authors; last activity; merge status |
+| 1630 | Worktree Manager v2 | src/lidco/branches/worktree_v2.py | Enhanced worktrees; auto-cleanup on crash; shared cache; parallel builds; disk monitoring |
+| 1631 | CLI Commands | src/lidco/cli/commands/q303_cmds.py | /branch-strategy, /branch-cleanup, /branch-dashboard, /worktree |
+
+## Q304 — Release Management (tasks 1632–1636)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1632 | Version Bumper | src/lidco/release/bumper.py | Auto-bump version; semantic versioning; based on commit types; pyproject/package.json/Cargo.toml |
+| 1633 | Changelog Generator | src/lidco/release/changelog.py | Generate changelog from commits; group by type; include PRs; keep-a-changelog format |
+| 1634 | Release Notes | src/lidco/release/notes.py | Generate release notes; highlights; breaking changes; migration guide; contributor credits |
+| 1635 | Tag Manager | src/lidco/release/tags.py | Create/manage git tags; signed tags; annotated; push tags; delete remote tags |
+| 1636 | CLI Commands | src/lidco/cli/commands/q304_cmds.py | /bump-version, /changelog, /release-notes, /tag |
+
+## Q305 — Git Hooks v2 (tasks 1637–1641)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1637 | Hook Manager v2 | src/lidco/githooks/manager.py | Install/manage git hooks; pre-commit, pre-push, commit-msg; language-agnostic; parallel execution |
+| 1638 | Hook Library | src/lidco/githooks/library.py | Built-in hooks; lint, format, test, secret scan, type check; configurable per project |
+| 1639 | Hook Composer | src/lidco/githooks/composer.py | Compose hooks from multiple sources; ordering; conditional execution; skip patterns |
+| 1640 | Hook Dashboard | src/lidco/githooks/dashboard.py | Hook execution stats; pass/fail rates; execution time; most failed hooks; trends |
+| 1641 | CLI Commands | src/lidco/cli/commands/q305_cmds.py | /git-hooks, /hook-library, /compose-hooks, /hook-stats |
+
+## Q306 — Monorepo Intelligence (tasks 1642–1646)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1642 | Package Detector | src/lidco/monorepo/detector.py | Detect monorepo tools (nx/turbo/lerna/pnpm); package boundaries; workspace config |
+| 1643 | Affected Finder | src/lidco/monorepo/affected.py | Find affected packages from git diff; transitive dependencies; optimized test/build selection |
+| 1644 | Dependency Graph v2 | src/lidco/monorepo/depgraph.py | Cross-package dependency graph; circular detection; version consistency; unused deps |
+| 1645 | Publish Orchestrator | src/lidco/monorepo/publish.py | Coordinated publishing; version sync; topological order; canary releases; rollback |
+| 1646 | CLI Commands | src/lidco/cli/commands/q306_cmds.py | /monorepo, /affected, /dep-graph, /publish |
+
+## Q307 — Code Ownership (tasks 1647–1651)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1647 | CODEOWNERS Generator | src/lidco/ownership/generator.py | Generate CODEOWNERS from git blame; team mapping; directory rules; review requirements |
+| 1648 | Ownership Analyzer | src/lidco/ownership/analyzer.py | Analyze code ownership; bus factor; knowledge silos; orphaned files; coverage gaps |
+| 1649 | Review Router | src/lidco/ownership/review_router.py | Route reviews to owners; load balancing; vacation handling; escalation; round-robin within team |
+| 1650 | Knowledge Transfer | src/lidco/ownership/transfer.py | Plan knowledge transfer; identify critical paths; pair programming suggestions; doc gaps |
+| 1651 | CLI Commands | src/lidco/cli/commands/q307_cmds.py | /codeowners, /ownership-analyze, /review-route, /knowledge-transfer |
+
+## Q308 — Git Analytics (tasks 1652–1656)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1652 | Contribution Analytics | src/lidco/gitanalytics/contributions.py | Per-author stats; lines added/removed; files touched; commit frequency; review activity |
+| 1653 | Code Velocity | src/lidco/gitanalytics/velocity.py | Team velocity metrics; commits/day; PRs merged/week; review turnaround; cycle time |
+| 1654 | Churn Predictor | src/lidco/gitanalytics/churn_predictor.py | Predict files likely to change; based on history patterns; seasonal trends; coupling analysis |
+| 1655 | Repository Health | src/lidco/gitanalytics/health.py | Overall repo health score; test coverage trend; build stability; dependency freshness |
+| 1656 | CLI Commands | src/lidco/cli/commands/q308_cmds.py | /contributions, /velocity, /predict-churn, /repo-health |
+
+---
+
+# Phase 21 — Testing Intelligence (Q309–Q318)
+
+> Goal: testing superpowers — visual regression, contract testing, chaos engineering, load testing.
+
+## Q309 — Visual Regression Testing (tasks 1657–1661)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1657 | Screenshot Capture | src/lidco/visual_test/capture.py | Capture screenshots via Playwright; element selection; viewport configs; device emulation |
+| 1658 | Visual Diff Engine | src/lidco/visual_test/diff.py | Pixel-by-pixel comparison; perceptual hash; tolerance thresholds; highlight changes; masking |
+| 1659 | Baseline Manager | src/lidco/visual_test/baseline.py | Store/update baselines; per-branch baselines; approval workflow; auto-update on merge |
+| 1660 | Visual Test Report | src/lidco/visual_test/report.py | HTML report; side-by-side; overlay mode; filter by status; export; CI integration |
+| 1661 | CLI Commands | src/lidco/cli/commands/q309_cmds.py | /visual-capture, /visual-diff, /visual-baseline, /visual-report |
+
+## Q310 — Contract Testing (tasks 1662–1666)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1662 | Contract Definitions | src/lidco/contracts/definitions.py | Define API contracts; request/response schemas; versioning; provider/consumer roles |
+| 1663 | Contract Verifier | src/lidco/contracts/verifier.py | Verify provider against contracts; mock consumer; check backward compatibility |
+| 1664 | Contract Generator | src/lidco/contracts/generator.py | Generate contracts from API usage; record interactions; produce Pact-compatible format |
+| 1665 | Contract Broker | src/lidco/contracts/broker.py | Store/share contracts; version matrix; compatibility dashboard; webhook on break |
+| 1666 | CLI Commands | src/lidco/cli/commands/q310_cmds.py | /contract, /verify-contract, /gen-contract, /contract-broker |
+
+## Q311 — Chaos Engineering (tasks 1667–1671)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1667 | Chaos Experiments | src/lidco/chaos/experiments.py | Define chaos experiments; network delay, disk full, service down; configurable duration/scope |
+| 1668 | Fault Injector | src/lidco/chaos/injector.py | Inject faults; timeout, error responses, slow responses, connection drops; safe rollback |
+| 1669 | Chaos Monitor | src/lidco/chaos/monitor.py | Monitor system during chaos; health metrics; recovery time; error rates; SLA impact |
+| 1670 | Resilience Score | src/lidco/chaos/resilience.py | Score system resilience; test coverage of failure modes; recovery speed; graceful degradation |
+| 1671 | CLI Commands | src/lidco/cli/commands/q311_cmds.py | /chaos-experiment, /inject-fault, /chaos-monitor, /resilience-score |
+
+## Q312 — Load Testing (tasks 1672–1676)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1672 | Load Profile | src/lidco/loadtest/profile.py | Define load profiles; ramp-up, steady, spike, soak; concurrent users; request patterns |
+| 1673 | Load Runner | src/lidco/loadtest/runner.py | Execute load tests; HTTP, WebSocket, gRPC; configurable concurrency; real-time stats |
+| 1674 | Performance Report | src/lidco/loadtest/report.py | Latency percentiles; throughput; error rates; resource utilization; comparison with baseline |
+| 1675 | Bottleneck Finder | src/lidco/loadtest/bottleneck.py | Identify bottlenecks under load; slow queries; connection pools; memory pressure; CPU hotspots |
+| 1676 | CLI Commands | src/lidco/cli/commands/q312_cmds.py | /load-profile, /load-run, /load-report, /load-bottleneck |
+
+## Q313 — Snapshot Testing (tasks 1677–1681)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1677 | Snapshot Manager | src/lidco/snapshot_test/manager.py | Create/update snapshots; serialization format; per-test naming; directory structure |
+| 1678 | Snapshot Matcher | src/lidco/snapshot_test/matcher.py | Compare output to snapshot; diff on mismatch; update workflow; partial matching |
+| 1679 | Snapshot Reviewer | src/lidco/snapshot_test/reviewer.py | Interactive review of snapshot changes; accept/reject; bulk update; history |
+| 1680 | Snapshot Analytics | src/lidco/snapshot_test/analytics.py | Snapshot stats; churn rate; size trends; stale snapshots; orphaned files |
+| 1681 | CLI Commands | src/lidco/cli/commands/q313_cmds.py | /snapshot, /snapshot-diff, /snapshot-review, /snapshot-stats |
+
+## Q314 — Flaky Test Detection (tasks 1682–1686)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1682 | Flaky Detector | src/lidco/flaky/detector.py | Detect flaky tests; run N times; track pass/fail ratio; timing variance; quarantine list |
+| 1683 | Flaky Analyzer | src/lidco/flaky/analyzer.py | Root cause analysis; timing-dependent, order-dependent, resource-dependent; shared state |
+| 1684 | Flaky Fixer | src/lidco/flaky/fixer.py | Auto-fix common flaky patterns; add retries, fix timing, isolate state; preview |
+| 1685 | Flaky Dashboard | src/lidco/flaky/dashboard.py | Flaky test rankings; trend over time; impact on CI; cost of flakiness; improvement tracking |
+| 1686 | CLI Commands | src/lidco/cli/commands/q314_cmds.py | /flaky-detect, /flaky-analyze, /flaky-fix, /flaky-dashboard |
+
+## Q315 — Test Coverage Intelligence (tasks 1687–1691)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1687 | Coverage Collector | src/lidco/coverage/collector.py | Collect coverage from pytest; merge multiple runs; branch coverage; function coverage |
+| 1688 | Coverage Diff | src/lidco/coverage/diff.py | Coverage diff between branches; new code coverage; coverage regression detection |
+| 1689 | Coverage Optimizer | src/lidco/coverage/optimizer.py | Suggest tests for max coverage gain; rank uncovered code by risk; minimal test set |
+| 1690 | Coverage Enforcer | src/lidco/coverage/enforcer.py | Enforce coverage thresholds; per-file, per-module, overall; block merge if below; gradual increase |
+| 1691 | CLI Commands | src/lidco/cli/commands/q315_cmds.py | /coverage-collect, /coverage-diff, /coverage-optimize, /coverage-enforce |
+
+## Q316 — API Testing Framework (tasks 1692–1696)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1692 | API Test Builder | src/lidco/apitest/builder.py | Build API tests from spec; request builder; assertion builder; chaining; variables |
+| 1693 | API Test Runner | src/lidco/apitest/runner.py | Execute API tests; parallel; retry on flaky; environment configs; auth handling |
+| 1694 | API Test Generator | src/lidco/apitest/generator.py | Generate tests from OpenAPI spec; happy path + error codes; auth variants; pagination |
+| 1695 | API Test Report | src/lidco/apitest/report.py | Test results; response time stats; failure analysis; coverage of endpoints; trends |
+| 1696 | CLI Commands | src/lidco/cli/commands/q316_cmds.py | /api-test-build, /api-test-run, /api-test-gen, /api-test-report |
+
+## Q317 — E2E Test Intelligence (tasks 1697–1701)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1697 | E2E Test Generator | src/lidco/e2e_intel/generator.py | Generate Playwright tests from user flows; page object model; selectors; assertions |
+| 1698 | E2E Test Healer | src/lidco/e2e_intel/healer.py | Auto-fix broken selectors; detect UI changes; suggest alternative locators; self-healing |
+| 1699 | E2E Test Optimizer | src/lidco/e2e_intel/optimizer.py | Parallelize tests; minimize test data setup; shared state; critical path first |
+| 1700 | E2E Test Report | src/lidco/e2e_intel/report.py | Screenshots; video recordings; trace files; failure screenshots; step-by-step report |
+| 1701 | CLI Commands | src/lidco/cli/commands/q317_cmds.py | /e2e-generate, /e2e-heal, /e2e-optimize, /e2e-report |
+
+## Q318 — Test Data Management (tasks 1702–1706)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1702 | Test Data Generator | src/lidco/testdata/generator.py | Generate realistic test data; schemas; relationships; constraints; deterministic seeds |
+| 1703 | Test Data Store | src/lidco/testdata/store.py | Persist test data sets; version; share between tests; cleanup after use; isolation |
+| 1704 | Data Masker | src/lidco/testdata/masker.py | Mask production data for testing; PII removal; referential integrity preservation; reversible |
+| 1705 | Fixture Factory | src/lidco/testdata/fixture_factory.py | Generate pytest fixtures; parametrized; dynamic; lazy; cleanup; dependency injection |
+| 1706 | CLI Commands | src/lidco/cli/commands/q318_cmds.py | /gen-data, /data-store, /mask-data, /gen-fixtures |
+
+---
+
+# Phase 22 — Infrastructure & DevOps (Q319–Q328)
+
+> Goal: infrastructure as code, deployment, monitoring, cost optimization, disaster recovery.
+
+## Q319 — Infrastructure as Code (tasks 1707–1711)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1707 | Terraform Generator | src/lidco/iac/terraform.py | Generate Terraform from requirements; AWS/GCP/Azure modules; state management; plan preview |
+| 1708 | CloudFormation Generator | src/lidco/iac/cloudformation.py | Generate CF templates; nested stacks; parameter store; output exports; drift detection |
+| 1709 | Pulumi Generator | src/lidco/iac/pulumi.py | Generate Pulumi programs; TypeScript/Python; resource grouping; stack management |
+| 1710 | IaC Validator | src/lidco/iac/validator.py | Validate IaC templates; security checks; cost estimation; best practices; policy compliance |
+| 1711 | CLI Commands | src/lidco/cli/commands/q319_cmds.py | /terraform, /cloudformation, /pulumi, /validate-iac |
+
+## Q320 — CI/CD Pipeline Intelligence (tasks 1712–1716)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1712 | Pipeline Analyzer | src/lidco/cicd/analyzer.py | Analyze CI pipeline config; find bottlenecks; suggest parallelization; cache opportunities |
+| 1713 | Pipeline Generator | src/lidco/cicd/generator.py | Generate CI config from project; GitHub Actions, GitLab CI, CircleCI; optimized stages |
+| 1714 | Pipeline Optimizer | src/lidco/cicd/optimizer.py | Optimize pipeline; reduce build time; selective testing; artifact caching; skip unchanged |
+| 1715 | Pipeline Monitor | src/lidco/cicd/monitor.py | Real-time pipeline status; failure alerts; duration trends; success rate; flaky detection |
+| 1716 | CLI Commands | src/lidco/cli/commands/q320_cmds.py | /pipeline-analyze, /pipeline-gen, /pipeline-optimize, /pipeline-monitor |
+
+## Q321 — Cloud Cost Optimization (tasks 1717–1721)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1717 | Cost Analyzer | src/lidco/cloudcost/analyzer.py | Analyze cloud spending; per-service breakdown; unused resources; right-sizing suggestions |
+| 1718 | Cost Forecaster | src/lidco/cloudcost/forecaster.py | Predict future costs; trend extrapolation; seasonal patterns; budget alerts |
+| 1719 | Savings Finder | src/lidco/cloudcost/savings.py | Find savings opportunities; reserved instances, spot instances, auto-scaling; ROI calculation |
+| 1720 | Cost Dashboard | src/lidco/cloudcost/dashboard.py | Cost visualization; daily/weekly/monthly trends; per-environment; tags; anomaly highlighting |
+| 1721 | CLI Commands | src/lidco/cli/commands/q321_cmds.py | /cloud-cost, /cost-forecast, /find-savings, /cost-dashboard |
+
+## Q322 — Deployment Strategies (tasks 1722–1726)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1722 | Blue-Green Deployer | src/lidco/deploy/blue_green.py | Blue-green deployment; traffic switching; health validation; instant rollback; zero downtime |
+| 1723 | Canary Deployer | src/lidco/deploy/canary.py | Canary releases; percentage rollout; metric monitoring; auto-promote/rollback; traffic splitting |
+| 1724 | Rolling Deployer | src/lidco/deploy/rolling.py | Rolling updates; batch size; health checks; pause on error; resume; configurable speed |
+| 1725 | Feature Flag Deployer | src/lidco/deploy/feature_flags.py | Feature flag-based deployment; gradual rollout; user targeting; kill switch; experimentation |
+| 1726 | CLI Commands | src/lidco/cli/commands/q322_cmds.py | /deploy-blue-green, /deploy-canary, /deploy-rolling, /feature-deploy |
+
+## Q323 — Service Mesh Intelligence (tasks 1727–1731)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1727 | Service Mapper | src/lidco/mesh/mapper.py | Discover services; call graph; dependency map; version matrix; health status |
+| 1728 | Traffic Analyzer | src/lidco/mesh/traffic.py | Analyze service-to-service traffic; request volume; latency; error rates; patterns |
+| 1729 | Circuit Breaker Config | src/lidco/mesh/circuit_config.py | Generate circuit breaker configs; per-service tuning; based on historical failure patterns |
+| 1730 | Rate Limit Generator | src/lidco/mesh/rate_limits.py | Generate rate limit configs; per-endpoint; based on capacity; burst handling; priority lanes |
+| 1731 | CLI Commands | src/lidco/cli/commands/q323_cmds.py | /service-map, /traffic-analyze, /circuit-config, /rate-config |
+
+## Q324 — Disaster Recovery (tasks 1732–1736)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1732 | Backup Manager | src/lidco/dr/backup.py | Automated backups; incremental; versioned; encrypted; multi-destination; retention policies |
+| 1733 | Recovery Planner | src/lidco/dr/planner.py | DR plan generation; RTO/RPO targets; runbook; dependency ordering; validation |
+| 1734 | Failover Orchestrator | src/lidco/dr/failover.py | Automated failover; health detection; DNS switching; data sync verification; notification |
+| 1735 | DR Test Runner | src/lidco/dr/tester.py | Simulate DR scenarios; measure recovery time; validate data integrity; chaos-based |
+| 1736 | CLI Commands | src/lidco/cli/commands/q324_cmds.py | /backup, /dr-plan, /failover, /dr-test |
+
+## Q325 — Environment Management (tasks 1737–1741)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1737 | Env Provisioner | src/lidco/envmgmt/provisioner.py | Provision dev/staging/prod environments; template-based; auto-configure; destroy on demand |
+| 1738 | Env Comparator | src/lidco/envmgmt/comparator.py | Compare environments; config diff; version diff; drift detection; sync recommendations |
+| 1739 | Env Promoter | src/lidco/envmgmt/promoter.py | Promote changes between environments; approval gates; smoke tests; rollback |
+| 1740 | Env Monitor | src/lidco/envmgmt/monitor.py | Monitor environment health; resource usage; config drift; expiry tracking; cost per env |
+| 1741 | CLI Commands | src/lidco/cli/commands/q325_cmds.py | /env-provision, /env-compare, /env-promote, /env-monitor |
+
+## Q326 — Configuration Management (tasks 1742–1746)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1742 | Config Template Engine | src/lidco/configmgmt/template.py | Generate config files from templates; environment-specific values; secrets injection; validation |
+| 1743 | Config Validator | src/lidco/configmgmt/validator.py | Validate config files; schema checking; cross-reference; dependency validation; best practices |
+| 1744 | Config Diff | src/lidco/configmgmt/diff.py | Diff configs between environments; highlight dangerous changes; approval workflow |
+| 1745 | Config Audit | src/lidco/configmgmt/audit.py | Track config changes; who/when/why; rollback support; compliance reporting |
+| 1746 | CLI Commands | src/lidco/cli/commands/q326_cmds.py | /config-template, /config-validate, /config-diff, /config-audit |
+
+## Q327 — Log Intelligence (tasks 1747–1751)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1747 | Log Parser | src/lidco/logintel/parser.py | Parse structured/unstructured logs; auto-detect format; JSON, syslog, custom; field extraction |
+| 1748 | Log Correlator | src/lidco/logintel/correlator.py | Correlate logs across services; request tracing; timeline reconstruction; root cause chain |
+| 1749 | Log Anomaly Detector | src/lidco/logintel/anomaly.py | Detect log anomalies; unusual patterns; volume spikes; new error types; seasonal baseline |
+| 1750 | Log Dashboard | src/lidco/logintel/dashboard.py | Log visualization; timeline; volume chart; error rate; top errors; drill-down; export |
+| 1751 | CLI Commands | src/lidco/cli/commands/q327_cmds.py | /parse-log, /correlate-logs, /log-anomaly, /log-dashboard |
+
+## Q328 — SRE Toolkit (tasks 1752–1756)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1752 | SLO Tracker | src/lidco/sre/slo.py | Define SLOs; track error budgets; burn rate alerts; SLI measurement; reporting |
+| 1753 | Incident Commander | src/lidco/sre/commander.py | Incident management; severity levels; communication templates; status page updates; postmortem |
+| 1754 | Runbook Generator | src/lidco/sre/runbook.py | Generate runbooks from procedures; step-by-step; decision trees; automated checks; versioned |
+| 1755 | On-Call Manager | src/lidco/sre/oncall.py | On-call schedules; rotation; escalation policies; override; fatigue tracking; handoff notes |
+| 1756 | CLI Commands | src/lidco/cli/commands/q328_cmds.py | /slo, /incident, /runbook, /oncall |
+
+---
+
+# Phase 23 — Knowledge & Learning (Q329–Q338)
+
+> Goal: codebase knowledge, learning systems, documentation AI, onboarding, mentoring.
+
+## Q329 — Codebase Knowledge Graph (tasks 1757–1761)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1757 | Knowledge Extractor | src/lidco/knowledge/extractor.py | Extract concepts from code; design patterns; architecture decisions; business rules; invariants |
+| 1758 | Knowledge Graph | src/lidco/knowledge/graph.py | Build knowledge graph; entities (files, functions, concepts); relationships; traversal; query |
+| 1759 | Knowledge Search | src/lidco/knowledge/search.py | Natural language search over knowledge graph; "how does auth work?"; context-aware answers |
+| 1760 | Knowledge Updater | src/lidco/knowledge/updater.py | Keep knowledge graph fresh; detect changes; incremental updates; conflict resolution |
+| 1761 | CLI Commands | src/lidco/cli/commands/q329_cmds.py | /knowledge, /knowledge-search, /knowledge-graph, /knowledge-update |
+
+## Q330 — Onboarding Intelligence (tasks 1762–1766)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1762 | Codebase Tour | src/lidco/onboard/tour.py | Guided tour of codebase; key files; architecture overview; interactive navigation; progress |
+| 1763 | Concept Explainer | src/lidco/onboard/explainer.py | Explain project concepts; progressive difficulty; examples; quizzes; glossary |
+| 1764 | Setup Assistant | src/lidco/onboard/setup.py | Guided dev environment setup; dependency check; config generation; first build; verification |
+| 1765 | Contribution Guide | src/lidco/onboard/contrib.py | Generate contribution guide; workflow; conventions; testing; PR process; common pitfalls |
+| 1766 | CLI Commands | src/lidco/cli/commands/q330_cmds.py | /tour, /explain-concept, /setup-dev, /contrib-guide |
+
+## Q331 — Learning System (tasks 1767–1771)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1767 | Skill Tracker | src/lidco/learning/skills.py | Track developer skills; language proficiency; framework knowledge; growth over time |
+| 1768 | Learning Path | src/lidco/learning/path.py | Personalized learning paths; based on skill gaps; project needs; recommended resources |
+| 1769 | Practice Generator | src/lidco/learning/practice.py | Generate coding exercises; from codebase patterns; difficulty scaling; auto-grading |
+| 1770 | Progress Dashboard | src/lidco/learning/progress.py | Learning progress; completed exercises; skill growth; streak tracking; achievements |
+| 1771 | CLI Commands | src/lidco/cli/commands/q331_cmds.py | /skills, /learning-path, /practice, /learning-progress |
+
+## Q332 — Code Review Learning (tasks 1772–1776)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1772 | Review Patterns | src/lidco/review_learn/patterns.py | Common review feedback patterns; anti-patterns; best practice examples; language-specific |
+| 1773 | Review Trainer | src/lidco/review_learn/trainer.py | Practice code review; sample PRs; guided review; compare with expert review; scoring |
+| 1774 | Review Style Guide | src/lidco/review_learn/style.py | Team review conventions; tone guidelines; constructive feedback templates; example comments |
+| 1775 | Review Analytics | src/lidco/review_learn/analytics.py | Review quality metrics; feedback adoption rate; review time; common issues; improvement trends |
+| 1776 | CLI Commands | src/lidco/cli/commands/q332_cmds.py | /review-patterns, /review-train, /review-style, /review-analytics |
+
+## Q333 — Architecture Decision Records (tasks 1777–1781)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1777 | ADR Manager | src/lidco/adr/manager.py | Create/manage ADRs; numbered sequence; status (proposed/accepted/deprecated); template-based |
+| 1778 | ADR Generator | src/lidco/adr/generator.py | Auto-generate ADRs from discussions; extract context, decision, consequences; markdown format |
+| 1779 | ADR Search | src/lidco/adr/search.py | Search ADRs; by status, date, topic; full-text; cross-reference with code; traceability |
+| 1780 | ADR Validator | src/lidco/adr/validator.py | Validate ADR compliance; referenced in code; not contradicted; still relevant; review schedule |
+| 1781 | CLI Commands | src/lidco/cli/commands/q333_cmds.py | /adr, /gen-adr, /search-adr, /validate-adr |
+
+## Q334 — Technical Writing Assistant (tasks 1782–1786)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1782 | Writing Analyzer | src/lidco/writing/analyzer.py | Analyze technical writing quality; readability score; jargon detection; consistency; tone |
+| 1783 | Writing Improver | src/lidco/writing/improver.py | Suggest improvements; simplify complex sentences; fix grammar; add examples; improve structure |
+| 1784 | Template Library | src/lidco/writing/templates.py | Writing templates; RFC, design doc, postmortem, runbook, readme; fill-in-blank; customizable |
+| 1785 | Glossary Manager | src/lidco/writing/glossary.py | Project glossary; auto-detect terms; definitions; cross-reference; consistency enforcement |
+| 1786 | CLI Commands | src/lidco/cli/commands/q334_cmds.py | /analyze-writing, /improve-writing, /writing-template, /glossary |
+
+## Q335 — Mentoring System (tasks 1787–1791)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1787 | Mentor Matcher | src/lidco/mentor/matcher.py | Match mentors/mentees; skill complementarity; availability; interests; project alignment |
+| 1788 | Pair Programming AI | src/lidco/mentor/pair_ai.py | AI pair programming; explain while coding; suggest alternatives; teaching moments; adaptive |
+| 1789 | Code Walkthrough | src/lidco/mentor/walkthrough.py | Guided code walkthroughs; step-by-step; questions; key concepts; bookmark important sections |
+| 1790 | Feedback Generator | src/lidco/mentor/feedback.py | Generate constructive feedback; strengths; improvement areas; specific examples; action items |
+| 1791 | CLI Commands | src/lidco/cli/commands/q335_cmds.py | /mentor, /pair-ai, /walkthrough, /gen-feedback |
+
+## Q336 — Project Archaeology (tasks 1792–1796)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1792 | History Digger | src/lidco/archaeology/digger.py | Dig through project history; find original design intent; evolution timeline; key decisions |
+| 1793 | Legacy Decoder | src/lidco/archaeology/decoder.py | Decode legacy code; explain cryptic patterns; historical context; original requirements |
+| 1794 | Migration Advisor | src/lidco/archaeology/migration.py | Advise on legacy migration; risk assessment; incremental strategy; parallel running; testing |
+| 1795 | Dead Feature Finder | src/lidco/archaeology/dead_finder.py | Find dead features; unused code paths; feature flags never enabled; dead endpoints |
+| 1796 | CLI Commands | src/lidco/cli/commands/q336_cmds.py | /dig-history, /decode-legacy, /migration-advice, /find-dead-features |
+
+## Q337 — Developer Productivity (tasks 1797–1801)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1797 | Time Tracker | src/lidco/productivity/timer.py | Track time per task; auto-detect from git activity; project allocation; reports; export |
+| 1798 | Focus Mode | src/lidco/productivity/focus.py | Focus mode; disable notifications; block distractions; timer; break reminders; Pomodoro |
+| 1799 | Daily Standup | src/lidco/productivity/standup.py | Generate standup notes; yesterday's commits; today's plan; blockers; auto-format |
+| 1800 | Retrospective | src/lidco/productivity/retro.py | Generate retrospective; what went well; what didn't; action items; based on session data |
+| 1801 | CLI Commands | src/lidco/cli/commands/q337_cmds.py | /timer, /focus, /standup, /retro |
+
+## Q338 — Community & Ecosystem (tasks 1802–1806)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1802 | Plugin Marketplace v2 | src/lidco/community/marketplace.py | Community plugins; ratings; reviews; download stats; auto-update; compatibility matrix |
+| 1803 | Theme Gallery | src/lidco/community/themes.py | Shared themes; preview; one-click install; ratings; trending; seasonal themes |
+| 1804 | Recipe Sharing | src/lidco/community/recipes.py | Share automation recipes; workflow templates; best practices; fork/customize; version |
+| 1805 | Community Dashboard | src/lidco/community/dashboard.py | Community stats; contributors; popular plugins; recent activity; leaderboard |
+| 1806 | CLI Commands | src/lidco/cli/commands/q338_cmds.py | /marketplace-v2, /theme-gallery, /share-recipe, /community |
