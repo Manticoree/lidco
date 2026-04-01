@@ -118,5 +118,17 @@
       "source_turn": 0
     },
     "created_at": "2026-03-30T20:24:52.043341+00:00"
+  },
+  {
+    "id": "a09721f8",
+    "fact": {
+      "content": "I prefer Python for scripts.",
+      "confidence": 0.7,
+      "tags": [
+        "python"
+      ],
+      "source_turn": 0
+    },
+    "created_at": "2026-03-31T19:39:58.331620+00:00"
   }
 ]
