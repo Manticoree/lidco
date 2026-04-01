@@ -1090,3 +1090,65 @@ Tests: tests/unit/test_q222/ — 57 tests
 | 1244 | Usage Tracker | src/lidco/gateway/usage_tracker.py | Per-key usage tracking; daily/monthly aggregation; quota warnings; export to CSV |
 | 1245 | Request Queue | src/lidco/gateway/request_queue.py | Queue requests when rate limited; priority ordering; timeout; retry with backoff |
 | 1246 | CLI Commands | src/lidco/cli/commands/q226_cmds.py | /gateway, /api-keys, /api-usage, /api-queue |
+
+---
+
+# Phase 11 — Deep Token Budget Management (Q227–Q230)
+
+> Goal: production-grade token budget system — real-time tracking, auto-compaction, adaptive budgets, smart eviction.
+
+## Q227 — Context Window Meter & Model Registry (tasks 1247–1251) ✅
+
+**Theme:** Real-time context window utilization tracking, model-to-window-size registry, usage dashboard.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1247 | Model Context Registry | src/lidco/budget/model_registry.py | Map model names to context window sizes; provider-aware; auto-detect from API; override config |
+| 1248 | Context Window Meter | src/lidco/budget/window_meter.py | Track tokens used/remaining per session; per-message accounting; live % utilization; watermark tracking |
+| 1249 | Usage Dashboard | src/lidco/budget/usage_dashboard.py | Rich terminal dashboard; breakdown by role (system/user/assistant/tool); trend over turns; peak tracking |
+| 1250 | Threshold Alerter | src/lidco/budget/threshold_alerter.py | Configurable thresholds (70%/85%/95%); alert callbacks; escalation levels (info/warn/critical); cooldown |
+| 1251 | CLI Commands | src/lidco/cli/commands/q227_cmds.py | /context-meter, /model-limits, /usage-dashboard, /budget-alerts |
+
+Tests: tests/unit/test_q227/ — 64 tests
+
+## Q228 — Auto-Compaction Orchestrator (tasks 1252–1256) ✅
+
+**Theme:** Automatic context compaction triggered by utilization thresholds — strategy selection, orchestration, journal.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1252 | Compaction Orchestrator | src/lidco/budget/compaction_orchestrator.py | Monitor context usage; trigger compaction at thresholds; select strategy based on pressure level; hook into LLM pipeline |
+| 1253 | Strategy Selector | src/lidco/budget/strategy_selector.py | Choose compaction strategy (trim-oldest, summarize-middle, collapse-tools, aggressive-prune) based on pressure %; configurable rules |
+| 1254 | Compaction Journal | src/lidco/budget/compaction_journal.py | Log every compaction event; before/after token counts; strategy used; messages removed/summarized; undo support |
+| 1255 | Tool Result Compressor | src/lidco/budget/tool_compressor.py | Compress tool results in conversation; keep recent full, summarize old; per-tool strategies (file→head/tail, grep→top-N, bash→truncate) |
+| 1256 | CLI Commands | src/lidco/cli/commands/q228_cmds.py | /auto-compact, /compaction-log, /compact-tools, /compaction-config |
+
+Tests: tests/unit/test_q228/ — 65 tests
+
+## Q229 — Adaptive Budget Engine (tasks 1257–1261) ✅
+
+**Theme:** Dynamic token budget per task — complexity scoring, auto-scaling max_tokens, pre-call estimation, forecasting.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1257 | Task Complexity Scorer | src/lidco/budget/task_scorer.py | Score task complexity from prompt (simple/moderate/complex/expert); heuristics: code references, file count, multi-step indicators |
+| 1258 | Dynamic Budget Scaler | src/lidco/budget/dynamic_scaler.py | Scale max_tokens based on complexity score; min/max bounds; learning from actual usage; per-model adjustment |
+| 1259 | Pre-Call Estimator | src/lidco/budget/pre_call_estimator.py | Estimate tokens a tool call will consume before execution; file size lookup, grep result count prediction; budget check before call |
+| 1260 | Budget Forecaster | src/lidco/budget/budget_forecaster.py | Predict tokens remaining at current burn rate; session lifespan estimate; recommend compaction timing; trend analysis |
+| 1261 | CLI Commands | src/lidco/cli/commands/q229_cmds.py | /task-score, /budget-scale, /estimate-cost, /budget-forecast |
+
+Tests: tests/unit/test_q229/ — 57 tests
+
+## Q230 — Message Collapsing & Smart Eviction (tasks 1262–1266) ✅
+
+**Theme:** Intelligent message merging and eviction — semantic similarity, importance scoring, budget allocator completion, token debt.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1262 | Message Collapser | src/lidco/budget/message_collapser.py | Merge similar adjacent messages; combine repeated tool calls; summarize multi-turn exchanges into single turn; preserve key decisions |
+| 1263 | Importance Scorer | src/lidco/budget/importance_scorer.py | Score messages by importance (code changes=high, confirmations=low, errors=high); reference counting; user-marked pins; decay by age |
+| 1264 | Smart Evictor | src/lidco/budget/smart_evictor.py | Evict lowest-importance messages first; never evict system/pinned; batch eviction to target; eviction log; undo support |
+| 1265 | Token Debt Tracker | src/lidco/budget/token_debt.py | Track "over budget" turns as debt; carry forward; repay via aggressive compaction next turn; debt ceiling; session debt summary |
+| 1266 | CLI Commands | src/lidco/cli/commands/q230_cmds.py | /collapse, /importance, /evict, /token-debt |
+
+Tests: tests/unit/test_q230/ — 63 tests
