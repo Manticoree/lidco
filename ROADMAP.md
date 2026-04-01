@@ -1214,3 +1214,66 @@ Tests: tests/unit/test_q233/ — 54 tests
 | 1286 | CLI Commands | src/lidco/cli/commands/q234_cmds.py | /budget-history, /efficiency, /optimize-budget, /compare-budgets |
 
 Tests: tests/unit/test_q234/ — 72 tests
+
+---
+
+# Phase 13 — Claude Code Deep Parity (Q235–Q238)
+
+> Source: reverse-engineered from claw-code (instructkr/claw-code) + Claude Code internals audit.
+> Goal: thinkback, teleport, bridge, doctor, ultraplan, share, turn limits, parallel tools, desktop notifications.
+
+## Q235 — Thinkback & Thinking Trace (tasks 1287–1291) ✅
+
+**Theme:** Inspect, replay, and search the model's thinking/reasoning trace. (Claude Code parity: /thinkback)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1287 | Thinking Store | src/lidco/thinkback/store.py | Append-only store for thinking blocks; per-turn indexing; search by keyword; token count per block |
+| 1288 | Thinking Viewer | src/lidco/thinkback/viewer.py | Format thinking for display; collapse/expand; highlight key decisions; diff between turns |
+| 1289 | Thinking Analyzer | src/lidco/thinkback/analyzer.py | Extract key decisions from thinking; confidence markers; identify uncertainty; summarize reasoning chain |
+| 1290 | Thinking Search | src/lidco/thinkback/search.py | Full-text search across all thinking blocks; regex support; filter by turn range; rank by relevance |
+| 1291 | CLI Commands | src/lidco/cli/commands/q235_cmds.py | /thinkback, /thinking-search, /thinking-stats, /thinking-diff |
+
+Tests: tests/unit/test_q235/ — 66 tests
+
+## Q236 — Teleport & Session Transfer (tasks 1292–1296) ✅
+
+**Theme:** Transfer session context between machines/environments. (Claude Code parity: /teleport)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1292 | Session Serializer | src/lidco/teleport/serializer.py | Serialize full session state (messages, files, config) to portable format; compress; versioned schema |
+| 1293 | Session Importer | src/lidco/teleport/importer.py | Import serialized session; validate schema; resolve file path conflicts; merge with current state |
+| 1294 | Transfer Protocol | src/lidco/teleport/protocol.py | Chunked transfer; checksum verification; encryption option; progress tracking |
+| 1295 | Share Link Generator | src/lidco/teleport/share.py | Generate shareable session snapshot; expiry; access control; anonymize sensitive data |
+| 1296 | CLI Commands | src/lidco/cli/commands/q236_cmds.py | /teleport-export, /teleport-import, /share, /share-list |
+
+Tests: tests/unit/test_q236/ — 62 tests
+
+## Q237 — Doctor & System Diagnostics (tasks 1297–1301) ✅
+
+**Theme:** Health checks, dependency verification, environment diagnostics. (Claude Code parity: /doctor)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1297 | System Checker | src/lidco/doctor/system_checker.py | Check Python version, git, gh CLI, OS; verify PATH; detect WSL/Docker; report capabilities |
+| 1298 | API Key Validator | src/lidco/doctor/api_validator.py | Validate API keys per provider; test connectivity; check quota; detect expired/revoked keys |
+| 1299 | Model Availability | src/lidco/doctor/model_checker.py | List available models per provider; test inference; check rate limits; recommend alternatives |
+| 1300 | Environment Reporter | src/lidco/doctor/env_reporter.py | Full environment report; config files found; MCP servers status; plugin health; disk space |
+| 1301 | CLI Commands | src/lidco/cli/commands/q237_cmds.py | /doctor, /doctor-api, /doctor-models, /doctor-env |
+
+Tests: tests/unit/test_q237/ — 53 tests
+
+## Q238 — Ultraplan, Turn Limits & Parallel Tools (tasks 1302–1306) ✅
+
+**Theme:** Enhanced planning mode, conversation safety limits, concurrent tool execution. (Claude Code parity: /ultraplan, /ultrareview, turn limits)
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1302 | Ultra Planner | src/lidco/modes/ultra_planner.py | Multi-pass planning with critique rounds; architecture review; risk assessment; implementation checklist; markdown output |
+| 1303 | Ultra Reviewer | src/lidco/modes/ultra_reviewer.py | Deep code review with 6 perspectives (security, perf, style, logic, tests, simplification); severity ranking; fix suggestions |
+| 1304 | Turn Limiter | src/lidco/safety/turn_limiter.py | Configurable max turns per session; soft warn at 80%; hard stop at limit; override with confirmation; track turn count |
+| 1305 | Parallel Tool Runner | src/lidco/tools/parallel_runner.py | Execute independent tools concurrently; dependency detection; result aggregation; timeout per tool; error isolation |
+| 1306 | CLI Commands | src/lidco/cli/commands/q238_cmds.py | /ultraplan, /ultrareview, /turn-limit, /parallel-tools |
+
+Tests: tests/unit/test_q238/ — 70 tests

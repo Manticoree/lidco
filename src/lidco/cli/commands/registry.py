@@ -132,7 +132,7 @@ class CommandRegistry:
             *[f"q{n}_cmds" for n in range(101, 154)],
             *[f"q{n}_cmds" for n in range(160, 172)],
             *[f"q{n}_cmds" for n in range(181, 200)],
-            *[f"q{n}_cmds" for n in range(200, 235)],
+            *[f"q{n}_cmds" for n in range(200, 239)],
         ]
         # Remove legacy modules from standard list (they use custom register fn)
         _q_standard = [m for m in _q_standard if m not in _q_legacy]
