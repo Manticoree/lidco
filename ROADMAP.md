@@ -1152,3 +1152,65 @@ Tests: tests/unit/test_q229/ — 57 tests
 | 1266 | CLI Commands | src/lidco/cli/commands/q230_cmds.py | /collapse, /importance, /evict, /token-debt |
 
 Tests: tests/unit/test_q230/ — 63 tests
+
+---
+
+# Phase 12 — Token Budget Integration & Pipeline Wiring (Q231–Q234)
+
+> Goal: wire budget modules into Session/LLM pipeline, create unified budget controller, add budget-aware tool execution, session-level budget lifecycle.
+
+## Q231 — Unified Budget Controller (tasks 1267–1271) ✅
+
+**Theme:** Single entry point that orchestrates all budget modules — meter, alerter, compaction, forecaster, debt.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1267 | Budget Controller | src/lidco/budget/controller.py | Facade over meter+alerter+orchestrator+forecaster+debt; single process_turn() call; auto-compact on threshold |
+| 1268 | Budget Pipeline | src/lidco/budget/pipeline.py | Ordered pipeline: estimate→check→execute→record→compact; middleware-style hooks; skip on budget exceeded |
+| 1269 | Budget Config | src/lidco/budget/config.py | BudgetConfig dataclass; load from LidcoConfig; threshold/strategy/ceiling defaults; per-model overrides |
+| 1270 | Budget Reporter | src/lidco/budget/reporter.py | Human-readable budget reports; session summary; per-turn breakdown; export to JSON; Rich formatting |
+| 1271 | CLI Commands | src/lidco/cli/commands/q231_cmds.py | /budget-status, /budget-report, /budget-config, /budget-reset |
+
+Tests: tests/unit/test_q231/ — 59 tests
+
+## Q232 — Budget-Aware Tool Execution (tasks 1272–1276) ✅
+
+**Theme:** Check budget before tool calls, truncate results adaptively, track per-tool token consumption.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1272 | Tool Budget Gate | src/lidco/budget/tool_gate.py | Pre-execution budget check; deny if insufficient; warn if tight; override for critical tools |
+| 1273 | Adaptive Truncator | src/lidco/budget/adaptive_truncator.py | Truncate tool results based on remaining budget; smart truncation (keep head+tail for files, top-N for grep) |
+| 1274 | Tool Token Tracker | src/lidco/budget/tool_tracker.py | Per-tool token accounting; input/output separately; cumulative stats; hottest tools ranking |
+| 1275 | Result Size Limiter | src/lidco/budget/result_limiter.py | Hard limit on tool result size; configurable per tool; progressive limits as budget shrinks |
+| 1276 | CLI Commands | src/lidco/cli/commands/q232_cmds.py | /tool-budget, /tool-stats, /truncation-config, /result-limits |
+
+Tests: tests/unit/test_q232/ — 61 tests
+
+## Q233 — Session Budget Lifecycle (tasks 1277–1281) ✅
+
+**Theme:** Budget tracking across full session — init, per-turn, checkpoint, resume, end-of-session report.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1277 | Session Budget Init | src/lidco/budget/session_init.py | Initialize budget from model+config; set context window; warm prompt cache budget; reserve system prompt tokens |
+| 1278 | Turn Budget Manager | src/lidco/budget/turn_manager.py | Per-turn lifecycle: pre-turn budget check, during-turn tracking, post-turn compaction decision, inter-turn summary |
+| 1279 | Budget Checkpoint | src/lidco/budget/checkpoint.py | Save budget state to disk; restore on resume; detect stale state; merge with current |
+| 1280 | End-of-Session Report | src/lidco/budget/session_report.py | Final report: total tokens, cost, compactions, peak usage, efficiency score, recommendations for next session |
+| 1281 | CLI Commands | src/lidco/cli/commands/q233_cmds.py | /session-budget, /turn-budget, /budget-checkpoint, /session-report |
+
+Tests: tests/unit/test_q233/ — 54 tests
+
+## Q234 — Budget Analytics & Optimization (tasks 1282–1286) ✅
+
+**Theme:** Historical budget analytics, optimization recommendations, A/B comparison, efficiency scoring.
+
+| # | Task | Module | Key Features |
+|---|------|--------|--------------|
+| 1282 | Budget History | src/lidco/budget/history.py | SQLite store for session budget snapshots; query by date/model/project; trend analysis |
+| 1283 | Efficiency Scorer | src/lidco/budget/efficiency.py | Score session efficiency (useful tokens / total tokens); rank sessions; identify waste patterns |
+| 1284 | Optimization Advisor | src/lidco/budget/optimization_advisor.py | Recommend: model downgrade, more aggressive compaction, fewer tool calls; based on history patterns |
+| 1285 | A/B Comparator | src/lidco/budget/ab_comparator.py | Compare two sessions/models by token efficiency; statistical significance; cost-quality tradeoff |
+| 1286 | CLI Commands | src/lidco/cli/commands/q234_cmds.py | /budget-history, /efficiency, /optimize-budget, /compare-budgets |
+
+Tests: tests/unit/test_q234/ — 72 tests
