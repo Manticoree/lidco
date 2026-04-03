@@ -1622,7 +1622,7 @@ Tests: tests/unit/test_q238/ — 70 tests
 | 1465 | Notification History | src/lidco/notify/history.py | Log all notifications; search; dismiss; snooze; batch clear; export |
 | 1466 | CLI Commands | src/lidco/cli/commands/q270_cmds.py | /notify, /sound, /notify-rules, /notify-history |
 
-## Q271 — Advanced Keyboard Shortcuts (tasks 1467–1471)
+## Q271 — Advanced Keyboard Shortcuts (tasks 1467–1471) ✅
 
 | # | Task | Module | Key Features |
 |---|------|--------|--------------|
@@ -1632,7 +1632,7 @@ Tests: tests/unit/test_q238/ — 70 tests
 | 1470 | Shortcut Trainer | src/lidco/shortcuts/trainer.py | Interactive shortcut learning; show binding after manual action; progress tracking; quiz mode |
 | 1471 | CLI Commands | src/lidco/cli/commands/q271_cmds.py | /shortcuts, /shortcut-profile, /palette, /shortcut-train |
 
-## Q272 — Accessibility (tasks 1472–1476)
+## Q272 — Accessibility (tasks 1472–1476) ✅
 
 | # | Task | Module | Key Features |
 |---|------|--------|--------------|
@@ -1642,7 +1642,7 @@ Tests: tests/unit/test_q238/ — 70 tests
 | 1475 | Voice Control | src/lidco/a11y/voice_control.py | Voice command recognition; dictation mode; voice navigation; configurable wake word |
 | 1476 | CLI Commands | src/lidco/cli/commands/q272_cmds.py | /a11y, /high-contrast, /reduced-motion, /voice |
 
-## Q273 — Interactive Widgets (tasks 1477–1481)
+## Q273 — Interactive Widgets (tasks 1477–1481) ✅
 
 | # | Task | Module | Key Features |
 |---|------|--------|--------------|
@@ -1652,7 +1652,7 @@ Tests: tests/unit/test_q238/ — 70 tests
 | 1480 | Progress Dashboard | src/lidco/widgets/progress_dashboard.py | Multi-task progress; nested tasks; ETA per task; expandable details; auto-refresh |
 | 1481 | CLI Commands | src/lidco/cli/commands/q273_cmds.py | /widgets, /file-picker, /diff-view, /progress-view |
 
-## Q274 — Context Menu & Quick Actions (tasks 1482–1486)
+## Q274 — Context Menu & Quick Actions (tasks 1482–1486) ✅
 
 | # | Task | Module | Key Features |
 |---|------|--------|--------------|
