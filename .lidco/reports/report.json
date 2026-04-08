@@ -1,0 +1,11 @@
+{
+  "title": "Visual Regression Report",
+  "summary": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "new_baselines": 0,
+    "errors": 0
+  },
+  "entries": []
+}

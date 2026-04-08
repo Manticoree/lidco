@@ -1,0 +1,13 @@
+{
+  "backup_id": "4de664d2a7ad",
+  "backup_type": "full",
+  "source_path": "C:\\Users\\New\\AppData\\Local\\Temp\\tmphqlo8jzk",
+  "destination": ".lidco\\backups\\4de664d2a7ad",
+  "created_at": 1775388307.9655414,
+  "size_bytes": 1,
+  "file_count": 1,
+  "checksum": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+  "encrypted": false,
+  "parent_id": "",
+  "metadata": {}
+}

@@ -1,0 +1,13 @@
+{
+  "backup_id": "19631093e31a",
+  "backup_type": "full",
+  "source_path": "C:\\Users\\New\\AppData\\Local\\Temp\\tmphpwgaa0x",
+  "destination": ".lidco\\backups\\19631093e31a",
+  "created_at": 1775389682.9295936,
+  "size_bytes": 1,
+  "file_count": 1,
+  "checksum": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+  "encrypted": false,
+  "parent_id": "",
+  "metadata": {}
+}
